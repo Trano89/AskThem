@@ -176,7 +176,7 @@ namespace AskThem
             btnPaste = MakeToolButton("Coller Excel", 158);
             btnPaste.Click += new EventHandler(BtnPaste_Click);
 
-            btnImportCsv = MakeToolButton("Importer CSV", 304);
+            btnImportCsv = MakeToolButton("Importer liste", 304);
             btnImportCsv.Click += new EventHandler(BtnImportCsv_Click);
 
             btnExportCsv = MakeToolButton("Exporter CSV", 450);
@@ -875,17 +875,24 @@ namespace AskThem
             }
         }
 
+        /// <summary>Import d'une liste, au format CSV ou Excel.</summary>
         private void BtnImportCsv_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog dlg = new OpenFileDialog())
             {
-                dlg.Title = "Importer un fichier CSV";
-                dlg.Filter = "Fichiers CSV (*.csv)|*.csv";
+                dlg.Title = "Importer une liste d'articles";
+                dlg.Filter = "Listes d'articles (*.csv;*.xlsx)|*.csv;*.xlsx"
+                           + "|Classeurs Excel (*.xlsx)|*.xlsx"
+                           + "|Fichiers CSV (*.csv)|*.csv";
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
                 try
                 {
                     int avant = _lines.Count;
-                    int n = CsvService.Import(_lines, dlg.FileName);
+                    // Le format est déduit de l'extension ; la correspondance des
+                    // colonnes est la même dans les deux cas.
+                    int n = string.Equals(Path.GetExtension(dlg.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase)
+                        ? XlsxService.Import(_lines, dlg.FileName)
+                        : CsvService.Import(_lines, dlg.FileName);
                     NormalizeImported(avant);
                     if (CurrentType == RequestType.Fabrication) ApplyMode();
                     grid.Refresh();

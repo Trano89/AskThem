@@ -3,6 +3,17 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.0] — 2026-08-24
+
+### Ajouté
+
+- **Import de listes Excel (`.xlsx`)**, en plus du CSV. Le bouton devient *Importer liste*
+  et accepte les deux formats, avec la même correspondance de colonnes et le même contrôle
+  du format de numéro d'article.
+- La lecture des classeurs n'ajoute **aucune dépendance** : un `.xlsx` étant une archive
+  ZIP de fichiers XML, il est lu avec la seule bibliothèque standard. Rien de tiers n'entre
+  dans la chaîne de compilation.
+
 ## [1.1.0] — 2026-08-24
 
 ### Ajouté

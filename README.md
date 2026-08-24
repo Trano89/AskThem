@@ -124,7 +124,8 @@ Le journal d'exécution est écrit dans `%LOCALAPPDATA%\AskThem\logs\askthem_AAA
    (jusqu'à 3 paliers de quantité) ou *Demande de fabrication* (une seule quantité,
    avec l'avertissement sur la révision des plans dans l'email).
 2. **Saisir les articles** : bouton *Ajouter ligne*, *Coller Excel* (ou `Ctrl+V`
-   directement dans la grille), ou *Importer CSV*. Un simple clic suffit pour modifier
+   directement dans la grille), ou *Importer liste* — qui accepte aussi bien un
+   fichier **CSV** qu'un classeur **Excel `.xlsx`**, dont la première feuille est lue. Un simple clic suffit pour modifier
    une cellule. La grille ne contient que ce que vous remplissez vous-même : le
    **numéro d'article**, les **quantités** et une **remarque**. Désignation, révision
    du plan, date de réalisé, matière et finitions sont lues dans le coffre et

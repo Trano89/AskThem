@@ -29,25 +29,39 @@ namespace AskThem.Services
             File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
         }
 
-        /// <summary>Importe un fichier CSV et ajoute les lignes. Retourne le nombre de lignes ajoutées.</summary>
+        /// <summary>Importe un fichier CSV et ajoute les lignes. Retourne le nombre ajouté.</summary>
         public static int Import(BindingList<PartLine> lines, string path)
         {
             string[] rows = File.ReadAllLines(path, Encoding.UTF8);
-            int count = 0;
-            for (int i = 0; i < rows.Length; i++)
+            List<List<string>> cellules = new List<List<string>>();
+            foreach (string row in rows)
             {
-                if (string.IsNullOrWhiteSpace(rows[i])) continue;
-                List<string> f = ParseLine(rows[i]);
+                if (string.IsNullOrWhiteSpace(row)) continue;
+                cellules.Add(ParseLine(row));
+            }
+            return AddRows(lines, cellules);
+        }
+
+        /// <summary>
+        /// Applique la correspondance des colonnes commune au CSV et à Excel :
+        /// numéro d'article, quantités 1 à 3, remarque. Désignation, révision, matière
+        /// et finitions ne sont jamais reprises d'un fichier : elles sont relues dans le
+        /// PDM au moment de l'export.
+        /// </summary>
+        public static int AddRows(BindingList<PartLine> lines, List<List<string>> rows)
+        {
+            int count = 0;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                List<string> f = rows[i];
                 string first = f.Count > 0 ? f[0].Trim() : "";
 
-                // La première ligne est ignorée si elle correspond à l'en-tête.
+                // La première ligne est ignorée si elle correspond à un en-tête.
                 if (i == 0 && IsHeader(first)) continue;
                 if (first == "") continue;
 
                 PartLine l = new PartLine();
                 l.PartNumber = first;
-                // Désignation, révision, matière et finitions ne sont jamais reprises d'un fichier :
-                // elles sont toujours relues dans le PDM au moment de l'export.
                 l.Qty1 = ParseQty(f, 1, 1);
                 l.Qty2 = ParseQty(f, 2, 0);
                 l.Qty3 = ParseQty(f, 3, 0);
