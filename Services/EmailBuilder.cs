@@ -27,7 +27,7 @@ namespace AskThem.Services
 
         /// <summary>Corps HTML du message.</summary>
         public static string BuildBody(RequestType type, List<PartLine> lines, string project,
-                                      string deadline, string conditions)
+                                      string deadline, string conditions, string poFileName)
         {
             string html = LoadTemplate(type);
             string projectText = string.IsNullOrWhiteSpace(project) ? "-" : project.Trim();
@@ -38,7 +38,16 @@ namespace AskThem.Services
             html = html.Replace("{{DELAI}}", WebUtility.HtmlEncode(deadlineText));
             html = html.Replace("{{TABLEAU}}", BuildTable(type, lines));
             html = html.Replace("{{CONDITIONS}}", BuildConditions(conditions));
+            html = html.Replace("{{PO}}", BuildPo(poFileName));
             return html;
+        }
+
+        /// <summary>Mention du bon de commande joint. Vide si aucun n'accompagne la demande.</summary>
+        private static string BuildPo(string poFileName)
+        {
+            if (string.IsNullOrWhiteSpace(poFileName)) return "";
+            return "<p>Notre <b>bon de commande</b> est joint à ce message : "
+                 + WebUtility.HtmlEncode(poFileName.Trim()) + "</p>";
         }
 
         /// <summary>
@@ -201,6 +210,7 @@ et de la comparer à celle du tableau ci-dessus. La fabrication doit être réal
 afin de garantir que les dernières mises à jour sont bien prises en compte.
 </div>
 {{CONDITIONS}}
+{{PO}}
 <p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) lorsqu'il existe.</p>
 <p>Avec nos remerciements et nos meilleures salutations.</p>
 </body>

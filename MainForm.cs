@@ -38,6 +38,7 @@ namespace AskThem
         private string _optProject = "";
         private string _optDeadline = "";
         private string _optConditions = "";
+        private string _optPoPath = "";
         private string _archivePath = null;
         private volatile bool _stopMailWatch;
         private UpdateService.UpdateInfo _update;
@@ -86,6 +87,9 @@ namespace AskThem
         private CheckBox chk3D;
         private CheckBox chk2D;
         private TextBox txtConditions;
+        private Label lblPo;
+        private TextBox txtPo;
+        private Button btnPo;
         private Button btnVerify;
         private Button btnGenerate;
 
@@ -576,6 +580,27 @@ namespace AskThem
             txtConditions.Size = new Size(600, 56);
             txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage...";
 
+            // Bon de commande : obligatoire en fabrication, sans objet en demande d'offre.
+            lblPo = new Label();
+            lblPo.Text = "Bon de commande (PDF) :";
+            lblPo.Location = new Point(440, 52);
+            lblPo.AutoSize = true;
+
+            txtPo = new TextBox();
+            txtPo.Location = new Point(600, 48);
+            txtPo.Width = 280;
+            txtPo.ReadOnly = true;
+            txtPo.PlaceholderText = "aucun fichier choisi";
+
+            btnPo = new Button();
+            btnPo.Text = "Parcourir…";
+            btnPo.Location = new Point(886, 47);
+            btnPo.Size = new Size(92, 25);
+            btnPo.Click += new EventHandler(BtnPo_Click);
+
+            panelParams.Controls.Add(lblPo);
+            panelParams.Controls.Add(txtPo);
+            panelParams.Controls.Add(btnPo);
             panelParams.Controls.Add(lblConditions);
             panelParams.Controls.Add(txtConditions);
             panelParams.Controls.Add(lblSupplier);
@@ -669,6 +694,12 @@ namespace AskThem
             bool offre = !modeSwitch.IsRight;
             colQty2.Visible = offre;
             colQty3.Visible = offre;
+
+            // Le bon de commande n'a de sens que pour une demande de fabrication.
+            lblPo.Visible = !offre;
+            txtPo.Visible = !offre;
+            btnPo.Visible = !offre;
+            if (offre) txtPo.Text = "";
 
             if (!offre)
             {
@@ -795,6 +826,25 @@ namespace AskThem
                 Log(_suppliers.Count + " fournisseur(s) enregistré(s) sur le réseau.");
             }
             FillSupplierBox(nom);
+        }
+
+        private void BtnPo_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog dlg = new OpenFileDialog())
+            {
+                dlg.Title = "Choisir le bon de commande";
+                dlg.Filter = "Bon de commande PDF (*.pdf)|*.pdf";
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                if (!string.Equals(Path.GetExtension(dlg.FileName), ".pdf", StringComparison.OrdinalIgnoreCase))
+                {
+                    MessageBox.Show("Le bon de commande doit être un fichier PDF.", "AskThem",
+                        MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                txtPo.Text = dlg.FileName;
+                Log("Bon de commande : " + Path.GetFileName(dlg.FileName));
+            }
         }
 
         private void BtnAddLine_Click(object sender, EventArgs e)
@@ -966,6 +1016,24 @@ namespace AskThem
                         "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return false;
                 }
+
+                if (CurrentType == RequestType.Fabrication)
+                {
+                    string po = txtPo.Text.Trim();
+                    if (po == "")
+                    {
+                        MessageBox.Show("Une demande de fabrication exige un bon de commande." + Environment.NewLine +
+                            "Utilisez « Parcourir… » pour joindre le PDF.",
+                            "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return false;
+                    }
+                    if (!File.Exists(po))
+                    {
+                        MessageBox.Show("Le bon de commande est introuvable :" + Environment.NewLine + po,
+                            "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return false;
+                    }
+                }
             }
             return true;
         }
@@ -1009,6 +1077,7 @@ namespace AskThem
             _optProject = txtProject.Text.Trim();
             _optDeadline = dtpDeadline.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
             _optConditions = txtConditions.Text;
+            _optPoPath = CurrentType == RequestType.Fabrication ? txtPo.Text.Trim() : "";
             _optType = CurrentType;
             _work = new List<PartLine>(_lines);
 
@@ -1122,6 +1191,23 @@ namespace AskThem
             _archivePath = outputFolder;
             Log("Dossier de la demande : " + outputFolder);
 
+            // Le bon de commande fait partie du dossier : il est archivé avec la demande.
+            string poArchive = null;
+            if (_optPoPath != "" && File.Exists(_optPoPath))
+            {
+                try
+                {
+                    poArchive = Path.Combine(outputFolder, Path.GetFileName(_optPoPath));
+                    File.Copy(_optPoPath, poArchive, true);
+                    Log("Bon de commande archivé : " + Path.GetFileName(poArchive));
+                }
+                catch (Exception ex)
+                {
+                    poArchive = null;
+                    Log("ERREUR copie du bon de commande : " + ex.Message);
+                }
+            }
+
             BuildPdmIndex();
             SetProgress(0, "Préparation...");
 
@@ -1211,6 +1297,14 @@ namespace AskThem
                 Log("ERREUR archive ZIP : " + ex.Message);
             }
 
+            // Joint séparément : le fournisseur doit le voir sans ouvrir d'archive.
+            string cheminPo = poArchive != null ? poArchive : _optPoPath;
+            if (cheminPo != "" && File.Exists(cheminPo))
+            {
+                attachments.Add(cheminPo);
+                Log("Bon de commande joint : " + Path.GetFileName(cheminPo));
+            }
+
             // --- Avertissement groupé, avant de préparer l'email ---
             WarnAboutIssues();
 
@@ -1221,7 +1315,9 @@ namespace AskThem
                 try
                 {
                     string subject = EmailBuilder.BuildSubject(_optType, _optProject, _work.Count);
-                    string body = EmailBuilder.BuildBody(_optType, _work, _optProject, _optDeadline, _optConditions);
+                    string nomPo = _optPoPath == "" ? "" : Path.GetFileName(_optPoPath);
+                    string body = EmailBuilder.BuildBody(_optType, _work, _optProject, _optDeadline,
+                                                         _optConditions, nomPo);
                     mailOuvert = OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, attachments);
                     Log("Email préparé dans Outlook. Il n'est pas envoyé automatiquement.");
                 }

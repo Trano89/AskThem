@@ -3,6 +3,16 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.1.0] — 2026-08-24
+
+### Ajouté
+
+- **Bon de commande obligatoire en demande de fabrication.** Un champ permet de joindre
+  le PDF ; sans lui, la génération est refusée. Le fichier est archivé avec la demande,
+  joint à l'email **séparément** des archives par article — le fournisseur doit le voir
+  sans rien décompresser — et mentionné dans le corps du message.
+  Le champ n'apparaît pas en demande d'offre, où il n'a pas lieu d'être.
+
 ## [1.0.2] — 2026-08-24
 
 ### Sécurité
