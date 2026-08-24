@@ -93,6 +93,19 @@ namespace AskThem.Services
             return sb.ToString();
         }
 
+        /// <summary>
+        /// Type de l'article : les deux caractères YZ du code XYZ-AAAAA-BB.
+        /// X n'indique que l'origine et n'entre pas en compte. Retourne "" si le code
+        /// ne permet pas de le déterminer.
+        /// </summary>
+        public static string TypeCode(string partNumber)
+        {
+            if (string.IsNullOrWhiteSpace(partNumber)) return "";
+            string premier = partNumber.Trim().Split('-')[0];
+            if (premier.Length < 3) return "";
+            return premier.Substring(1, 2).ToUpperInvariant();
+        }
+
         /// <summary>Description lisible des formats acceptés, pour les messages d'erreur.</summary>
         public static string Describe(List<string> patterns)
         {

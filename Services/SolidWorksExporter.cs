@@ -21,6 +21,8 @@ namespace AskThem.Services
             public string Material = "";
             public string Treatment = "";
             public string State = "";
+            public string Supplier = "";
+            public string SupplierRef = "";
         }
 
         private ISldWorks _sw;
@@ -157,6 +159,8 @@ namespace AskThem.Services
                 if (m.Material == "") m.Material = GetFirstProp(cpm, _names.Material);
                 if (m.Treatment == "") m.Treatment = GetFirstProp(cpm, _names.Treatment);
                 if (m.State == "") m.State = GetFirstProp(cpm, _names.State);
+                if (m.Supplier == "") m.Supplier = GetFirstProp(cpm, _names.Supplier);
+                if (m.SupplierRef == "") m.SupplierRef = GetFirstProp(cpm, _names.SupplierRef);
             }
 
             // Repli pour la matière : le matériau affecté au corps de la pièce.

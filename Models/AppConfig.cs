@@ -15,6 +15,8 @@ namespace AskThem.Models
         public List<string> Material { get; set; }
         public List<string> Treatment { get; set; }
         public List<string> State { get; set; }
+        public List<string> Supplier { get; set; }
+        public List<string> SupplierRef { get; set; }
 
         public PropertyNames()
         {
@@ -24,6 +26,10 @@ namespace AskThem.Models
             Material = new List<string> { "Material", "Matière", "Matiere", "MATERIAL", "Matériau" };
             Treatment = new List<string> { "Traitement", "TRAITEMENT", "Finition", "Finitions", "Surface" };
             State = new List<string> { "Etat", "État", "State", "Statut", "WorkflowState", "Workflow State" };
+            Supplier = new List<string> { "Fournisseur", "Supplier", "Vendor", "Fabricant", "Manufacturer" };
+            SupplierRef = new List<string> { "RefFournisseur", "Référence fournisseur", "Reference fournisseur",
+                                             "SupplierRef", "Supplier Ref", "ManufacturerPartNumber", "MPN",
+                                             "CodeFournisseur", "Article fournisseur" };
         }
     }
 
@@ -74,6 +80,13 @@ namespace AskThem.Models
         public bool CheckUpdatesOnStartup { get; set; }
 
         /// <summary>
+        /// Règles par type d'article, indexées sur les deux caractères YZ du code.
+        /// Un type absent de cette table est traité par la règle par défaut : autorisé,
+        /// 3D et 2D livrés, fournisseur libre — et signalé dans le journal.
+        /// </summary>
+        public Dictionary<string, ArticleTypeRule> ArticleTypes { get; set; }
+
+        /// <summary>
         /// Valeurs d'état considérées comme libérées. Tout autre état non vide déclenche
         /// un avertissement groupé avant la création de l'email.
         /// </summary>
@@ -94,6 +107,14 @@ namespace AskThem.Models
             SupplierListPath = "P:\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs";
             CheckUpdatesOnStartup = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
+
+            //                                   intitulé                              autorisé fabric.  3D     2D   fourn. figé
+            ArticleTypes = new Dictionary<string, ArticleTypeRule>();
+            ArticleTypes["21"] = ArticleTypeRule.Create("Pièce de détail",              true,   true,  true,  true,  false);
+            ArticleTypes["20"] = ArticleTypeRule.Create("Article catalogue",            true,   false, false, false, true);
+            ArticleTypes["22"] = ArticleTypeRule.Create("Catalogue modifié à l'achat",  true,   true,  true,  true,  true);
+            ArticleTypes["24"] = ArticleTypeRule.Create("Catalogue modifié après livraison", true, false, false, false, true);
+            ArticleTypes["13"] = ArticleTypeRule.Create("Assemblage",                   false,  false, false, false, false);
         }
     }
 }

@@ -87,6 +87,7 @@ namespace AskThem.Services
             bool showDate = false;
             bool showMaterial = false;
             bool showTreatment = false;
+            bool showRef = false;
             foreach (PartLine l in lines)
             {
                 if (type == RequestType.Offre)
@@ -97,6 +98,7 @@ namespace AskThem.Services
                 if (!string.IsNullOrWhiteSpace(l.RealizedDate)) showDate = true;
                 if (!string.IsNullOrWhiteSpace(l.Material)) showMaterial = true;
                 if (!string.IsNullOrWhiteSpace(l.Treatment)) showTreatment = true;
+                if (!string.IsNullOrWhiteSpace(l.SupplierRef)) showRef = true;
             }
 
             StringBuilder sb = new StringBuilder();
@@ -105,6 +107,7 @@ namespace AskThem.Services
             sb.Append("<tr>");
             sb.Append("<th" + HeadStyle + ">N° article</th>");
             sb.Append("<th" + HeadStyle + ">Désignation</th>");
+            if (showRef) sb.Append("<th" + HeadStyle + ">Votre référence</th>");
             sb.Append("<th" + HeadStyle + ">Rév. plan</th>");
             if (showDate) sb.Append("<th" + HeadStyle + ">Date de réalisé</th>");
             if (showMaterial) sb.Append("<th" + HeadStyle + ">Matière</th>");
@@ -127,6 +130,7 @@ namespace AskThem.Services
                 sb.Append("<tr>");
                 sb.Append("<td" + CellStyle + ">" + Enc(l.PartNumber) + "</td>");
                 sb.Append("<td" + CellStyle + ">" + Dash(l.Description) + "</td>");
+                if (showRef) sb.Append("<td" + CellStyle + ">" + Dash(l.SupplierRef) + "</td>");
 
                 // La révision du plan est mise en évidence en fabrication.
                 string rev = Dash(l.EffectiveRevision);

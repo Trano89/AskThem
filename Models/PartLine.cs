@@ -45,6 +45,15 @@ namespace AskThem.Models
         /// <summary>État du flux PDM lu dans les propriétés (ex. Libéré, En développement).</summary>
         public string State { get; set; }
 
+        /// <summary>Fournisseur imposé par le PDM, pour un article catalogue.</summary>
+        public string PdmSupplier { get; set; }
+
+        /// <summary>Référence de l'article chez ce fournisseur.</summary>
+        public string SupplierRef { get; set; }
+
+        /// <summary>Type de l'article : les deux caractères YZ du code.</summary>
+        public string TypeCode { get; set; }
+
         /// <summary>"", "OK", "Manquant 3D", "Manquant 2D", "Introuvable" ou "Erreur".</summary>
         public string Status { get; set; }
 
@@ -84,6 +93,9 @@ namespace AskThem.Models
             Material = "";
             Treatment = "";
             State = "";
+            PdmSupplier = "";
+            SupplierRef = "";
+            TypeCode = "";
             Status = "";
             Model3DPath = null;
             DrawingPath = null;

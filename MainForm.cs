@@ -368,7 +368,20 @@ namespace AskThem
             if (string.IsNullOrWhiteSpace(brut)) return;   // une ligne vide reste permise
 
             string normalise = PartNumberFormat.Normalize(brut, _config.PartNumberPatterns);
-            if (PartNumberFormat.IsValid(normalise, _config.PartNumberPatterns)) return;
+            if (PartNumberFormat.IsValid(normalise, _config.PartNumberPatterns))
+            {
+                ArticleTypeRule regle = RuleFor(normalise);
+                if (!regle.Allowed)
+                {
+                    MessageBox.Show(
+                        normalise + " est un " + regle.Label.ToLowerInvariant() + "." + Environment.NewLine +
+                        "Aucune demande d'offre ni de fabrication n'est possible sur ce type d'article." +
+                        Environment.NewLine + "Saisissez les pièces qui le composent.",
+                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    e.Cancel = true;
+                }
+                return;
+            }
 
             MessageBox.Show(
                 "Numéro d'article refusé : " + normalise + Environment.NewLine + Environment.NewLine +
@@ -402,6 +415,7 @@ namespace AskThem
         private void NormalizeImported(int premierIndex)
         {
             List<string> rejetes = new List<string>();
+            List<string> interdits = new List<string>();
             for (int i = _lines.Count - 1; i >= premierIndex && i >= 0; i--)
             {
                 PartLine l = _lines[i];
@@ -412,17 +426,40 @@ namespace AskThem
                     _lines.RemoveAt(i);
                     continue;
                 }
-                l.PartNumber = normalise;
-            }
-            if (rejetes.Count == 0) return;
 
-            rejetes.Reverse();
-            foreach (string r in rejetes) Log("Numéro refusé (format) : " + r);
-            MessageBox.Show(
-                rejetes.Count + " numéro(s) refusé(s), format non reconnu :" + Environment.NewLine +
-                Summarize(rejetes) + Environment.NewLine + Environment.NewLine +
-                "Formats acceptés : " + PartNumberFormat.Describe(_config.PartNumberPatterns),
-                "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                // Un assemblage ne peut faire l'objet d'aucune demande.
+                ArticleTypeRule regle = RuleFor(normalise);
+                if (!regle.Allowed)
+                {
+                    interdits.Add(normalise + " — " + regle.Label);
+                    _lines.RemoveAt(i);
+                    continue;
+                }
+
+                l.PartNumber = normalise;
+                l.TypeCode = PartNumberFormat.TypeCode(normalise);
+            }
+            if (rejetes.Count == 0 && interdits.Count == 0) return;
+
+            StringBuilder sb = new StringBuilder();
+            if (interdits.Count > 0)
+            {
+                interdits.Reverse();
+                foreach (string r in interdits) Log("Écarté (type sans demande possible) : " + r);
+                sb.AppendLine(interdits.Count + " article(s) écarté(s), aucune demande possible sur ce type :");
+                sb.AppendLine(Summarize(interdits));
+                sb.AppendLine();
+            }
+            if (rejetes.Count > 0)
+            {
+                rejetes.Reverse();
+                foreach (string r in rejetes) Log("Numéro refusé (format) : " + r);
+                sb.AppendLine(rejetes.Count + " numéro(s) refusé(s), format non reconnu :");
+                sb.AppendLine(Summarize(rejetes));
+                sb.AppendLine();
+                sb.AppendLine("Format attendu : " + PartNumberFormat.Describe(_config.PartNumberPatterns));
+            }
+            MessageBox.Show(sb.ToString().TrimEnd(), "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
         }
 
         private void Grid_SelectionChanged(object sender, EventArgs e)
@@ -1039,6 +1076,23 @@ namespace AskThem
 
                 if (CurrentType == RequestType.Fabrication)
                 {
+                    List<string> nonFabricables = new List<string>();
+                    foreach (PartLine l in _lines)
+                    {
+                        ArticleTypeRule regle = RuleFor(l.PartNumber);
+                        if (!regle.AllowFabrication) nonFabricables.Add(l.PartNumber + " — " + regle.Label);
+                    }
+                    if (nonFabricables.Count > 0)
+                    {
+                        MessageBox.Show(
+                            "Une demande de fabrication ne porte que sur des pièces fabriquées." + Environment.NewLine +
+                            nonFabricables.Count + " article(s) ne peuvent pas être fabriqués :" + Environment.NewLine +
+                            Summarize(nonFabricables) + Environment.NewLine + Environment.NewLine +
+                            "Retirez-les, ou basculez en demande d'offre.",
+                            "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return false;
+                    }
+
                     string po = txtPo.Text.Trim();
                     if (po == "")
                     {
@@ -1372,6 +1426,14 @@ namespace AskThem
         {
             line.ExportedFiles.Clear();
             line.ZipPath = null;
+            line.TypeCode = PartNumberFormat.TypeCode(line.PartNumber);
+
+            // Le type de l'article décide de ce qu'on livre : un article catalogue
+            // se commande par sa référence fournisseur, sans 3D ni plan.
+            ArticleTypeRule regle = RuleFor(line.PartNumber);
+            bool livrer3D = _opt3D && regle.Export3D;
+            bool livrer2D = _opt2D && regle.Export2D;
+
             line.Model3DPath = PdmSearchService.Find3DInIndex(_pdmIndex, line.PartNumber);
             line.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, line.PartNumber);
 
@@ -1398,9 +1460,11 @@ namespace AskThem
                     line.Material = m.Material;
                     line.Treatment = m.Treatment;
                     line.State = m.State;
+                    line.PdmSupplier = m.Supplier;
+                    line.SupplierRef = m.SupplierRef;
 
                     baseName = SafeName(BuildBaseName(line));
-                    if (_opt2D)
+                    if (livrer2D)
                     {
                         List<string> created = exporter.ExportDrawing(doc, folder2D, baseName);
                         line.ExportedFiles.AddRange(created);
@@ -1428,9 +1492,11 @@ namespace AskThem
                     if (line.Material == "") line.Material = m.Material;
                     if (line.Treatment == "") line.Treatment = m.Treatment;
                     if (line.State == "") line.State = m.State;
+                    if (line.PdmSupplier == "") line.PdmSupplier = m.Supplier;
+                    if (line.SupplierRef == "") line.SupplierRef = m.SupplierRef;
 
                     if (baseName == null) baseName = SafeName(BuildBaseName(line));
-                    if (_opt3D)
+                    if (livrer3D)
                     {
                         string step = exporter.ExportStep(doc, folder3D, baseName);
                         line.ExportedFiles.Add(step);
@@ -1458,10 +1524,23 @@ namespace AskThem
                 }
             }
 
-            // --- Statut ---
-            if (_opt3D && line.Model3DPath == null) line.Status = "Manquant 3D";
-            else if (_opt2D && line.DrawingPath == null) line.Status = "Manquant 2D";
+            // --- Statut : on ne réclame que ce que le type impose de livrer ---
+            if (livrer3D && line.Model3DPath == null) line.Status = "Manquant 3D";
+            else if (livrer2D && line.DrawingPath == null) line.Status = "Manquant 2D";
             else line.Status = "OK";
+        }
+
+        /// <summary>
+        /// Règle du type d'article, déduite des caractères YZ du code. Un type inconnu
+        /// reçoit la règle par défaut, et l'utilisateur en est informé dans le journal.
+        /// </summary>
+        private ArticleTypeRule RuleFor(string partNumber)
+        {
+            string type = PartNumberFormat.TypeCode(partNumber);
+            ArticleTypeRule regle;
+            if (type != "" && _config.ArticleTypes != null && _config.ArticleTypes.TryGetValue(type, out regle))
+                return regle;
+            return new ArticleTypeRule();
         }
 
         /// <summary>Vrai si l'état PDM lu est renseigné et ne fait pas partie des états libérés.</summary>
@@ -1484,6 +1563,8 @@ namespace AskThem
         {
             List<string> sansPlan = new List<string>();
             List<string> enDeveloppement = new List<string>();
+            List<string> mauvaisFournisseur = new List<string>();
+            List<string> sansReference = new List<string>();
             int etatsLus = 0;
 
             foreach (PartLine l in _work)
@@ -1491,8 +1572,21 @@ namespace AskThem
                 if (string.IsNullOrWhiteSpace(l.Status)) continue;   // non traité
                 if (l.Status == "Introuvable") continue;             // déjà compté ailleurs
                 if (!string.IsNullOrWhiteSpace(l.State)) etatsLus++;
-                if (l.DrawingPath == null) sansPlan.Add(l.PartNumber);
                 if (IsInDevelopment(l)) enDeveloppement.Add(l.PartNumber + " — " + l.State.Trim());
+
+                ArticleTypeRule regle = RuleFor(l.PartNumber);
+
+                // On ne réclame un plan que pour les types qui doivent en avoir un.
+                if (regle.Export2D && l.DrawingPath == null) sansPlan.Add(l.PartNumber);
+
+                if (!regle.SupplierImposed) continue;
+
+                // Article catalogue : le fournisseur et la référence viennent du PDM.
+                if (string.IsNullOrWhiteSpace(l.SupplierRef))
+                    sansReference.Add(l.PartNumber + " — " + regle.Label);
+
+                if (!string.IsNullOrWhiteSpace(l.PdmSupplier) && !SameSupplier(l.PdmSupplier, _optSupplierName))
+                    mauvaisFournisseur.Add(l.PartNumber + " — imposé : " + l.PdmSupplier.Trim());
             }
 
             if (etatsLus == 0 && _generateMode)
@@ -1501,9 +1595,25 @@ namespace AskThem
                   + "« libéré / en développement » n'a pas pu s'appliquer.");
             }
 
-            if (sansPlan.Count == 0 && enDeveloppement.Count == 0) return;
+            if (sansPlan.Count == 0 && enDeveloppement.Count == 0
+                && mauvaisFournisseur.Count == 0 && sansReference.Count == 0) return;
 
             StringBuilder sb = new StringBuilder();
+            if (mauvaisFournisseur.Count > 0)
+            {
+                sb.AppendLine("Fournisseur imposé par le PDM — " + mauvaisFournisseur.Count + " article(s) :");
+                sb.AppendLine(Summarize(mauvaisFournisseur));
+                foreach (string x in mauvaisFournisseur) Log("Fournisseur imposé : " + x);
+                sb.AppendLine("Ces articles ne peuvent être commandés qu'à leur fournisseur.");
+                sb.AppendLine();
+            }
+            if (sansReference.Count > 0)
+            {
+                sb.AppendLine("Sans référence fournisseur — " + sansReference.Count + " article(s) :");
+                sb.AppendLine(Summarize(sansReference));
+                foreach (string x in sansReference) Log("Sans référence fournisseur : " + x);
+                sb.AppendLine();
+            }
             if (enDeveloppement.Count > 0)
             {
                 sb.AppendLine("Non libérés dans le PDM — " + enDeveloppement.Count + " article(s) :");
@@ -1526,6 +1636,18 @@ namespace AskThem
                 MessageBox.Show(message, "AskThem — points à vérifier",
                     MessageBoxButtons.OK, MessageBoxIcon.Warning);
             });
+        }
+
+        /// <summary>
+        /// Comparaison indulgente de deux noms de fournisseur : le PDM et la liste
+        /// d'AskThem ne les écrivent pas forcément à l'identique.
+        /// </summary>
+        private static bool SameSupplier(string pdm, string choisi)
+        {
+            if (string.IsNullOrWhiteSpace(pdm) || string.IsNullOrWhiteSpace(choisi)) return true;
+            string a = pdm.Trim().ToLowerInvariant();
+            string b = choisi.Trim().ToLowerInvariant();
+            return a == b || a.Contains(b) || b.Contains(a);
         }
 
         /// <summary>Liste abrégée : au plus 20 éléments, puis un décompte du reste.</summary>

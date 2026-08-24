@@ -3,6 +3,29 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.3] — 2026-08-24
+
+### Ajouté
+
+- **Le type d'article commande le contenu de la demande.** Il est lu dans les deux
+  caractères `YZ` du code `XYZ-AAAAA-BB` — `X` n'indique que l'origine et n'entre pas
+  en compte.
+  - `21` pièce de détail : 3D et plan livrés, fabrication possible.
+  - `20` article catalogue : ni 3D ni plan, seule la **référence fournisseur** est
+    transmise ; fabrication impossible ; fournisseur figé par le PDM.
+  - `22` catalogue modifié à l'achat : 3D et plan livrés, fournisseur figé.
+  - `24` catalogue modifié après livraison : référence seule, fournisseur figé.
+  - `13` assemblage : **aucune demande possible**, l'article est refusé à la saisie
+    comme à l'import.
+- Une **demande de fabrication** refuse de partir si elle contient des articles qui ne
+  se fabriquent pas, en les listant.
+- L'email porte une colonne **Votre référence** dès qu'un article catalogue en possède une.
+- L'avertissement groupé signale les articles dont le **fournisseur est imposé** par le PDM
+  et diffère du destinataire choisi, ainsi que ceux dépourvus de référence fournisseur.
+- Les statuts ne réclament plus un plan pour un type qui n'est pas censé en avoir : les
+  375 articles catalogue du coffre n'en ont aucun.
+- Les règles sont modifiables dans `config.json`, section `ArticleTypes`.
+
 ## [1.2.2] — 2026-08-24
 
 ### Ajouté
