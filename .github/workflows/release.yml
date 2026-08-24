@@ -34,7 +34,9 @@ jobs:
         run: Get-ChildItem publish | Format-Table Name, Length
 
       - name: Créer la publication GitHub
-        uses: softprops/action-gh-release@v2
+        # Épinglé sur un commit précis : une étiquette peut être redirigée,
+        # ce qui donnerait à un tiers le jeton d'écriture du dépôt.
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           name: AskThem ${{ env.VERSION }}
           generate_release_notes: true

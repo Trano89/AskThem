@@ -17,6 +17,14 @@ namespace AskThem.Services
     {
         private const string Q = "\"";
 
+        /// <summary>
+        /// Dépôt consulté pour les mises à jour. Volontairement figé dans le code :
+        /// s'il venait de config.json, quiconque peut écrire à côté de l'exécutable
+        /// pourrait le rediriger vers un dépôt hostile et faire exécuter n'importe
+        /// quel programme au prochain démarrage.
+        /// </summary>
+        public const string Repository = "Trano89/AskThem";
+
         /// <summary>Résultat d'une recherche de mise à jour.</summary>
         public class UpdateInfo
         {
@@ -69,8 +77,9 @@ namespace AskThem.Services
         /// Interroge la dernière publication du dépôt. Appel bloquant : à lancer
         /// depuis un thread d'arrière-plan. N'échoue jamais bruyamment.
         /// </summary>
-        public static UpdateInfo Check(string repository)
+        public static UpdateInfo Check()
         {
+            string repository = Repository;
             UpdateInfo r = new UpdateInfo();
             r.CurrentVersion = CurrentVersion();
 
@@ -173,7 +182,10 @@ namespace AskThem.Services
                 throw new Exception("Le fichier téléchargé est incomplet.");
             }
 
-            string script = Path.Combine(Path.GetTempPath(), "askthem_maj.cmd");
+            // Nom imprévisible : un fichier au nom fixe dans %TEMP% pourrait être
+            // remplacé entre son écriture et son exécution.
+            string script = Path.Combine(Path.GetTempPath(),
+                "askthem_maj_" + Guid.NewGuid().ToString("N") + ".cmd");
             File.WriteAllText(script, ScriptRemplacement(nouveau, exeActuel), Encoding.Default);
 
             ProcessStartInfo psi = new ProcessStartInfo(script);

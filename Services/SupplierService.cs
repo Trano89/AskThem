@@ -80,7 +80,12 @@ namespace AskThem.Services
                 JsonSerializerOptions options = new JsonSerializerOptions();
                 options.WriteIndented = true;
                 options.Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
-                File.WriteAllText(chemin, JsonSerializer.Serialize(suppliers, options), new UTF8Encoding(false));
+                // Écriture atomique : un fichier temporaire puis un remplacement, pour
+                // qu'une coupure réseau ne laisse jamais la liste partagée tronquée.
+                string temporaire = chemin + ".tmp";
+                File.WriteAllText(temporaire, JsonSerializer.Serialize(suppliers, options), new UTF8Encoding(false));
+                if (File.Exists(chemin)) File.Replace(temporaire, chemin, null);
+                else File.Move(temporaire, chemin);
                 message = "Liste enregistrée : " + chemin;
                 return true;
             }

@@ -3,6 +3,34 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.0.2] — 2026-08-24
+
+### Sécurité
+
+- **Le dépôt de mise à jour ne peut plus être détourné.** Il était lu dans `config.json`,
+  fichier posé à côté d'un exécutable volontairement portable : quiconque pouvait écrire
+  dans ce dossier pouvait faire télécharger et exécuter un programme de son choix au
+  démarrage suivant. Le dépôt est désormais figé dans le code.
+- Le script de mise à jour porte un nom aléatoire, au lieu d'un nom fixe et prévisible
+  dans le dossier temporaire.
+- L'action GitHub de publication est épinglée sur un commit, et non plus sur une
+  étiquette qui peut être redéplacée.
+
+### Corrigé
+
+- La liste des fournisseurs s'enregistre de façon atomique : une coupure réseau ne peut
+  plus laisser le fichier partagé tronqué pour tout le monde.
+
+### Modifié
+
+- La demande est écrite **directement dans l'archive réseau**, sans passer par un dossier
+  dans Téléchargements. Repli local automatique si le réseau est injoignable.
+- Le dossier de sortie ne s'ouvre plus à la fin du traitement.
+- Plus aucune fenêtre après la génération de l'email : le bilan va dans le journal.
+  Seuls les problèmes restent signalés.
+- L'email est réenregistré silencieusement tant qu'il reste ouvert dans Outlook : vos
+  retouches sont archivées sans qu'on vous demande quoi que ce soit.
+
 ## [1.0.1] — 2026-08-24
 
 ### Corrigé

@@ -39,6 +39,7 @@ namespace AskThem
         private string _optDeadline = "";
         private string _optConditions = "";
         private string _archivePath = null;
+        private volatile bool _stopMailWatch;
         private UpdateService.UpdateInfo _update;
         private RequestType _optType = RequestType.Offre;
 
@@ -696,7 +697,7 @@ namespace AskThem
 
         private void RunUpdateCheck()
         {
-            UpdateService.UpdateInfo info = UpdateService.Check(_config.UpdateRepository);
+            UpdateService.UpdateInfo info = UpdateService.Check();
             _update = info;
             Log(info.Message);
             if (!info.Available) return;
@@ -1015,6 +1016,7 @@ namespace AskThem
             progress.Value = 0;
 
             _cancelRequested = false;
+            _stopMailWatch = true;
             SetBusy(true);
 
             // SolidWorks en COM exige un thread STA.
@@ -1106,17 +1108,19 @@ namespace AskThem
         {
             int total = _work.Count;
 
-            // --- Étape 1 : préparation du dossier de sortie ---
+            // --- Étape 1 : dossier de la demande, directement dans l'archive réseau ---
             string tag = _optType == RequestType.Offre ? "OFFRE" : "FAB";
-            string folderName = "AskThem_" + tag + "_" + DateTime.Now.ToString("yyyyMMdd_HHmm");
-            string outputFolder = Path.Combine(_config.OutputRoot, folderName);
+            string identifiant = string.IsNullOrWhiteSpace(_optSupplierName) ? _optSupplier : _optSupplierName;
+            string folderName = DateTime.Now.ToString("yyyy-MM-dd") + "_" + SafeName(identifiant) + "_" + tag;
+            string outputFolder = DossierUnique(Path.Combine(RacineDeSortie(), folderName));
             string folder3D = Path.Combine(outputFolder, "3D_STEP");
             string folder2D = Path.Combine(outputFolder, "2D_PLANS");
             string folderZip = Path.Combine(outputFolder, "ZIP_par_article");
             Directory.CreateDirectory(folder3D);
             Directory.CreateDirectory(folder2D);
             Directory.CreateDirectory(folderZip);
-            Log("Dossier de sortie : " + outputFolder);
+            _archivePath = outputFolder;
+            Log("Dossier de la demande : " + outputFolder);
 
             BuildPdmIndex();
             SetProgress(0, "Préparation...");
@@ -1210,19 +1214,16 @@ namespace AskThem
             // --- Avertissement groupé, avant de préparer l'email ---
             WarnAboutIssues();
 
-            // --- Étape 7 : archivage réseau, avant l'email pour que le dossier existe ---
-            ArchiveRequest(outputFolder, tag);
-
             // --- Étape 8 : email Outlook (jamais en cas d'annulation) ---
+            object mailOuvert = null;
             if (!_cancelRequested)
             {
                 try
                 {
                     string subject = EmailBuilder.BuildSubject(_optType, _optProject, _work.Count);
                     string body = EmailBuilder.BuildBody(_optType, _work, _optProject, _optDeadline, _optConditions);
-                    object mail = OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, attachments);
+                    mailOuvert = OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, attachments);
                     Log("Email préparé dans Outlook. Il n'est pas envoyé automatiquement.");
-                    SaveMailToNetwork(mail, outputFolder);
                 }
                 catch (Exception ex)
                 {
@@ -1238,8 +1239,11 @@ namespace AskThem
                 }
             }
 
-            // --- Étape 9 : fin ---
+            // --- Étape 9 : bilan ---
             ShowSummary(outputFolder);
+
+            // --- Étape 10 : suivi silencieux de l'email, interface déjà rendue ---
+            if (mailOuvert != null) WatchMail(mailOuvert, outputFolder);
         }
 
         /// <summary>
@@ -1432,87 +1436,77 @@ namespace AskThem
         }
 
         /// <summary>
-        /// Enregistre l'email au format .msg dans le dossier réseau de la demande, puis
-        /// attend que l'utilisateur ait fini de le retoucher dans Outlook pour en
-        /// réenregistrer la version définitive.
+        /// Enregistre l'email au format .msg à côté de la demande, puis continue de le
+        /// réenregistrer tant qu'il reste ouvert dans Outlook : les retouches de
+        /// l'utilisateur sont ainsi capturées sans jamais lui demander quoi que ce soit.
+        /// Le suivi s'arrête dès qu'Outlook ne rend plus le message accessible.
         /// </summary>
-        private void SaveMailToNetwork(object mail, string outputFolder)
+        private void WatchMail(object mail, string dossier)
         {
-            // Si le réseau n'était pas joignable, on retombe sur le dossier local.
-            string dossier = _archivePath != null ? _archivePath : outputFolder;
             string chemin = Path.Combine(dossier, "Demande.msg");
-
-            // Première écriture : garantit une trace même si l'application est fermée ensuite.
-            if (OutlookService.SaveMessage(mail, chemin))
-                Log("Email enregistré : " + chemin);
-            else
-                Log("L'email n'a pas pu être enregistré dans " + dossier + ".");
-
-            UiInvoke(delegate
+            if (!OutlookService.SaveMessage(mail, chemin))
             {
-                MessageBox.Show(
-                    "L'email est ouvert dans Outlook." + Environment.NewLine + Environment.NewLine +
-                    "Retouchez-le si nécessaire, puis cliquez sur OK : la version définitive sera " +
-                    "enregistrée dans" + Environment.NewLine + dossier,
-                    "AskThem — enregistrement de l'email", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            });
+                Log("L'email n'a pas pu être enregistré dans " + dossier + ".");
+                return;
+            }
+            Log("Email enregistré : " + chemin);
 
-            // Seconde écriture : capture les modifications faites entre-temps dans Outlook.
-            if (OutlookService.SaveMessage(mail, chemin))
-                Log("Version définitive de l'email enregistrée : " + chemin);
-            else
-                Log("Version définitive illisible (fenêtre fermée ou message envoyé) : "
-                  + "la version initiale reste enregistrée.");
+            // L'interface est rendue à l'utilisateur : le suivi ne le bloque pas.
+            SetBusy(false);
+            UiInvoke(delegate { lblProgress.Text = "Prêt."; });
+
+            _stopMailWatch = false;
+            DateTime limite = DateTime.Now.AddMinutes(30);
+            int echecs = 0;
+            while (DateTime.Now < limite && !_stopMailWatch)
+            {
+                Thread.Sleep(4000);
+                if (_stopMailWatch) break;
+                if (OutlookService.SaveMessage(mail, chemin))
+                {
+                    echecs = 0;
+                }
+                else
+                {
+                    // Message fermé ou envoyé : la dernière version reste enregistrée.
+                    echecs++;
+                    if (echecs >= 2) break;
+                }
+            }
+            Log("Email archivé dans son état final : " + chemin);
         }
 
         /// <summary>
-        /// Copie la demande vers l'archive réseau, dans un dossier nommé avec la date
-        /// et le destinataire. Un réseau indisponible n'interrompt jamais le traitement.
+        /// Racine où écrire la demande : l'archive réseau si elle est joignable,
+        /// sinon le dossier local, pour ne jamais perdre un traitement.
         /// </summary>
-        private void ArchiveRequest(string outputFolder, string tag)
+        private string RacineDeSortie()
         {
-            _archivePath = null;
-            if (string.IsNullOrWhiteSpace(_config.ArchiveRoot)) return;
-            try
-            {
-                if (!Directory.Exists(_config.ArchiveRoot))
-                {
-                    Log("Archivage impossible : " + _config.ArchiveRoot + " est inaccessible. "
-                      + "Les fichiers restent dans le dossier local.");
-                    return;
-                }
+            if (!string.IsNullOrWhiteSpace(_config.ArchiveRoot) && Directory.Exists(_config.ArchiveRoot))
+                return _config.ArchiveRoot;
 
-                string identifiant = string.IsNullOrWhiteSpace(_optSupplierName) ? _optSupplier : _optSupplierName;
-                string nom = DateTime.Now.ToString("yyyy-MM-dd") + "_" + SafeName(identifiant) + "_" + tag;
-                string cible = Path.Combine(_config.ArchiveRoot, nom);
-                string racine = cible;
-                int suffixe = 2;
-                while (Directory.Exists(cible))
-                {
-                    cible = racine + "_" + suffixe;
-                    suffixe++;
-                }
-
-                CopyDirectory(outputFolder, cible);
-                _archivePath = cible;
-                Log("Demande archivée : " + cible);
-            }
-            catch (Exception ex)
-            {
-                Log("ERREUR archivage : " + ex.Message + " — les fichiers restent dans le dossier local.");
-            }
+            Log("Archive réseau inaccessible (" + _config.ArchiveRoot + ") : "
+              + "la demande est écrite en local, dans " + _config.OutputRoot + ".");
+            return _config.OutputRoot;
         }
 
-        private static void CopyDirectory(string source, string cible)
+        /// <summary>Évite d'écraser une demande du même jour pour le même fournisseur.</summary>
+        private static string DossierUnique(string souhaite)
         {
-            Directory.CreateDirectory(cible);
-            foreach (string f in Directory.GetFiles(source))
-                File.Copy(f, Path.Combine(cible, Path.GetFileName(f)), true);
-            foreach (string d in Directory.GetDirectories(source))
-                CopyDirectory(d, Path.Combine(cible, Path.GetFileName(d)));
+            string cible = souhaite;
+            int suffixe = 2;
+            while (Directory.Exists(cible))
+            {
+                cible = souhaite + "_" + suffixe;
+                suffixe++;
+            }
+            return cible;
         }
 
-        /// <summary>Message final et ouverture du dossier de sortie.</summary>
+        /// <summary>
+        /// Bilan du traitement. Rien ne s'affiche quand tout s'est bien passé :
+        /// le journal en bas de fenêtre suffit. Seule une annulation est signalée.
+        /// </summary>
         private void ShowSummary(string outputFolder)
         {
             int ok = 0;
@@ -1524,33 +1518,16 @@ namespace AskThem
                 else if (l.Status == "Erreur") err++;
                 else if (l.Status != "") warn++;
             }
-            Log("Traitement terminé : " + ok + " OK, " + warn + " avertissement(s), " + err + " erreur(s).");
+            Log("Terminé : " + ok + " article(s) exporté(s), " + warn + " avertissement(s), " + err + " erreur(s).");
+            Log("Demande enregistrée dans : " + outputFolder);
 
-            try
-            {
-                System.Diagnostics.Process.Start("explorer.exe", "\"" + outputFolder + "\"");
-            }
-            catch (Exception ex)
-            {
-                Log("Impossible d'ouvrir le dossier : " + ex.Message);
-            }
+            if (!_cancelRequested) return;
 
-            bool cancelled = _cancelRequested;
+            string dossier = outputFolder;
             UiInvoke(delegate
             {
-                if (cancelled)
-                {
-                    MessageBox.Show("Traitement annulé. Les fichiers déjà extraits sont conservés dans : " + outputFolder,
-                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
-                else
-                {
-                    string texte = "Terminé : " + ok + " article(s) exporté(s), " + warn + " avertissement(s), " + err + " erreur(s)." +
-                        Environment.NewLine + Environment.NewLine + "Dossier : " + outputFolder;
-                    if (_archivePath != null)
-                        texte += Environment.NewLine + "Archivé : " + _archivePath;
-                    MessageBox.Show(texte, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                }
+                MessageBox.Show("Traitement annulé. Les fichiers déjà extraits sont conservés dans : " + dossier,
+                    "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
             });
         }
 

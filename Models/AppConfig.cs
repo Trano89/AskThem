@@ -70,9 +70,6 @@ namespace AskThem.Models
         /// <summary>Dossier réseau où est enregistrée la liste des fournisseurs.</summary>
         public string SupplierListPath { get; set; }
 
-        /// <summary>Dépôt GitHub consulté pour les mises à jour, au format proprietaire/depot.</summary>
-        public string UpdateRepository { get; set; }
-
         /// <summary>Rechercher une nouvelle version au démarrage.</summary>
         public bool CheckUpdatesOnStartup { get; set; }
 
@@ -95,7 +92,6 @@ namespace AskThem.Models
             ReleasedStates = new List<string> { "Libéré", "Libere", "Released", "Approuvé", "Approved" };
             ArchiveRoot = "P:\\PRODUCTION\\3) Document fournisseur";
             SupplierListPath = "P:\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs";
-            UpdateRepository = "trano89/AskThem";
             CheckUpdatesOnStartup = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
         }
