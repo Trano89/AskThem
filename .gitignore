@@ -1,0 +1,16 @@
+# Sorties de compilation
+bin/
+obj/
+dist/
+
+# Fichiers de l'IDE
+.vs/
+*.user
+*.suo
+
+# Configuration locale : chaque poste garde la sienne, elle est régénérée au besoin
+config.json
+
+# Divers
+*.log
+Thumbs.db

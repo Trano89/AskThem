@@ -1,0 +1,43 @@
+name: Publier une version
+
+# Une nouvelle version se publie en poussant une étiquette : git tag v1.1.0 && git push --tags
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  publier:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Déduire la version de l'étiquette
+        shell: pwsh
+        run: |
+          $v = "${{ github.ref_name }}" -replace '^v', ''
+          if (-not $v) { $v = "0.0.0" }
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Host "Version compilée : $v"
+
+      - name: Compiler l'exécutable portable
+        run: dotnet publish -c Release -p:Version=${{ env.VERSION }} -p:PublishDir=publish/
+
+      - name: Vérifier la sortie
+        shell: pwsh
+        run: Get-ChildItem publish | Format-Table Name, Length
+
+      - name: Créer la publication GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          name: AskThem ${{ env.VERSION }}
+          generate_release_notes: true
+          files: |
+            publish/AskThem.exe
+            templates/*.html

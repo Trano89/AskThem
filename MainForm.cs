@@ -1,0 +1,1645 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Drawing;
+using System.IO;
+using System.Text;
+using System.Threading;
+using System.Windows.Forms;
+using AskThem.Controls;
+using AskThem.Models;
+using AskThem.Services;
+// Alias cible : l'interop SolidWorks expose aussi un type Environment, qui masquerait System.Environment.
+using ModelDoc2 = SolidWorks.Interop.sldworks.ModelDoc2;
+
+namespace AskThem
+{
+    /// <summary>Fenêtre unique de l'application. Toute l'interface est construite ici, en code.</summary>
+    public class MainForm : Form
+    {
+        // ------------------------------------------------------------------
+        // Données
+        // ------------------------------------------------------------------
+        private BindingList<PartLine> _lines = new BindingList<PartLine>();
+        private AppConfig _config;
+        private List<Supplier> _suppliers = new List<Supplier>();
+        private Dictionary<string, string> _pdmIndex;
+        private List<PartLine> _work;
+        private volatile bool _cancelRequested;
+        private bool _busy;
+
+        // Options figées au démarrage du traitement (lues sur le thread interface).
+        private bool _generateMode;
+        private bool _opt3D;
+        private bool _opt2D;
+        private string _optSupplier = "";
+        private string _optSupplierCc = "";
+        private string _optSupplierName = "";
+        private string _optProject = "";
+        private string _optDeadline = "";
+        private string _optConditions = "";
+        private string _archivePath = null;
+        private UpdateService.UpdateInfo _update;
+        private RequestType _optType = RequestType.Offre;
+
+        // ------------------------------------------------------------------
+        // Contrôles
+        // ------------------------------------------------------------------
+        private Panel panelTop;
+        private ModeSwitch modeSwitch;
+        private Label lblInfo;
+
+        private Panel panelTools;
+        private Button btnAddLine;
+        private Button btnPaste;
+        private Button btnImportCsv;
+        private Button btnExportCsv;
+        private Button btnClear;
+
+        private DataGridView grid;
+        private DataGridViewTextBoxColumn colPartNumber;
+        private DataGridViewTextBoxColumn colQty1;
+        private DataGridViewTextBoxColumn colQty2;
+        private DataGridViewTextBoxColumn colQty3;
+        private DataGridViewTextBoxColumn colRemark;
+
+        // Volet de detail : restitue ce que la grille n'affiche plus.
+        private Panel panelDetail;
+        private Label lblDetailTitre;
+        private Label valDescription;
+        private Label valRevPlan;
+        private Label valRevModele;
+        private Label valDate;
+        private Label valMatiere;
+        private Label valFinitions;
+        private Label valEtatPdm;
+        private Label valStatut;
+        private Label valFichiers;
+
+        private Panel panelParams;
+        private ComboBox cboSupplier;
+        private Button btnSuppliers;
+        private ToolTip toolTip = new ToolTip();
+        private TextBox txtProject;
+        private DateTimePicker dtpDeadline;
+        private CheckBox chk3D;
+        private CheckBox chk2D;
+        private TextBox txtConditions;
+        private Button btnVerify;
+        private Button btnGenerate;
+
+        private Panel panelStatus;
+        private Panel panelStatusLine;
+        private ProgressBar progress;
+        private Label lblProgress;
+        private Button btnCancel;
+        private Button btnUpdate;
+        private TextBox txtLog;
+
+        public MainForm()
+        {
+            _config = ConfigService.Load();
+
+            // --- Fenêtre ---
+            Text = "AskThem " + UpdateService.CurrentVersion();
+            Font = new Font("Segoe UI", 9F);
+            Size = new Size(1180, 760);
+            MinimumSize = new Size(1000, 640);
+            StartPosition = FormStartPosition.CenterScreen;
+
+            BuildTopPanel();
+            BuildToolsPanel();
+            BuildGrid();
+            BuildDetailPanel();
+            BuildParamsPanel();
+            BuildStatusPanel();
+
+            // L'ordre d'ajout compte : le dernier ajouté est ancré au plus près du bord.
+            Controls.Add(grid);
+            Controls.Add(panelDetail);
+            Controls.Add(panelParams);
+            Controls.Add(panelStatus);
+            Controls.Add(panelTools);
+            Controls.Add(panelTop);
+
+            ApplyMode();
+            LoadSuppliers();
+            Log("AskThem " + UpdateService.CurrentVersion() + " prêt. Coffre PDM : " + _config.PdmRoot);
+            StartUpdateCheck();
+            Log("Dossier des exports : " + _config.OutputRoot);
+        }
+
+        // ==================================================================
+        // Construction de l'interface
+        // ==================================================================
+
+        private void BuildTopPanel()
+        {
+            panelTop = new Panel();
+            panelTop.Dock = DockStyle.Top;
+            panelTop.Height = 56;
+
+            // Interrupteur : gauche = offre, droite = fabrication.
+            modeSwitch = new ModeSwitch();
+            modeSwitch.LeftText = "Demande d'offre";
+            modeSwitch.RightText = "Demande de fabrication";
+            modeSwitch.Location = new Point(12, 13);
+            modeSwitch.Height = 30;
+            modeSwitch.Width = modeSwitch.PreferredWidth;
+            modeSwitch.IsRight = false;
+            modeSwitch.ModeChanged += new EventHandler(ModeSwitch_ModeChanged);
+
+            lblInfo = new Label();
+            lblInfo.Text = "Saisissez ou collez (Ctrl+V depuis Excel) vos numéros d'article.";
+            lblInfo.ForeColor = Color.Gray;
+            lblInfo.Location = new Point(400, 20);
+            lblInfo.AutoSize = true;
+
+            panelTop.Controls.Add(modeSwitch);
+            panelTop.Controls.Add(lblInfo);
+        }
+
+        private void BuildToolsPanel()
+        {
+            panelTools = new Panel();
+            panelTools.Dock = DockStyle.Top;
+            panelTools.Height = 44;
+
+            btnAddLine = MakeToolButton("Ajouter ligne", 12);
+            btnAddLine.Click += new EventHandler(BtnAddLine_Click);
+
+            btnPaste = MakeToolButton("Coller Excel", 158);
+            btnPaste.Click += new EventHandler(BtnPaste_Click);
+
+            btnImportCsv = MakeToolButton("Importer CSV", 304);
+            btnImportCsv.Click += new EventHandler(BtnImportCsv_Click);
+
+            btnExportCsv = MakeToolButton("Exporter CSV", 450);
+            btnExportCsv.Click += new EventHandler(BtnExportCsv_Click);
+
+            btnClear = MakeToolButton("Tout vider", 596);
+            btnClear.Click += new EventHandler(BtnClear_Click);
+
+            panelTools.Controls.Add(btnAddLine);
+            panelTools.Controls.Add(btnPaste);
+            panelTools.Controls.Add(btnImportCsv);
+            panelTools.Controls.Add(btnExportCsv);
+            panelTools.Controls.Add(btnClear);
+        }
+
+        /// <summary>Crée un bouton de la barre d'outils (140 x 30).</summary>
+        private Button MakeToolButton(string text, int x)
+        {
+            Button b = new Button();
+            b.Text = text;
+            b.Width = 140;
+            b.Height = 30;
+            b.Location = new Point(x, 6);
+            return b;
+        }
+
+        private void BuildGrid()
+        {
+            grid = new DataGridView();
+            grid.Dock = DockStyle.Fill;
+            grid.AllowUserToAddRows = true;
+            grid.AllowUserToDeleteRows = true;
+            grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            grid.RowHeadersWidth = 30;
+            grid.VirtualMode = false;
+            grid.AutoGenerateColumns = false;
+            // Un seul clic suffit pour modifier une cellule (au lieu du double-clic par defaut).
+            grid.EditMode = DataGridViewEditMode.EditOnEnter;
+            grid.BackgroundColor = Color.White;
+            grid.BorderStyle = BorderStyle.None;
+
+            // Seules les colonnes que l'utilisateur remplit lui-meme.
+            colPartNumber = MakeColumn("colPartNumber", "N° article", "PartNumber", 34, false);
+            colQty1 = MakeColumn("colQty1", "Qté 1", "Qty1", 10, false);
+            colQty2 = MakeColumn("colQty2", "Qté 2", "Qty2", 10, false);
+            colQty3 = MakeColumn("colQty3", "Qté 3", "Qty3", 10, false);
+            colRemark = MakeColumn("colRemark", "Remarque", "Remark", 36, false);
+
+            grid.Columns.Add(colPartNumber);
+            grid.Columns.Add(colQty1);
+            grid.Columns.Add(colQty2);
+            grid.Columns.Add(colQty3);
+            grid.Columns.Add(colRemark);
+
+            grid.DataSource = _lines;
+            grid.CellFormatting += new DataGridViewCellFormattingEventHandler(Grid_CellFormatting);
+            grid.KeyDown += new KeyEventHandler(Grid_KeyDown);
+            grid.DataError += new DataGridViewDataErrorEventHandler(Grid_DataError);
+            grid.SelectionChanged += new EventHandler(Grid_SelectionChanged);
+            grid.CellValidating += new DataGridViewCellValidatingEventHandler(Grid_CellValidating);
+            grid.CellEndEdit += new DataGridViewCellEventHandler(Grid_CellEndEdit);
+        }
+
+        /// <summary>Crée une colonne liée à une propriété de PartLine.</summary>
+        private DataGridViewTextBoxColumn MakeColumn(string name, string header, string property, int weight, bool readOnly)
+        {
+            DataGridViewTextBoxColumn c = new DataGridViewTextBoxColumn();
+            c.Name = name;
+            c.HeaderText = header;
+            c.DataPropertyName = property;
+            c.FillWeight = weight;
+            c.ReadOnly = readOnly;
+            c.SortMode = DataGridViewColumnSortMode.NotSortable;
+            return c;
+        }
+
+        /// <summary>Colore la ligne selon son statut.</summary>
+        private void Grid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (e.RowIndex < 0 || e.RowIndex >= grid.Rows.Count) return;
+            PartLine line = grid.Rows[e.RowIndex].DataBoundItem as PartLine;
+            if (line == null) { e.CellStyle.BackColor = Color.White; return; }
+
+            if (line.Status == "OK")
+                e.CellStyle.BackColor = Color.FromArgb(230, 245, 230);
+            else if (line.Status == "Manquant 3D" || line.Status == "Manquant 2D")
+                e.CellStyle.BackColor = Color.FromArgb(255, 244, 214);
+            else if (line.Status == "Introuvable" || line.Status == "Erreur")
+                e.CellStyle.BackColor = Color.FromArgb(255, 224, 224);
+            else
+                e.CellStyle.BackColor = Color.White;
+        }
+
+        /// <summary>Ctrl+V dans la grille : import depuis le presse-papiers.</summary>
+        private void Grid_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.Control && e.KeyCode == Keys.V)
+            {
+                e.Handled = true;
+                e.SuppressKeyPress = true;
+                PasteFromClipboard();
+            }
+        }
+
+        /// <summary>Une saisie non numérique ne doit pas ouvrir de boîte d'erreur.</summary>
+        private void Grid_DataError(object sender, DataGridViewDataErrorEventArgs e)
+        {
+            e.ThrowException = false;
+        }
+
+        // ==================================================================
+        // Volet de detail : ce que le PDM fournit, hors de la grille de saisie
+        // ==================================================================
+
+        private void BuildDetailPanel()
+        {
+            panelDetail = new Panel();
+            panelDetail.Dock = DockStyle.Right;
+            panelDetail.Width = 330;
+            panelDetail.Padding = new Padding(14, 10, 14, 10);
+            panelDetail.BackColor = Color.FromArgb(247, 249, 250);
+
+            lblDetailTitre = new Label();
+            lblDetailTitre.Text = "Aucune ligne sélectionnée";
+            lblDetailTitre.Dock = DockStyle.Top;
+            lblDetailTitre.Height = 38;
+            lblDetailTitre.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            lblDetailTitre.TextAlign = ContentAlignment.MiddleLeft;
+
+            Label note = new Label();
+            note.Text = "Lu dans le coffre PDM au moment de la génération. Rien à saisir ici.";
+            note.Dock = DockStyle.Bottom;
+            note.Height = 46;
+            note.ForeColor = Color.Gray;
+
+            // TableLayoutPanel plutot que des positions en pixels : suit la densite d'ecran.
+            TableLayoutPanel t = new TableLayoutPanel();
+            t.Dock = DockStyle.Fill;
+            t.ColumnCount = 2;
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            t.AutoScroll = true;
+
+            valDescription = AddDetailRow(t, "Désignation");
+            valRevPlan = AddDetailRow(t, "Rév. plan");
+            valRevModele = AddDetailRow(t, "Rév. modèle");
+            valDate = AddDetailRow(t, "Date de réalisé");
+            valMatiere = AddDetailRow(t, "Matière");
+            valFinitions = AddDetailRow(t, "Finitions");
+            valEtatPdm = AddDetailRow(t, "État PDM");
+            valStatut = AddDetailRow(t, "Statut");
+            valFichiers = AddDetailRow(t, "Fichiers");
+
+            panelDetail.Controls.Add(t);
+            panelDetail.Controls.Add(note);
+            panelDetail.Controls.Add(lblDetailTitre);
+        }
+
+        /// <summary>Ajoute une ligne intitulé / valeur au volet et retourne l'étiquette de valeur.</summary>
+        private Label AddDetailRow(TableLayoutPanel t, string caption)
+        {
+            int row = t.RowCount;
+            t.RowCount = row + 1;
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+            Label c = new Label();
+            c.Text = caption;
+            c.ForeColor = Color.Gray;
+            c.AutoSize = true;
+            c.Margin = new Padding(0, 7, 6, 1);
+
+            Label v = new Label();
+            v.Text = "—";
+            v.AutoSize = true;
+            v.MaximumSize = new Size(178, 0);
+            v.Margin = new Padding(0, 7, 0, 1);
+
+            t.Controls.Add(c, 0, row);
+            t.Controls.Add(v, 1, row);
+            return v;
+        }
+
+        /// <summary>Refuse un numéro d'article qui ne respecte aucun format accepté.</summary>
+        private void Grid_CellValidating(object sender, DataGridViewCellValidatingEventArgs e)
+        {
+            if (e.ColumnIndex < 0 || grid.Columns[e.ColumnIndex] != colPartNumber) return;
+            string brut = e.FormattedValue == null ? "" : e.FormattedValue.ToString();
+            if (string.IsNullOrWhiteSpace(brut)) return;   // une ligne vide reste permise
+
+            string normalise = PartNumberFormat.Normalize(brut, _config.PartNumberPatterns);
+            if (PartNumberFormat.IsValid(normalise, _config.PartNumberPatterns)) return;
+
+            MessageBox.Show(
+                "Numéro d'article refusé : " + normalise + Environment.NewLine + Environment.NewLine +
+                "Formats acceptés : " + PartNumberFormat.Describe(_config.PartNumberPatterns) + Environment.NewLine +
+                "Les tirets sont ajoutés automatiquement : vous pouvez taper le numéro sans séparateur.",
+                "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            e.Cancel = true;
+        }
+
+        /// <summary>Insère les tirets après la saisie, selon le format principal.</summary>
+        private void Grid_CellEndEdit(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.ColumnIndex < 0 || grid.Columns[e.ColumnIndex] != colPartNumber) return;
+            if (e.RowIndex < 0 || e.RowIndex >= grid.Rows.Count) return;
+            PartLine l = grid.Rows[e.RowIndex].DataBoundItem as PartLine;
+            if (l == null) return;
+
+            string normalise = PartNumberFormat.Normalize(l.PartNumber, _config.PartNumberPatterns);
+            if (normalise != l.PartNumber)
+            {
+                l.PartNumber = normalise;
+                grid.InvalidateRow(e.RowIndex);
+            }
+            UpdateDetail();
+        }
+
+        /// <summary>
+        /// Normalise les numéros ajoutés en lot et écarte ceux qui ne respectent aucun
+        /// format. Un SEUL message récapitule les refus.
+        /// </summary>
+        private void NormalizeImported(int premierIndex)
+        {
+            List<string> rejetes = new List<string>();
+            for (int i = _lines.Count - 1; i >= premierIndex && i >= 0; i--)
+            {
+                PartLine l = _lines[i];
+                string normalise = PartNumberFormat.Normalize(l.PartNumber, _config.PartNumberPatterns);
+                if (!PartNumberFormat.IsValid(normalise, _config.PartNumberPatterns))
+                {
+                    rejetes.Add(l.PartNumber);
+                    _lines.RemoveAt(i);
+                    continue;
+                }
+                l.PartNumber = normalise;
+            }
+            if (rejetes.Count == 0) return;
+
+            rejetes.Reverse();
+            foreach (string r in rejetes) Log("Numéro refusé (format) : " + r);
+            MessageBox.Show(
+                rejetes.Count + " numéro(s) refusé(s), format non reconnu :" + Environment.NewLine +
+                Summarize(rejetes) + Environment.NewLine + Environment.NewLine +
+                "Formats acceptés : " + PartNumberFormat.Describe(_config.PartNumberPatterns),
+                "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
+
+        private void Grid_SelectionChanged(object sender, EventArgs e)
+        {
+            UpdateDetail();
+        }
+
+        /// <summary>Renseigne le volet avec les données de la ligne courante.</summary>
+        private void UpdateDetail()
+        {
+            PartLine l = null;
+            if (grid.CurrentRow != null) l = grid.CurrentRow.DataBoundItem as PartLine;
+
+            if (l == null)
+            {
+                lblDetailTitre.Text = "Aucune ligne sélectionnée";
+                valDescription.Text = "—";
+                valRevPlan.Text = "—";
+                valRevModele.Text = "—";
+                valDate.Text = "—";
+                valMatiere.Text = "—";
+                valFinitions.Text = "—";
+                valEtatPdm.Text = "—";
+                valStatut.Text = "—";
+                valStatut.ForeColor = SystemColors.ControlText;
+                valFichiers.Text = "—";
+                return;
+            }
+
+            lblDetailTitre.Text = string.IsNullOrWhiteSpace(l.PartNumber) ? "Nouvelle ligne" : l.PartNumber;
+            valDescription.Text = OrDash(l.Description);
+            valRevPlan.Text = OrDash(l.DrawingRevision);
+            valRevModele.Text = OrDash(l.Revision);
+            valDate.Text = OrDash(l.RealizedDate);
+            valMatiere.Text = OrDash(l.Material);
+            valFinitions.Text = OrDash(l.Treatment);
+            valEtatPdm.Text = OrDash(l.State);
+            valEtatPdm.ForeColor = IsInDevelopment(l) ? Color.FromArgb(160, 35, 40) : SystemColors.ControlText;
+            valStatut.Text = string.IsNullOrWhiteSpace(l.Status) ? "non vérifié" : l.Status;
+            valStatut.ForeColor = StatusColor(l.Status);
+            valFichiers.Text = DescribeFiles(l);
+        }
+
+        private static string OrDash(string v)
+        {
+            return string.IsNullOrWhiteSpace(v) ? "—" : v.Trim();
+        }
+
+        private static Color StatusColor(string status)
+        {
+            if (status == "OK") return Color.FromArgb(24, 105, 60);
+            if (status == "Manquant 3D" || status == "Manquant 2D") return Color.FromArgb(150, 90, 10);
+            if (status == "Introuvable" || status == "Erreur") return Color.FromArgb(160, 35, 40);
+            return Color.Gray;
+        }
+
+        private static string DescribeFiles(PartLine l)
+        {
+            List<string> parts = new List<string>();
+            if (l.Model3DPath != null) parts.Add("3D : " + Path.GetFileName(l.Model3DPath));
+            if (l.DrawingPath != null) parts.Add("2D : " + Path.GetFileName(l.DrawingPath));
+            if (l.ZipPath != null) parts.Add("ZIP : " + Path.GetFileName(l.ZipPath));
+            if (parts.Count == 0) return "—";
+            return string.Join(Environment.NewLine, parts);
+        }
+
+        private void BuildParamsPanel()
+        {
+            panelParams = new Panel();
+            panelParams.Dock = DockStyle.Bottom;
+            panelParams.Height = 168;
+            // La largeur doit etre fixee avant de positionner les boutons ancres a droite,
+            // sinon l'ancrage memorise une distance calculee sur la largeur par defaut du Panel.
+            panelParams.Width = ClientSize.Width;
+
+            Label lblSupplier = new Label();
+            lblSupplier.Text = "Destinataire :";
+            lblSupplier.Location = new Point(12, 13);
+            lblSupplier.AutoSize = true;
+
+            // On choisit un fournisseur dans la liste : plus de saisie d'adresse à la main.
+            cboSupplier = new ComboBox();
+            cboSupplier.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboSupplier.Location = new Point(108, 10);
+            cboSupplier.Width = 250;
+            cboSupplier.SelectedIndexChanged += new EventHandler(Supplier_Changed);
+
+            btnSuppliers = new Button();
+            btnSuppliers.Text = "Fournisseurs…";
+            btnSuppliers.Location = new Point(364, 9);
+            btnSuppliers.Size = new Size(100, 25);
+            btnSuppliers.Click += new EventHandler(BtnSuppliers_Click);
+
+            Label lblProject = new Label();
+            lblProject.Text = "Référence projet :";
+            lblProject.Location = new Point(478, 13);
+            lblProject.AutoSize = true;
+
+            txtProject = new TextBox();
+            txtProject.Location = new Point(588, 10);
+            txtProject.Width = 150;
+
+            Label lblDeadline = new Label();
+            lblDeadline.Text = "Délai souhaité :";
+            lblDeadline.Location = new Point(752, 13);
+            lblDeadline.AutoSize = true;
+
+            dtpDeadline = new DateTimePicker();
+            dtpDeadline.Format = DateTimePickerFormat.Short;
+            dtpDeadline.ShowCheckBox = true;
+            dtpDeadline.Checked = false;
+            dtpDeadline.Location = new Point(852, 10);
+            dtpDeadline.Width = 130;
+
+            chk3D = new CheckBox();
+            chk3D.Text = "Exporter 3D (STEP AP203)";
+            chk3D.Location = new Point(12, 50);
+            chk3D.Width = 200;
+            chk3D.Checked = _config.Export3D;
+
+            chk2D = new CheckBox();
+            chk2D.Text = "Exporter 2D (PDF + DXF)";
+            chk2D.Location = new Point(222, 50);
+            chk2D.Width = 200;
+            chk2D.Checked = _config.Export2D;
+
+            btnVerify = new Button();
+            btnVerify.Text = "Vérifier";
+            btnVerify.Width = 130;
+            btnVerify.Height = 34;
+            btnVerify.Location = new Point(panelParams.Width - 344, 108);
+            btnVerify.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnVerify.Click += new EventHandler(BtnVerify_Click);
+
+            btnGenerate = new Button();
+            btnGenerate.Text = "Générer la demande";
+            btnGenerate.Width = 190;
+            btnGenerate.Height = 34;
+            btnGenerate.Location = new Point(panelParams.Width - 202, 108);
+            btnGenerate.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnGenerate.BackColor = Color.FromArgb(0, 90, 158);
+            btnGenerate.ForeColor = Color.White;
+            btnGenerate.FlatStyle = FlatStyle.Flat;
+            btnGenerate.Click += new EventHandler(BtnGenerate_Click);
+
+            Label lblConditions = new Label();
+            lblConditions.Text = "Conditions générales (ajoutées en fin d'email) :";
+            lblConditions.Location = new Point(12, 80);
+            lblConditions.AutoSize = true;
+
+            txtConditions = new TextBox();
+            txtConditions.Multiline = true;
+            txtConditions.ScrollBars = ScrollBars.Vertical;
+            txtConditions.Location = new Point(12, 100);
+            txtConditions.Size = new Size(600, 56);
+            txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage...";
+
+            panelParams.Controls.Add(lblConditions);
+            panelParams.Controls.Add(txtConditions);
+            panelParams.Controls.Add(lblSupplier);
+            panelParams.Controls.Add(cboSupplier);
+            panelParams.Controls.Add(btnSuppliers);
+            panelParams.Controls.Add(lblProject);
+            panelParams.Controls.Add(txtProject);
+            panelParams.Controls.Add(lblDeadline);
+            panelParams.Controls.Add(dtpDeadline);
+            panelParams.Controls.Add(chk3D);
+            panelParams.Controls.Add(chk2D);
+            panelParams.Controls.Add(btnVerify);
+            panelParams.Controls.Add(btnGenerate);
+        }
+
+        private void BuildStatusPanel()
+        {
+            panelStatus = new Panel();
+            panelStatus.Dock = DockStyle.Bottom;
+            panelStatus.Height = 90;
+
+            progress = new ProgressBar();
+            progress.Dock = DockStyle.Top;
+            progress.Height = 20;
+
+            panelStatusLine = new Panel();
+            panelStatusLine.Dock = DockStyle.Top;
+            panelStatusLine.Height = 30;
+
+            lblProgress = new Label();
+            lblProgress.Text = "Prêt.";
+            lblProgress.Location = new Point(6, 8);
+            lblProgress.AutoSize = true;
+
+            btnCancel = new Button();
+            btnCancel.Text = "Annuler";
+            btnCancel.Width = 110;
+            btnCancel.Height = 26;
+            btnCancel.Location = new Point(panelStatusLine.Width - 122, 2);
+            btnCancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnCancel.Enabled = false;
+            btnCancel.Click += new EventHandler(BtnCancel_Click);
+
+            btnUpdate = new Button();
+            btnUpdate.Text = "Mettre à jour";
+            btnUpdate.Width = 140;
+            btnUpdate.Height = 26;
+            btnUpdate.Location = new Point(panelStatusLine.Width - 270, 2);
+            btnUpdate.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnUpdate.Visible = false;
+            btnUpdate.BackColor = Color.FromArgb(0, 120, 70);
+            btnUpdate.ForeColor = Color.White;
+            btnUpdate.FlatStyle = FlatStyle.Flat;
+            btnUpdate.Click += new EventHandler(BtnUpdate_Click);
+
+            panelStatusLine.Controls.Add(lblProgress);
+            panelStatusLine.Controls.Add(btnUpdate);
+            panelStatusLine.Controls.Add(btnCancel);
+
+            txtLog = new TextBox();
+            txtLog.Multiline = true;
+            txtLog.ScrollBars = ScrollBars.Vertical;
+            txtLog.ReadOnly = true;
+            txtLog.Dock = DockStyle.Fill;
+            txtLog.BackColor = Color.White;
+
+            // Le dernier ajouté est ancré au plus près du bord haut du panneau.
+            panelStatus.Controls.Add(txtLog);
+            panelStatus.Controls.Add(panelStatusLine);
+            panelStatus.Controls.Add(progress);
+        }
+
+        // ==================================================================
+        // Comportements de l'interface
+        // ==================================================================
+
+        /// <summary>Type de demande actuellement sélectionné.</summary>
+        private RequestType CurrentType
+        {
+            get { return modeSwitch.IsRight ? RequestType.Fabrication : RequestType.Offre; }
+        }
+
+        private void ModeSwitch_ModeChanged(object sender, EventArgs e)
+        {
+            ApplyMode();
+        }
+
+        /// <summary>Affiche ou masque les quantités 2 et 3 selon le mode.</summary>
+        private void ApplyMode()
+        {
+            bool offre = !modeSwitch.IsRight;
+            colQty2.Visible = offre;
+            colQty3.Visible = offre;
+
+            if (!offre)
+            {
+                // Une demande de fabrication ne comporte qu'une seule quantité.
+                foreach (PartLine l in _lines)
+                {
+                    l.Qty2 = 0;
+                    l.Qty3 = 0;
+                }
+                grid.Refresh();
+            }
+        }
+
+        // ==================================================================
+        // Mises à jour publiées sur GitHub
+        // ==================================================================
+
+        /// <summary>Recherche une nouvelle version en arrière-plan, sans bloquer le démarrage.</summary>
+        private void StartUpdateCheck()
+        {
+            if (!_config.CheckUpdatesOnStartup) return;
+            Thread t = new Thread(new ThreadStart(RunUpdateCheck));
+            t.IsBackground = true;
+            t.Start();
+        }
+
+        private void RunUpdateCheck()
+        {
+            UpdateService.UpdateInfo info = UpdateService.Check(_config.UpdateRepository);
+            _update = info;
+            Log(info.Message);
+            if (!info.Available) return;
+            UiInvoke(delegate
+            {
+                btnUpdate.Text = "Mettre à jour → " + info.LatestVersion;
+                btnUpdate.Visible = true;
+            });
+        }
+
+        private void BtnUpdate_Click(object sender, EventArgs e)
+        {
+            UpdateService.UpdateInfo info = _update;
+            if (info == null || !info.Available) return;
+
+            if (MessageBox.Show(
+                    info.Message + Environment.NewLine + Environment.NewLine +
+                    "AskThem va télécharger la nouvelle version, se fermer et redémarrer." +
+                    Environment.NewLine + "Enregistrez votre saisie avant de continuer.",
+                    "Mise à jour", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+
+            try
+            {
+                Cursor = Cursors.WaitCursor;
+                btnUpdate.Enabled = false;
+                Log("Téléchargement de la version " + info.LatestVersion + "…");
+                UpdateService.DownloadAndRestart(info);
+                Close();
+            }
+            catch (Exception ex)
+            {
+                Cursor = Cursors.Default;
+                btnUpdate.Enabled = true;
+                Log("ERREUR mise à jour : " + ex.Message);
+                MessageBox.Show("La mise à jour a échoué : " + ex.Message + Environment.NewLine + Environment.NewLine +
+                    "Vous pouvez la télécharger manuellement depuis " + info.PageUrl,
+                    "Mise à jour", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        /// <summary>Relit la liste des fournisseurs depuis le réseau et remplit la liste déroulante.</summary>
+        private void LoadSuppliers()
+        {
+            string message;
+            _suppliers = SupplierService.Load(_config, out message);
+            Log(message);
+            FillSupplierBox(null);
+        }
+
+        /// <summary>Remplit la liste déroulante et resélectionne le fournisseur indiqué.</summary>
+        private void FillSupplierBox(string nomARetrouver)
+        {
+            cboSupplier.BeginUpdate();
+            cboSupplier.Items.Clear();
+            foreach (Supplier s in _suppliers) cboSupplier.Items.Add(s);
+            cboSupplier.EndUpdate();
+
+            if (nomARetrouver != null)
+            {
+                for (int i = 0; i < _suppliers.Count; i++)
+                {
+                    if (string.Equals(_suppliers[i].Name, nomARetrouver, StringComparison.OrdinalIgnoreCase))
+                    {
+                        cboSupplier.SelectedIndex = i;
+                        return;
+                    }
+                }
+            }
+            if (cboSupplier.Items.Count > 0 && cboSupplier.SelectedIndex < 0) cboSupplier.SelectedIndex = 0;
+        }
+
+        private Supplier SelectedSupplier
+        {
+            get { return cboSupplier.SelectedItem as Supplier; }
+        }
+
+        private void Supplier_Changed(object sender, EventArgs e)
+        {
+            Supplier s = SelectedSupplier;
+            if (s == null) { toolTip.SetToolTip(cboSupplier, ""); return; }
+            string infos = "Destinataires : " + s.ToLine;
+            if (s.CcLine != "") infos += Environment.NewLine + "Copie : " + s.CcLine;
+            if (!string.IsNullOrWhiteSpace(s.Note)) infos += Environment.NewLine + s.Note;
+            toolTip.SetToolTip(cboSupplier, infos);
+        }
+
+        private void BtnSuppliers_Click(object sender, EventArgs e)
+        {
+            Supplier avant = SelectedSupplier;
+            string nom = avant == null ? null : avant.Name;
+            using (SupplierDialog dlg = new SupplierDialog(_config, _suppliers))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                _suppliers = dlg.Suppliers;
+                Log(_suppliers.Count + " fournisseur(s) enregistré(s) sur le réseau.");
+            }
+            FillSupplierBox(nom);
+        }
+
+        private void BtnAddLine_Click(object sender, EventArgs e)
+        {
+            _lines.Add(new PartLine());
+        }
+
+        private void BtnPaste_Click(object sender, EventArgs e)
+        {
+            PasteFromClipboard();
+        }
+
+        private void PasteFromClipboard()
+        {
+            try
+            {
+                int avant = _lines.Count;
+                int n = ClipboardImporter.ImportFromClipboard(_lines);
+                NormalizeImported(avant);
+                if (CurrentType == RequestType.Fabrication) ApplyMode();
+                grid.Refresh();
+                Log(n + " ligne(s) collée(s) depuis le presse-papiers.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Collage impossible : " + ex.Message, "AskThem",
+                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+
+        private void BtnImportCsv_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog dlg = new OpenFileDialog())
+            {
+                dlg.Title = "Importer un fichier CSV";
+                dlg.Filter = "Fichiers CSV (*.csv)|*.csv";
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    int avant = _lines.Count;
+                    int n = CsvService.Import(_lines, dlg.FileName);
+                    NormalizeImported(avant);
+                    if (CurrentType == RequestType.Fabrication) ApplyMode();
+                    grid.Refresh();
+                    Log(n + " ligne(s) importée(s) depuis " + Path.GetFileName(dlg.FileName) + ".");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Import impossible : " + ex.Message, "AskThem",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void BtnExportCsv_Click(object sender, EventArgs e)
+        {
+            using (SaveFileDialog dlg = new SaveFileDialog())
+            {
+                dlg.Title = "Exporter la liste en CSV";
+                dlg.Filter = "Fichiers CSV (*.csv)|*.csv";
+                dlg.FileName = "AskThem_" + DateTime.Now.ToString("yyyyMMdd_HHmm") + ".csv";
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                try
+                {
+                    grid.EndEdit();
+                    CsvService.Export(_lines, dlg.FileName);
+                    Log("Liste exportée dans " + dlg.FileName);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Export impossible : " + ex.Message, "AskThem",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+        }
+
+        private void BtnClear_Click(object sender, EventArgs e)
+        {
+            if (MessageBox.Show("Vider toutes les lignes ?", "AskThem",
+                MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+            _lines.Clear();
+            Log("Liste vidée.");
+        }
+
+        private void BtnVerify_Click(object sender, EventArgs e)
+        {
+            StartProcess(false);
+        }
+
+        private void BtnGenerate_Click(object sender, EventArgs e)
+        {
+            StartProcess(true);
+        }
+
+        private void BtnCancel_Click(object sender, EventArgs e)
+        {
+            _cancelRequested = true;
+            lblProgress.Text = "Annulation en cours...";
+            btnCancel.Enabled = false;
+        }
+
+        // ==================================================================
+        // Validation
+        // ==================================================================
+
+        /// <summary>Contrôle la saisie. forGeneration ajoute le contrôle du destinataire.</summary>
+        private bool ValidateInput(bool forGeneration)
+        {
+            grid.EndEdit();
+
+            // 1) Suppression des lignes sans numéro d'article.
+            for (int i = _lines.Count - 1; i >= 0; i--)
+            {
+                if (string.IsNullOrWhiteSpace(_lines[i].PartNumber)) _lines.RemoveAt(i);
+                else _lines[i].PartNumber = _lines[i].PartNumber.Trim();
+            }
+            grid.Refresh();
+
+            // 2) Liste vide.
+            if (_lines.Count == 0)
+            {
+                MessageBox.Show("Aucun article saisi.", "AskThem",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+
+            // 3) Quantité 1 minimale.
+            for (int i = 0; i < _lines.Count; i++)
+            {
+                if (_lines[i].Qty1 < 1)
+                {
+                    MessageBox.Show("La quantité 1 doit être au minimum de 1 (ligne " + (i + 1) + ").",
+                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return false;
+                }
+            }
+
+            // 4) Doublons : simple avertissement, le traitement continue.
+            List<string> duplicates = new List<string>();
+            Dictionary<string, bool> seen = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+            foreach (PartLine l in _lines)
+            {
+                if (seen.ContainsKey(l.PartNumber))
+                {
+                    if (!duplicates.Contains(l.PartNumber)) duplicates.Add(l.PartNumber);
+                }
+                else seen[l.PartNumber] = true;
+            }
+            if (duplicates.Count > 0)
+            {
+                MessageBox.Show("Doublons détectés : " + string.Join(", ", duplicates), "AskThem",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+
+            // 5) Destinataire obligatoire pour la génération.
+            if (forGeneration)
+            {
+                Supplier fournisseur = SelectedSupplier;
+                if (fournisseur == null)
+                {
+                    MessageBox.Show("Choisissez un fournisseur dans la liste." + Environment.NewLine +
+                        "Utilisez le bouton « Fournisseurs… » pour en créer un.",
+                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return false;
+                }
+                if (fournisseur.Emails.Count == 0)
+                {
+                    MessageBox.Show("« " + fournisseur.Name + " » n'a aucune adresse de destinataire.",
+                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // ==================================================================
+        // Traitement (thread STA distinct)
+        // ==================================================================
+
+        private void StartProcess(bool generate)
+        {
+            if (_busy) return;
+            if (!ValidateInput(generate)) return;
+
+            // Une session SolidWorks deja ouverte appartient a l'utilisateur : on previent
+            // avant d'y ouvrir et refermer des documents.
+            if (generate && SolidWorksExporter.IsSolidWorksRunning())
+            {
+                DialogResult reponse = MessageBox.Show(
+                    "SolidWorks est déjà ouvert sur ce poste." + Environment.NewLine + Environment.NewLine +
+                    "Les documents seront ouverts et refermés dans votre session pendant le traitement, " +
+                    "et un document que vous avez déjà ouvert pourrait être refermé." + Environment.NewLine + Environment.NewLine +
+                    "Enregistrez votre travail avant de continuer." + Environment.NewLine + Environment.NewLine +
+                    "Continuer malgré tout ?",
+                    "AskThem", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+                if (reponse != DialogResult.Yes)
+                {
+                    Log("Traitement abandonné : SolidWorks est déjà ouvert.");
+                    return;
+                }
+                Log("SolidWorks déjà ouvert : le traitement se déroulera dans la session existante.");
+            }
+
+            // Les valeurs de l'interface sont lues ici, sur le thread interface.
+            _generateMode = generate;
+            _opt3D = chk3D.Checked;
+            _opt2D = chk2D.Checked;
+            Supplier fournisseur = SelectedSupplier;
+            _optSupplier = fournisseur == null ? "" : fournisseur.ToLine;
+            _optSupplierCc = fournisseur == null ? "" : fournisseur.CcLine;
+            _optSupplierName = fournisseur == null ? "" : fournisseur.Name;
+            _optProject = txtProject.Text.Trim();
+            _optDeadline = dtpDeadline.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
+            _optConditions = txtConditions.Text;
+            _optType = CurrentType;
+            _work = new List<PartLine>(_lines);
+
+            progress.Maximum = _work.Count > 0 ? _work.Count : 1;
+            progress.Value = 0;
+
+            _cancelRequested = false;
+            SetBusy(true);
+
+            // SolidWorks en COM exige un thread STA.
+            Thread worker = new Thread(new ThreadStart(RunProcess));
+            worker.SetApartmentState(ApartmentState.STA);
+            worker.IsBackground = true;
+            worker.Start();
+        }
+
+        private void RunProcess()
+        {
+            try
+            {
+                if (_generateMode) RunGenerate();
+                else RunVerify();
+            }
+            catch (Exception ex)
+            {
+                Log("ERREUR FATALE : " + ex.Message);
+                UiInvoke(delegate
+                {
+                    MessageBox.Show("Erreur inattendue : " + ex.Message, "AskThem",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                });
+            }
+            finally
+            {
+                RefreshGrid();
+                SetBusy(false);
+                UiInvoke(delegate { lblProgress.Text = "Prêt."; });
+            }
+        }
+
+        /// <summary>Mode vérification : aucune ouverture de SolidWorks.</summary>
+        private void RunVerify()
+        {
+            BuildPdmIndex();
+
+            int total = _work.Count;
+            int ok = 0;
+            int warn = 0;
+            int missing = 0;
+
+            for (int i = 0; i < total; i++)
+            {
+                if (_cancelRequested) { Log("Vérification annulée."); break; }
+
+                PartLine line = _work[i];
+                line.Model3DPath = PdmSearchService.Find3DInIndex(_pdmIndex, line.PartNumber);
+                line.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, line.PartNumber);
+
+                if (line.Model3DPath != null && line.DrawingPath != null) { line.Status = "OK"; ok++; }
+                else if (line.Model3DPath != null) { line.Status = "Manquant 2D"; warn++; }
+                else if (line.DrawingPath != null) { line.Status = "Manquant 3D"; warn++; }
+                else { line.Status = "Introuvable"; missing++; }
+
+                SetProgress(i + 1, "Vérification " + (i + 1) + "/" + total + " : " + line.PartNumber);
+                RefreshGrid();
+            }
+
+            Log("Vérification terminée : " + ok + " OK, " + warn + " avertissement(s), " + missing + " introuvable(s).");
+            WarnAboutIssues();
+        }
+
+        /// <summary>Construit l'index du coffre PDM (une seule fois par traitement).</summary>
+        private void BuildPdmIndex()
+        {
+            Log("Analyse du coffre PDM : " + _config.PdmRoot);
+            if (!Directory.Exists(_config.PdmRoot))
+            {
+                Log("ATTENTION : le dossier " + _config.PdmRoot + " est introuvable.");
+                _pdmIndex = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                return;
+            }
+            DateTime start = DateTime.Now;
+            _pdmIndex = PdmSearchService.BuildIndex(_config.PdmRoot, LogFromWorker);
+            int seconds = (int)(DateTime.Now - start).TotalSeconds;
+            Log("Index construit : " + _pdmIndex.Count + " fichier(s) SolidWorks en " + seconds + " s.");
+        }
+
+        /// <summary>Passerelle de journalisation utilisable par les services.</summary>
+        private void LogFromWorker(string message)
+        {
+            Log(message);
+        }
+
+        /// <summary>Mode génération : export SolidWorks, récapitulatif et email Outlook.</summary>
+        private void RunGenerate()
+        {
+            int total = _work.Count;
+
+            // --- Étape 1 : préparation du dossier de sortie ---
+            string tag = _optType == RequestType.Offre ? "OFFRE" : "FAB";
+            string folderName = "AskThem_" + tag + "_" + DateTime.Now.ToString("yyyyMMdd_HHmm");
+            string outputFolder = Path.Combine(_config.OutputRoot, folderName);
+            string folder3D = Path.Combine(outputFolder, "3D_STEP");
+            string folder2D = Path.Combine(outputFolder, "2D_PLANS");
+            string folderZip = Path.Combine(outputFolder, "ZIP_par_article");
+            Directory.CreateDirectory(folder3D);
+            Directory.CreateDirectory(folder2D);
+            Directory.CreateDirectory(folderZip);
+            Log("Dossier de sortie : " + outputFolder);
+
+            BuildPdmIndex();
+            SetProgress(0, "Préparation...");
+
+            // --- Étape 2 : connexion à SolidWorks ---
+            SolidWorksExporter exporter = new SolidWorksExporter(_config.Properties);
+            bool connected = false;
+            try
+            {
+                try
+                {
+                    exporter.Connect();
+                    connected = true;
+                    Log("SolidWorks démarré en arrière-plan.");
+                }
+                catch (Exception ex)
+                {
+                    Log("ERREUR : " + ex.Message);
+                    UiInvoke(delegate
+                    {
+                        MessageBox.Show("SolidWorks n'a pas pu être démarré. Vérifiez qu'il est installé et fermez toute boîte de dialogue ouverte.",
+                            "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    });
+                    return;
+                }
+
+                // --- Étape 3 : boucle sur les articles ---
+                for (int i = 0; i < total; i++)
+                {
+                    if (_cancelRequested) { Log("Annulation demandée."); break; }
+
+                    PartLine line = _work[i];
+                    SetProgress(i, "Traitement " + (i + 1) + "/" + total + " : " + line.PartNumber);
+                    try
+                    {
+                        ProcessOneLine(exporter, line, folder3D, folder2D, folderZip);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Un échec unitaire n'interrompt jamais le lot.
+                        line.Status = "Erreur";
+                        Log("ERREUR " + line.PartNumber + " : " + ex.Message);
+                    }
+                    finally
+                    {
+                        SetProgress(i + 1, "Traitement " + (i + 1) + "/" + total + " : " + line.PartNumber);
+                        RefreshGrid();
+                    }
+                }
+            }
+            finally
+            {
+                // --- Étape 4 : fermeture de SolidWorks, même en cas d'annulation ---
+                exporter.Dispose();
+                if (connected) Log("SolidWorks fermé.");
+            }
+
+            // --- Étape 6 : pièces jointes, une archive par numéro d'article ---
+            List<string> attachments = new List<string>();
+            int nbArchives = 0;
+            foreach (PartLine l in _work)
+            {
+                if (l.ZipPath != null && File.Exists(l.ZipPath)) { attachments.Add(l.ZipPath); nbArchives++; }
+            }
+            try
+            {
+                double sizeMb = ZipService.TotalSizeMb(attachments);
+                bool tropNombreuses = nbArchives > _config.MaxAttachments;
+                bool tropLourdes = sizeMb > _config.ZipThresholdMb;
+                if (nbArchives > 1 && (tropNombreuses || tropLourdes))
+                {
+                    // Le destinataire retrouve quand meme un dossier par article dans l'archive.
+                    string master = ZipService.ZipFolder(folderZip, folderName + "_archives");
+                    attachments.Clear();
+                    attachments.Add(master);
+                    string raison = tropNombreuses
+                        ? nbArchives + " archives > " + _config.MaxAttachments
+                        : sizeMb.ToString("0.0") + " Mo > " + _config.ZipThresholdMb + " Mo";
+                    Log("Regroupement (" + raison + ") : une seule archive jointe.");
+                }
+                else
+                {
+                    Log(nbArchives + " archive(s) par article jointe(s), " + sizeMb.ToString("0.0") + " Mo au total.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("ERREUR archive ZIP : " + ex.Message);
+            }
+
+            // --- Avertissement groupé, avant de préparer l'email ---
+            WarnAboutIssues();
+
+            // --- Étape 7 : archivage réseau, avant l'email pour que le dossier existe ---
+            ArchiveRequest(outputFolder, tag);
+
+            // --- Étape 8 : email Outlook (jamais en cas d'annulation) ---
+            if (!_cancelRequested)
+            {
+                try
+                {
+                    string subject = EmailBuilder.BuildSubject(_optType, _optProject, _work.Count);
+                    string body = EmailBuilder.BuildBody(_optType, _work, _optProject, _optDeadline, _optConditions);
+                    object mail = OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, attachments);
+                    Log("Email préparé dans Outlook. Il n'est pas envoyé automatiquement.");
+                    SaveMailToNetwork(mail, outputFolder);
+                }
+                catch (Exception ex)
+                {
+                    Log("ERREUR Outlook : " + ex.Message);
+                    string folder = outputFolder;
+                    UiInvoke(delegate
+                    {
+                        MessageBox.Show("L'email n'a pas pu être créé : " + ex.Message +
+                            Environment.NewLine + Environment.NewLine +
+                            "Les fichiers restent disponibles dans : " + folder,
+                            "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    });
+                }
+            }
+
+            // --- Étape 9 : fin ---
+            ShowSummary(outputFolder);
+        }
+
+        /// <summary>
+        /// Traite un article. Chaque document n'est ouvert QU'UNE FOIS : les propriétés sont
+        /// lues et l'export réalisé dans la même ouverture. Le plan est traité en premier
+        /// car il porte la révision de référence, qui nomme tous les fichiers de l'article.
+        /// </summary>
+        private void ProcessOneLine(SolidWorksExporter exporter, PartLine line,
+                                    string folder3D, string folder2D, string folderZip)
+        {
+            line.ExportedFiles.Clear();
+            line.ZipPath = null;
+            line.Model3DPath = PdmSearchService.Find3DInIndex(_pdmIndex, line.PartNumber);
+            line.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, line.PartNumber);
+
+            if (line.Model3DPath == null && line.DrawingPath == null)
+            {
+                line.Status = "Introuvable";
+                Log("Introuvable dans le PDM : " + line.PartNumber);
+                return;
+            }
+
+            string baseName = null;
+
+            // --- Le plan : une seule ouverture pour lire les propriétés et exporter ---
+            if (line.DrawingPath != null)
+            {
+                ModelDoc2 doc = null;
+                try
+                {
+                    doc = exporter.OpenDocument(line.DrawingPath);
+                    SolidWorksExporter.DocMetadata m = exporter.ReadMetadata(doc);
+                    line.DrawingRevision = m.Revision;
+                    line.Description = m.Description;
+                    line.RealizedDate = m.Date;
+                    line.Material = m.Material;
+                    line.Treatment = m.Treatment;
+                    line.State = m.State;
+
+                    baseName = SafeName(BuildBaseName(line));
+                    if (_opt2D)
+                    {
+                        List<string> created = exporter.ExportDrawing(doc, folder2D, baseName);
+                        line.ExportedFiles.AddRange(created);
+                        foreach (string f in created) Log("Plan : " + Path.GetFileName(f));
+                    }
+                }
+                finally
+                {
+                    exporter.CloseDocument(doc);
+                }
+            }
+
+            // --- Le modèle 3D : une seule ouverture également ---
+            if (line.Model3DPath != null)
+            {
+                ModelDoc2 doc = null;
+                try
+                {
+                    doc = exporter.OpenDocument(line.Model3DPath);
+                    SolidWorksExporter.DocMetadata m = exporter.ReadMetadata(doc);
+                    line.Revision = m.Revision;
+                    // Le plan reste prioritaire : le modèle ne comble que les manques.
+                    if (line.Description == "") line.Description = m.Description;
+                    if (line.RealizedDate == "") line.RealizedDate = m.Date;
+                    if (line.Material == "") line.Material = m.Material;
+                    if (line.Treatment == "") line.Treatment = m.Treatment;
+                    if (line.State == "") line.State = m.State;
+
+                    if (baseName == null) baseName = SafeName(BuildBaseName(line));
+                    if (_opt3D)
+                    {
+                        string step = exporter.ExportStep(doc, folder3D, baseName);
+                        line.ExportedFiles.Add(step);
+                        Log("STEP : " + Path.GetFileName(step));
+                    }
+                }
+                finally
+                {
+                    exporter.CloseDocument(doc);
+                }
+            }
+
+            // --- Une archive par numéro d'article ---
+            if (line.ExportedFiles.Count > 0)
+            {
+                try
+                {
+                    string zipPath = Path.Combine(folderZip, (baseName == null ? SafeName(line.PartNumber) : baseName) + ".zip");
+                    line.ZipPath = ZipService.ZipFiles(line.ExportedFiles, zipPath);
+                    Log("Archive : " + Path.GetFileName(line.ZipPath) + " (" + line.ExportedFiles.Count + " fichier(s))");
+                }
+                catch (Exception ex)
+                {
+                    Log("ERREUR archive " + line.PartNumber + " : " + ex.Message);
+                }
+            }
+
+            // --- Statut ---
+            if (_opt3D && line.Model3DPath == null) line.Status = "Manquant 3D";
+            else if (_opt2D && line.DrawingPath == null) line.Status = "Manquant 2D";
+            else line.Status = "OK";
+        }
+
+        /// <summary>Vrai si l'état PDM lu est renseigné et ne fait pas partie des états libérés.</summary>
+        private bool IsInDevelopment(PartLine line)
+        {
+            if (string.IsNullOrWhiteSpace(line.State)) return false;
+            string etat = line.State.Trim();
+            foreach (string libere in _config.ReleasedStates)
+            {
+                if (string.Equals(etat, libere, StringComparison.OrdinalIgnoreCase)) return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Un SEUL message pour tous les articles à problème : aucun article n'est signalé
+        /// individuellement. Le détail complet reste dans le journal et le récapitulatif.
+        /// </summary>
+        private void WarnAboutIssues()
+        {
+            List<string> sansPlan = new List<string>();
+            List<string> enDeveloppement = new List<string>();
+            int etatsLus = 0;
+
+            foreach (PartLine l in _work)
+            {
+                if (string.IsNullOrWhiteSpace(l.Status)) continue;   // non traité
+                if (l.Status == "Introuvable") continue;             // déjà compté ailleurs
+                if (!string.IsNullOrWhiteSpace(l.State)) etatsLus++;
+                if (l.DrawingPath == null) sansPlan.Add(l.PartNumber);
+                if (IsInDevelopment(l)) enDeveloppement.Add(l.PartNumber + " — " + l.State.Trim());
+            }
+
+            if (etatsLus == 0 && _generateMode)
+            {
+                Log("Aucun état PDM lisible dans les propriétés des fichiers : le contrôle "
+                  + "« libéré / en développement » n'a pas pu s'appliquer.");
+            }
+
+            if (sansPlan.Count == 0 && enDeveloppement.Count == 0) return;
+
+            StringBuilder sb = new StringBuilder();
+            if (enDeveloppement.Count > 0)
+            {
+                sb.AppendLine("Non libérés dans le PDM — " + enDeveloppement.Count + " article(s) :");
+                sb.AppendLine(Summarize(enDeveloppement));
+                foreach (string x in enDeveloppement) Log("Non libéré : " + x);
+                sb.AppendLine();
+            }
+            if (sansPlan.Count > 0)
+            {
+                sb.AppendLine("Sans plan 2D — " + sansPlan.Count + " article(s) :");
+                sb.AppendLine(Summarize(sansPlan));
+                foreach (string x in sansPlan) Log("Sans plan : " + x);
+            }
+            sb.AppendLine();
+            sb.Append("Le détail complet figure dans le journal, en bas de la fenêtre.");
+
+            string message = sb.ToString();
+            UiInvoke(delegate
+            {
+                MessageBox.Show(message, "AskThem — points à vérifier",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            });
+        }
+
+        /// <summary>Liste abrégée : au plus 20 éléments, puis un décompte du reste.</summary>
+        private static string Summarize(List<string> items)
+        {
+            const int max = 20;
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < items.Count && i < max; i++)
+            {
+                sb.Append("    • ");
+                sb.AppendLine(items[i]);
+            }
+            if (items.Count > max)
+                sb.AppendLine("    … et " + (items.Count - max) + " autre(s).");
+            return sb.ToString().TrimEnd();
+        }
+
+        /// <summary>Nom de base des fichiers : numéro d'article, suffixé de la révision si connue.</summary>
+        private static string BuildBaseName(PartLine line)
+        {
+            string rev = line.EffectiveRevision;
+            if (string.IsNullOrWhiteSpace(rev)) return line.PartNumber;
+            return line.PartNumber + "_Rev" + rev;
+        }
+
+        /// <summary>
+        /// Enregistre l'email au format .msg dans le dossier réseau de la demande, puis
+        /// attend que l'utilisateur ait fini de le retoucher dans Outlook pour en
+        /// réenregistrer la version définitive.
+        /// </summary>
+        private void SaveMailToNetwork(object mail, string outputFolder)
+        {
+            // Si le réseau n'était pas joignable, on retombe sur le dossier local.
+            string dossier = _archivePath != null ? _archivePath : outputFolder;
+            string chemin = Path.Combine(dossier, "Demande.msg");
+
+            // Première écriture : garantit une trace même si l'application est fermée ensuite.
+            if (OutlookService.SaveMessage(mail, chemin))
+                Log("Email enregistré : " + chemin);
+            else
+                Log("L'email n'a pas pu être enregistré dans " + dossier + ".");
+
+            UiInvoke(delegate
+            {
+                MessageBox.Show(
+                    "L'email est ouvert dans Outlook." + Environment.NewLine + Environment.NewLine +
+                    "Retouchez-le si nécessaire, puis cliquez sur OK : la version définitive sera " +
+                    "enregistrée dans" + Environment.NewLine + dossier,
+                    "AskThem — enregistrement de l'email", MessageBoxButtons.OK, MessageBoxIcon.Information);
+            });
+
+            // Seconde écriture : capture les modifications faites entre-temps dans Outlook.
+            if (OutlookService.SaveMessage(mail, chemin))
+                Log("Version définitive de l'email enregistrée : " + chemin);
+            else
+                Log("Version définitive illisible (fenêtre fermée ou message envoyé) : "
+                  + "la version initiale reste enregistrée.");
+        }
+
+        /// <summary>
+        /// Copie la demande vers l'archive réseau, dans un dossier nommé avec la date
+        /// et le destinataire. Un réseau indisponible n'interrompt jamais le traitement.
+        /// </summary>
+        private void ArchiveRequest(string outputFolder, string tag)
+        {
+            _archivePath = null;
+            if (string.IsNullOrWhiteSpace(_config.ArchiveRoot)) return;
+            try
+            {
+                if (!Directory.Exists(_config.ArchiveRoot))
+                {
+                    Log("Archivage impossible : " + _config.ArchiveRoot + " est inaccessible. "
+                      + "Les fichiers restent dans le dossier local.");
+                    return;
+                }
+
+                string identifiant = string.IsNullOrWhiteSpace(_optSupplierName) ? _optSupplier : _optSupplierName;
+                string nom = DateTime.Now.ToString("yyyy-MM-dd") + "_" + SafeName(identifiant) + "_" + tag;
+                string cible = Path.Combine(_config.ArchiveRoot, nom);
+                string racine = cible;
+                int suffixe = 2;
+                while (Directory.Exists(cible))
+                {
+                    cible = racine + "_" + suffixe;
+                    suffixe++;
+                }
+
+                CopyDirectory(outputFolder, cible);
+                _archivePath = cible;
+                Log("Demande archivée : " + cible);
+            }
+            catch (Exception ex)
+            {
+                Log("ERREUR archivage : " + ex.Message + " — les fichiers restent dans le dossier local.");
+            }
+        }
+
+        private static void CopyDirectory(string source, string cible)
+        {
+            Directory.CreateDirectory(cible);
+            foreach (string f in Directory.GetFiles(source))
+                File.Copy(f, Path.Combine(cible, Path.GetFileName(f)), true);
+            foreach (string d in Directory.GetDirectories(source))
+                CopyDirectory(d, Path.Combine(cible, Path.GetFileName(d)));
+        }
+
+        /// <summary>Message final et ouverture du dossier de sortie.</summary>
+        private void ShowSummary(string outputFolder)
+        {
+            int ok = 0;
+            int warn = 0;
+            int err = 0;
+            foreach (PartLine l in _work)
+            {
+                if (l.Status == "OK") ok++;
+                else if (l.Status == "Erreur") err++;
+                else if (l.Status != "") warn++;
+            }
+            Log("Traitement terminé : " + ok + " OK, " + warn + " avertissement(s), " + err + " erreur(s).");
+
+            try
+            {
+                System.Diagnostics.Process.Start("explorer.exe", "\"" + outputFolder + "\"");
+            }
+            catch (Exception ex)
+            {
+                Log("Impossible d'ouvrir le dossier : " + ex.Message);
+            }
+
+            bool cancelled = _cancelRequested;
+            UiInvoke(delegate
+            {
+                if (cancelled)
+                {
+                    MessageBox.Show("Traitement annulé. Les fichiers déjà extraits sont conservés dans : " + outputFolder,
+                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                else
+                {
+                    string texte = "Terminé : " + ok + " article(s) exporté(s), " + warn + " avertissement(s), " + err + " erreur(s)." +
+                        Environment.NewLine + Environment.NewLine + "Dossier : " + outputFolder;
+                    if (_archivePath != null)
+                        texte += Environment.NewLine + "Archivé : " + _archivePath;
+                    MessageBox.Show(texte, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+            });
+        }
+
+        /// <summary>Remplace les caractères interdits dans un nom de fichier.</summary>
+        private static string SafeName(string name)
+        {
+            char[] invalid = Path.GetInvalidFileNameChars();
+            StringBuilder sb = new StringBuilder();
+            foreach (char c in name)
+            {
+                sb.Append(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
+            }
+            return sb.ToString();
+        }
+
+        // ==================================================================
+        // Accès à l'interface depuis le thread de traitement
+        // ==================================================================
+
+        /// <summary>Exécute une action sur le thread de l'interface.</summary>
+        private void UiInvoke(Action action)
+        {
+            if (InvokeRequired)
+            {
+                try { this.Invoke(action); }
+                catch (Exception) { } // la fenêtre a pu être fermée pendant le traitement
+            }
+            else
+            {
+                action();
+            }
+        }
+
+        /// <summary>Ajoute un message au journal de la fenêtre et au fichier journal.</summary>
+        private void Log(string message)
+        {
+            string text = DateTime.Now.ToString("HH:mm:ss") + "  " + message + Environment.NewLine;
+            UiInvoke(delegate
+            {
+                txtLog.AppendText(text);
+                try
+                {
+                    txtLog.SelectionStart = txtLog.TextLength;
+                    txtLog.ScrollToCaret();
+                }
+                catch (Exception) { }
+            });
+            LogService.Write(message);
+        }
+
+        /// <summary>Active ou désactive l'interface pendant un traitement.</summary>
+        private void SetBusy(bool busy)
+        {
+            _busy = busy;
+            UiInvoke(delegate
+            {
+                panelTools.Enabled = !busy;
+                grid.Enabled = !busy;
+                panelDetail.Enabled = !busy;
+                btnVerify.Enabled = !busy;
+                btnGenerate.Enabled = !busy;
+                modeSwitch.Enabled = !busy;
+                btnSuppliers.Enabled = !busy;
+                btnCancel.Enabled = busy;
+                Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
+            });
+        }
+
+        private void SetProgress(int value, string text)
+        {
+            UiInvoke(delegate
+            {
+                int v = value;
+                if (v < progress.Minimum) v = progress.Minimum;
+                if (v > progress.Maximum) v = progress.Maximum;
+                progress.Value = v;
+                lblProgress.Text = text;
+            });
+        }
+
+        /// <summary>Rafraîchit l'affichage de la grille après modification des lignes.</summary>
+        private void RefreshGrid()
+        {
+            UiInvoke(delegate
+            {
+                try { _lines.ResetBindings(); }
+                catch (Exception) { }
+                UpdateDetail();
+            });
+        }
+    }
+}
