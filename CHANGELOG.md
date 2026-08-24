@@ -3,6 +3,21 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.1] — 2026-08-24
+
+### Ajouté
+
+- **Import des exports de nomenclature.** Les colonnes sont désormais reconnues par leur
+  intitulé au lieu de leur position : le code article peut se trouver en colonne B, et la
+  ligne d'en-tête après un titre. Intitulés reconnus, accents et casse indifférents :
+  *Code article*, *N° article*, *Référence*, *Qté totale*, *Qté ligne*, *Quantité*,
+  *Remarque*. À défaut d'en-tête reconnu, la lecture par position est conservée.
+- **Regroupement des articles répétés.** Une nomenclature cite le même article à plusieurs
+  niveaux de l'assemblage ; l'import n'en garde qu'une ligne et **additionne les quantités**.
+  Sur un cas réel de 327 lignes : 212 articles, 115 lignes regroupées. Le nombre de
+  regroupements est annoncé, rien ne se fait en silence.
+- Les quantités écrites en décimal par Excel (`17.0`) sont lues correctement.
+
 ## [1.2.0] — 2026-08-24
 
 ### Ajouté

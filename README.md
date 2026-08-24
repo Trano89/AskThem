@@ -125,7 +125,11 @@ Le journal d'exécution est écrit dans `%LOCALAPPDATA%\AskThem\logs\askthem_AAA
    avec l'avertissement sur la révision des plans dans l'email).
 2. **Saisir les articles** : bouton *Ajouter ligne*, *Coller Excel* (ou `Ctrl+V`
    directement dans la grille), ou *Importer liste* — qui accepte aussi bien un
-   fichier **CSV** qu'un classeur **Excel `.xlsx`**, dont la première feuille est lue. Un simple clic suffit pour modifier
+   fichier **CSV** qu'un classeur **Excel `.xlsx`**, dont la première feuille est lue.
+
+   Les colonnes sont reconnues par leur **intitulé**, pas par leur position : un export de
+   nomenclature dont le code article est en colonne B, sous un titre, est lu correctement.
+   Les articles cités plusieurs fois sont **regroupés en une ligne, quantités additionnées**. Un simple clic suffit pour modifier
    une cellule. La grille ne contient que ce que vous remplissez vous-même : le
    **numéro d'article**, les **quantités** et une **remarque**. Désignation, révision
    du plan, date de réalisé, matière et finitions sont lues dans le coffre et

@@ -890,13 +890,26 @@ namespace AskThem
                     int avant = _lines.Count;
                     // Le format est déduit de l'extension ; la correspondance des
                     // colonnes est la même dans les deux cas.
+                    int regroupees;
                     int n = string.Equals(Path.GetExtension(dlg.FileName), ".xlsx", StringComparison.OrdinalIgnoreCase)
-                        ? XlsxService.Import(_lines, dlg.FileName)
-                        : CsvService.Import(_lines, dlg.FileName);
+                        ? XlsxService.Import(_lines, dlg.FileName, out regroupees)
+                        : CsvService.Import(_lines, dlg.FileName, out regroupees);
                     NormalizeImported(avant);
                     if (CurrentType == RequestType.Fabrication) ApplyMode();
                     grid.Refresh();
-                    Log(n + " ligne(s) importée(s) depuis " + Path.GetFileName(dlg.FileName) + ".");
+
+                    string bilan = n + " article(s) importé(s) depuis " + Path.GetFileName(dlg.FileName) + ".";
+                    if (regroupees > 0)
+                    {
+                        // Une nomenclature cite le même article à plusieurs niveaux.
+                        bilan += " " + regroupees + " ligne(s) répétée(s) ont été regroupées, "
+                               + "leurs quantités additionnées.";
+                    }
+                    Log(bilan);
+                    if (regroupees > 0)
+                    {
+                        MessageBox.Show(bilan, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                    }
                 }
                 catch (Exception ex)
                 {

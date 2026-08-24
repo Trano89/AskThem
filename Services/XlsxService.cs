@@ -121,9 +121,10 @@ namespace AskThem.Services
         /// La correspondance des colonnes est celle du CSV, pour que les deux formats
         /// se comportent exactement pareil.
         /// </summary>
-        public static int Import(System.ComponentModel.BindingList<Models.PartLine> lines, string path)
+        public static int Import(System.ComponentModel.BindingList<Models.PartLine> lines,
+                                 string path, out int regroupees)
         {
-            return CsvService.AddRows(lines, ReadFirstSheet(path));
+            return CsvService.AddRows(lines, ReadFirstSheet(path), out regroupees);
         }
 
         /// <summary>Valeur affichée d'une cellule, quel que soit son mode de stockage.</summary>
