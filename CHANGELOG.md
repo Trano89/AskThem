@@ -3,6 +3,21 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.2] — 2026-08-24
+
+### Ajouté
+
+- **Import d'une liste de fournisseurs** depuis un tableau CSV ou Excel, par le bouton
+  *Importer une liste…* de la fenêtre Fournisseurs. Les colonnes sont reconnues par leur
+  intitulé, dans n'importe quel ordre : *Nom*, *Nom 1*, *Fournisseur*, *Raison sociale*,
+  *Entreprise* pour le nom ; *E-Mail*, *Courriel*, *Mail* pour les adresses ; *Cc* ou
+  *Copie* pour les copies ; *Note*, *Remarque* ou *Libellé* pour la note.
+  Plusieurs adresses dans une même cellule sont acceptées.
+- Un fournisseur déjà présent est **complété sans être dupliqué** : réimporter une liste
+  enrichie ajoute les adresses manquantes sans écraser l'existant.
+- Un fichier sans colonne d'adresse est accepté — les noms sont créés, les adresses restent
+  à compléter — et l'absence est signalée plutôt que passée sous silence.
+
 ## [1.2.1] — 2026-08-24
 
 ### Ajouté

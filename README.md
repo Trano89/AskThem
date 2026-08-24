@@ -151,7 +151,8 @@ Le journal d'exécution est écrit dans `%LOCALAPPDATA%\AskThem\logs\askthem_AAA
 
    Le destinataire ne se tape pas : il se choisit. Le bouton **Fournisseurs…** ouvre la
    gestion de la liste — création, modification, suppression, avec **plusieurs adresses
-   par fournisseur** et des **adresses en copie**. La liste vit sur le réseau, elle est
+   par fournisseur** et des **adresses en copie**. Le bouton *Importer une liste…* reprend
+   un tableau CSV ou Excel, les colonnes étant reconnues par leur intitulé. La liste vit sur le réseau, elle est
    donc partagée par tous les postes et relue à chaque démarrage.
 5. **Cliquer sur *Générer la demande***. SolidWorks s'ouvre en arrière-plan, les fichiers
    sont exportés dans un dossier horodaté, puis Outlook affiche l'email pré-rempli.

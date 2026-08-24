@@ -146,7 +146,7 @@ namespace AskThem
 
             Panel outils = new Panel();
             outils.Dock = DockStyle.Bottom;
-            outils.Height = 40;
+            outils.Height = 76;
 
             Button btnAdd = new Button();
             btnAdd.Text = "Ajouter";
@@ -160,8 +160,15 @@ namespace AskThem
             btnRemove.Location = new Point(118, 8);
             btnRemove.Click += new EventHandler(Remove_Click);
 
+            Button btnImport = new Button();
+            btnImport.Text = "Importer une liste…";
+            btnImport.Size = new Size(228, 28);
+            btnImport.Location = new Point(0, 42);
+            btnImport.Click += new EventHandler(Import_Click);
+
             outils.Controls.Add(btnAdd);
             outils.Controls.Add(btnRemove);
+            outils.Controls.Add(btnImport);
 
             gauche.Controls.Add(lstSuppliers);
             gauche.Controls.Add(outils);
@@ -293,6 +300,37 @@ namespace AskThem
             lstSuppliers.SelectedIndex = _suppliers.Count - 1;
             txtName.Focus();
             txtName.SelectAll();
+        }
+
+        /// <summary>
+        /// Reprend une liste de fournisseurs depuis un tableau CSV ou Excel, quelle que
+        /// soit la disposition des colonnes : elles sont reconnues par leur intitulé.
+        /// </summary>
+        private void Import_Click(object sender, EventArgs e)
+        {
+            using (OpenFileDialog dlg = new OpenFileDialog())
+            {
+                dlg.Title = "Importer une liste de fournisseurs";
+                dlg.Filter = "Tableaux (*.csv;*.xlsx)|*.csv;*.xlsx"
+                           + "|Classeurs Excel (*.xlsx)|*.xlsx"
+                           + "|Fichiers CSV (*.csv)|*.csv";
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+
+                try
+                {
+                    int completes;
+                    string message;
+                    SupplierService.ImportFromFile(_suppliers, dlg.FileName, out completes, out message);
+                    RefreshList();
+                    if (lstSuppliers.Items.Count > 0 && lstSuppliers.SelectedIndex < 0) lstSuppliers.SelectedIndex = 0;
+                    MessageBox.Show(message, "Fournisseurs", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Import impossible : " + ex.Message, "Fournisseurs",
+                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
         }
 
         private void Remove_Click(object sender, EventArgs e)

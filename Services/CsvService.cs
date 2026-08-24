@@ -43,6 +43,24 @@ namespace AskThem.Services
             return AddRows(lines, cellules, out regroupees);
         }
 
+        /// <summary>
+        /// Lit un tableau, CSV ou Excel selon l'extension, et retourne ses lignes.
+        /// Sert à tous les imports de l'application.
+        /// </summary>
+        public static List<List<string>> ReadRows(string path)
+        {
+            if (string.Equals(Path.GetExtension(path), ".xlsx", StringComparison.OrdinalIgnoreCase))
+                return XlsxService.ReadFirstSheet(path);
+
+            List<List<string>> cellules = new List<List<string>>();
+            foreach (string row in File.ReadAllLines(path, Encoding.UTF8))
+            {
+                if (string.IsNullOrWhiteSpace(row)) continue;
+                cellules.Add(ParseLine(row));
+            }
+            return cellules;
+        }
+
         /// <summary>Colonnes retenues, déduites d'une ligne d'en-tête ou, à défaut, de leur position.</summary>
         private class ColumnMap
         {
@@ -68,7 +86,7 @@ namespace AskThem.Services
         private static readonly string[] EntetesRemarque = { "remarque", "note", "commentaire", "observation" };
 
         /// <summary>Minuscules, sans accent, sans ponctuation de fin : pour comparer des intitulés.</summary>
-        private static string Normalise(string valeur)
+        public static string Normalise(string valeur)
         {
             if (valeur == null) return "";
             string v = valeur.Trim().ToLowerInvariant().TrimEnd(':', '.', '?', ' ');
@@ -82,7 +100,7 @@ namespace AskThem.Services
             return sb.ToString().Trim();
         }
 
-        private static int IndexOfHeader(List<string> ligne, string[] intitules)
+        public static int IndexOfHeader(List<string> ligne, string[] intitules)
         {
             for (int j = 0; j < ligne.Count; j++)
             {
