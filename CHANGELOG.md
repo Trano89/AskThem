@@ -3,6 +3,18 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.0.1] — 2026-08-24
+
+### Corrigé
+
+- La mise à jour remplace l'exécutable **exactement à l'emplacement d'où il tourne**,
+  qui peut différer d'un poste à l'autre. Les chemins contenant des espaces ou des
+  parenthèses sont pris en charge.
+- Le script de remplacement ne boucle plus indéfiniment si le fichier reste verrouillé :
+  40 tentatives, puis un message expliquant quoi faire.
+- Le dossier est contrôlé en écriture **avant** le téléchargement, et le fichier reçu
+  est vérifié : plus de remplacement par un téléchargement incomplet.
+
 ## [1.0.0] — 2026-08-24
 
 Première version publiée.

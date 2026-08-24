@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 
 namespace AskThem.Services
@@ -14,6 +15,8 @@ namespace AskThem.Services
     /// </summary>
     public static class UpdateService
     {
+        private const string Q = "\"";
+
         /// <summary>Résultat d'une recherche de mise à jour.</summary>
         public class UpdateInfo
         {
@@ -134,54 +137,126 @@ namespace AskThem.Services
             return r;
         }
         /// <summary>
-        /// Télécharge la nouvelle version puis relance l'application dessus.
+        /// Télécharge la nouvelle version et remplace l'exécutable EXACTEMENT à
+        /// l'emplacement d'où il tourne, quel qu'il soit sur ce poste.
         /// Un exécutable ne pouvant pas s'écraser lui-même, un script attend sa
-        /// fermeture, remplace le fichier, puis le redémarre.
+        /// fermeture, remplace le fichier, puis le redémarre au même endroit.
         /// </summary>
         public static void DownloadAndRestart(UpdateInfo info)
         {
             if (info == null || string.IsNullOrWhiteSpace(info.DownloadUrl))
                 throw new Exception("Aucun exécutable joint à cette publication.");
 
+            // Chemin réel du processus : suit l'exe où qu'il soit, y compris sur
+            // une clé USB ou un partage réseau, et diffère donc d'un poste à l'autre.
             string exeActuel = Environment.ProcessPath;
-            if (string.IsNullOrWhiteSpace(exeActuel))
-                throw new Exception("Chemin de l'exécutable introuvable.");
+            if (string.IsNullOrWhiteSpace(exeActuel) || !File.Exists(exeActuel))
+                throw new Exception("Emplacement de l'exécutable introuvable.");
+
+            string dossier = Path.GetDirectoryName(exeActuel);
+            VerifierEcriture(dossier);
 
             string nouveau = exeActuel + ".nouveau";
+            try
+            {
+                Telecharger(info, nouveau);
+            }
+            catch (Exception)
+            {
+                Supprimer(nouveau);
+                throw;
+            }
+
+            if (new FileInfo(nouveau).Length < 1024 * 1024)
+            {
+                Supprimer(nouveau);
+                throw new Exception("Le fichier téléchargé est incomplet.");
+            }
+
+            string script = Path.Combine(Path.GetTempPath(), "askthem_maj.cmd");
+            File.WriteAllText(script, ScriptRemplacement(nouveau, exeActuel), Encoding.Default);
+
+            ProcessStartInfo psi = new ProcessStartInfo(script);
+            psi.CreateNoWindow = true;
+            psi.UseShellExecute = false;
+            psi.WorkingDirectory = Path.GetTempPath();
+            Process.Start(psi);
+        }
+
+        /// <summary>Échoue tôt et clairement si le dossier n'est pas inscriptible.</summary>
+        private static void VerifierEcriture(string dossier)
+        {
+            string test = Path.Combine(dossier, "askthem_ecriture.tmp");
+            try
+            {
+                File.WriteAllText(test, "x");
+                File.Delete(test);
+            }
+            catch (Exception)
+            {
+                throw new Exception("Le dossier " + dossier + " n'autorise pas l'écriture. "
+                    + "Déplacez AskThem.exe dans un dossier où vous avez les droits, "
+                    + "ou téléchargez la nouvelle version manuellement.");
+            }
+        }
+
+        private static void Telecharger(UpdateInfo info, string cible)
+        {
             using (HttpClient client = new HttpClient())
             {
-                client.Timeout = TimeSpan.FromMinutes(10);
+                client.Timeout = TimeSpan.FromMinutes(15);
                 HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Get, info.DownloadUrl);
                 req.Headers.Add("User-Agent", "AskThem/" + info.CurrentVersion);
                 HttpResponseMessage rep = client.Send(req);
                 rep.EnsureSuccessStatusCode();
                 using (Stream source = rep.Content.ReadAsStream())
-                using (FileStream cible = File.Create(nouveau))
+                using (FileStream f = File.Create(cible))
                 {
-                    source.CopyTo(cible);
+                    source.CopyTo(f);
                 }
             }
+        }
 
-            string script = Path.Combine(Path.GetTempPath(), "askthem_maj.cmd");
-            string q = "\"";
+        private static void Supprimer(string chemin)
+        {
+            try { if (File.Exists(chemin)) File.Delete(chemin); }
+            catch (Exception) { }
+        }
+
+        /// <summary>
+        /// Script de remplacement. Les chemins passent par des variables entre
+        /// guillemets : ils supportent espaces et parenthèses. Le nombre de tentatives
+        /// est borné, pour ne jamais boucler indéfiniment si le fichier reste verrouillé.
+        /// </summary>
+        private static string ScriptRemplacement(string source, string destination)
+        {
             string[] lignes = new string[] {
                 "@echo off",
-                "ping 127.0.0.1 -n 3 >nul",
+                "setlocal",
+                "set " + Q + "SRC=" + source + Q,
+                "set " + Q + "DST=" + destination + Q,
+                "set /a N=0",
                 ":attente",
-                "move /y " + q + nouveau + q + " " + q + exeActuel + q + " >nul 2>&1",
-                "if errorlevel 1 (",
-                "  ping 127.0.0.1 -n 2 >nul",
-                "  goto attente",
-                ")",
-                "start " + q + q + " " + q + exeActuel + q,
-                "del " + q + "%~f0" + q
+                "set /a N+=1",
+                "move /y " + Q + "%SRC%" + Q + " " + Q + "%DST%" + Q + " >nul 2>&1",
+                "if not errorlevel 1 goto ok",
+                "if %N% GEQ 40 goto echec",
+                "ping 127.0.0.1 -n 2 >nul",
+                "goto attente",
+                ":ok",
+                "start " + Q + Q + " " + Q + "%DST%" + Q,
+                "goto fin",
+                ":echec",
+                "echo La mise a jour n'a pas pu remplacer :",
+                "echo   %DST%",
+                "echo Le fichier telecharge est conserve ici :",
+                "echo   %SRC%",
+                "echo Fermez AskThem, puis renommez ce fichier a la main.",
+                "pause",
+                ":fin",
+                "del " + Q + "%~f0" + Q
             };
-            File.WriteAllText(script, string.Join(Environment.NewLine, lignes) + Environment.NewLine);
-
-            ProcessStartInfo psi = new ProcessStartInfo(script);
-            psi.CreateNoWindow = true;
-            psi.UseShellExecute = false;
-            Process.Start(psi);
+            return string.Join(Environment.NewLine, lignes) + Environment.NewLine;
         }
     }
 }
