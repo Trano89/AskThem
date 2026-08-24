@@ -1540,7 +1540,12 @@ namespace AskThem
             ArticleTypeRule regle;
             if (type != "" && _config.ArticleTypes != null && _config.ArticleTypes.TryGetValue(type, out regle))
                 return regle;
-            return new ArticleTypeRule();
+
+            // Type non déclaré : rien ne part tant que sa règle n'a pas été écrite
+            // dans config.json. Mieux vaut refuser que livrer au hasard.
+            return ArticleTypeRule.Create(
+                type == "" ? "type indéterminé" : "type " + type + " non déclaré",
+                false, false, false, false, false);
         }
 
         /// <summary>Vrai si l'état PDM lu est renseigné et ne fait pas partie des états libérés.</summary>
@@ -1566,6 +1571,7 @@ namespace AskThem
             List<string> mauvaisFournisseur = new List<string>();
             List<string> sansReference = new List<string>();
             int etatsLus = 0;
+            int referencesLues = 0;
 
             foreach (PartLine l in _work)
             {
@@ -1579,14 +1585,26 @@ namespace AskThem
                 // On ne réclame un plan que pour les types qui doivent en avoir un.
                 if (regle.Export2D && l.DrawingPath == null) sansPlan.Add(l.PartNumber);
 
+                if (!string.IsNullOrWhiteSpace(l.SupplierRef)) referencesLues++;
                 if (!regle.SupplierImposed) continue;
 
-                // Article catalogue : le fournisseur et la référence viennent du PDM.
+                // Article catalogue : la référence fournisseur doit accompagner la demande.
                 if (string.IsNullOrWhiteSpace(l.SupplierRef))
                     sansReference.Add(l.PartNumber + " — " + regle.Label);
 
                 if (!string.IsNullOrWhiteSpace(l.PdmSupplier) && !SameSupplier(l.PdmSupplier, _optSupplierName))
                     mauvaisFournisseur.Add(l.PartNumber + " — imposé : " + l.PdmSupplier.Trim());
+            }
+
+            // Si aucune référence n'a été lue nulle part, la source n'est pas dans les
+            // propriétés des fichiers : on le dit une fois plutôt que d'énumérer tous
+            // les articles catalogue à chaque demande.
+            if (referencesLues == 0 && sansReference.Count > 0)
+            {
+                Log("Aucune référence fournisseur dans les propriétés des fichiers ("
+                  + sansReference.Count + " article(s) catalogue concernés). "
+                  + "Ces données se trouvent dans l'inventaire, pas dans le PDM.");
+                sansReference.Clear();
             }
 
             if (etatsLus == 0 && _generateMode)

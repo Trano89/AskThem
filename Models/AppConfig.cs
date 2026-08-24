@@ -113,7 +113,7 @@ namespace AskThem.Models
             ArticleTypes["21"] = ArticleTypeRule.Create("Pièce de détail",              true,   true,  true,  true,  false);
             ArticleTypes["20"] = ArticleTypeRule.Create("Article catalogue",            true,   false, false, false, true);
             ArticleTypes["22"] = ArticleTypeRule.Create("Catalogue modifié à l'achat",  true,   true,  true,  true,  true);
-            ArticleTypes["24"] = ArticleTypeRule.Create("Catalogue modifié après livraison", true, false, false, false, true);
+            ArticleTypes["24"] = ArticleTypeRule.Create("Catalogue modifié après livraison", true, false, true,  true,  true);
             ArticleTypes["13"] = ArticleTypeRule.Create("Assemblage",                   false,  false, false, false, false);
         }
     }

@@ -3,6 +3,26 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.4] — 2026-08-24
+
+### Modifié
+
+- `24` catalogue modifié après livraison : le **plan et le 3D accompagnent désormais la
+  demande**. La fabrication reste impossible sur ce type.
+- **Un type non déclaré ne donne lieu à aucune demande.** Les codes dont les caractères
+  `YZ` ne figurent pas dans `ArticleTypes` sont refusés à la saisie comme à l'import, au
+  même titre que les assemblages, et le message nomme le type en cause. Rien ne part plus
+  au hasard sur un type dont la règle n'a pas été écrite.
+- Quand aucune référence fournisseur n'est lisible dans les propriétés des fichiers, le
+  fait est signalé **une fois** dans le journal au lieu d'énumérer chaque article
+  catalogue à chaque demande.
+
+### Précision
+
+- Le premier caractère du code (`X` dans `XYZ-AAAAA-BB`) n'indique que l'origine —
+  mécanique, optique, électronique — et n'a jamais eu d'incidence sur les règles.
+  `A21`, `B21`, `H21` et `#21` sont traités identiquement.
+
 ## [1.2.3] — 2026-08-24
 
 ### Ajouté
