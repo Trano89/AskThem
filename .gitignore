@@ -14,3 +14,6 @@ config.json
 # Divers
 *.log
 Thumbs.db
+
+# Document de specification d'origine, conserve en local
+AskThem_prompt.md
