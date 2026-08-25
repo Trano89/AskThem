@@ -92,6 +92,7 @@ namespace AskThem
         private Label lblPo;
         private TextBox txtPo;
         private Button btnPo;
+        private Panel groupePo;
         private Button btnVerify;
         private Button btnGenerate;
 
@@ -110,7 +111,7 @@ namespace AskThem
             // --- Fenêtre ---
             Text = "AskThem " + UpdateService.CurrentVersion();
             AppIcon.Apply(this);
-            Font = new Font("Segoe UI", 9F);
+            Font = AppFont.Get();
             Size = new Size(1180, 760);
             MinimumSize = new Size(1000, 640);
             StartPosition = FormStartPosition.CenterScreen;
@@ -145,10 +146,11 @@ namespace AskThem
         {
             panelTop = new Panel();
             panelTop.Dock = DockStyle.Top;
-            panelTop.Height = 56;
+            panelTop.Height = 60;
 
             // Interrupteur : gauche = offre, droite = fabrication.
             modeSwitch = new ModeSwitch();
+            modeSwitch.Font = AppFont.Get();
             modeSwitch.LeftText = "Demande d'offre";
             modeSwitch.RightText = "Demande de fabrication";
             modeSwitch.Location = new Point(12, 13);
@@ -158,9 +160,10 @@ namespace AskThem
             modeSwitch.ModeChanged += new EventHandler(ModeSwitch_ModeChanged);
 
             lblInfo = new Label();
+            lblInfo.Font = AppFont.Get();
             lblInfo.Text = "Saisissez ou collez (Ctrl+V depuis Excel) vos numéros d'article.";
             lblInfo.ForeColor = Color.Gray;
-            lblInfo.Location = new Point(400, 20);
+            lblInfo.Location = new Point(modeSwitch.Right + 32, 20);
             lblInfo.AutoSize = true;
 
             panelTop.Controls.Add(modeSwitch);
@@ -171,42 +174,45 @@ namespace AskThem
         {
             panelTools = new Panel();
             panelTools.Dock = DockStyle.Top;
-            panelTools.Height = 44;
+            panelTools.Height = 48;
 
-            btnAddLine = MakeToolButton("Ajouter ligne", 12);
+            btnAddLine = MakeToolButton("Ajouter ligne");
             btnAddLine.Click += new EventHandler(BtnAddLine_Click);
 
-            btnPaste = MakeToolButton("Coller Excel", 158);
+            btnPaste = MakeToolButton("Coller Excel");
             btnPaste.Click += new EventHandler(BtnPaste_Click);
 
-            btnImportCsv = MakeToolButton("Importer liste", 304);
+            btnImportCsv = MakeToolButton("Importer liste");
             btnImportCsv.Click += new EventHandler(BtnImportCsv_Click);
 
-            btnExportCsv = MakeToolButton("Exporter CSV", 450);
+            btnExportCsv = MakeToolButton("Exporter CSV");
             btnExportCsv.Click += new EventHandler(BtnExportCsv_Click);
 
-            btnClear = MakeToolButton("Tout vider", 596);
+            btnClear = MakeToolButton("Tout vider");
             btnClear.Click += new EventHandler(BtnClear_Click);
 
-            btnInventaire = MakeToolButton("Inventaire…", 742);
+            btnInventaire = MakeToolButton("Inventaire…");
             btnInventaire.Click += new EventHandler(BtnInventaire_Click);
 
-            panelTools.Controls.Add(btnAddLine);
-            panelTools.Controls.Add(btnPaste);
-            panelTools.Controls.Add(btnImportCsv);
-            panelTools.Controls.Add(btnExportCsv);
-            panelTools.Controls.Add(btnClear);
-            panelTools.Controls.Add(btnInventaire);
+            // Les boutons s'enchaînent selon leur largeur mesurée : aucune position figée.
+            int x = 12;
+            foreach (Button b in new Button[] { btnAddLine, btnPaste, btnImportCsv,
+                                                btnExportCsv, btnClear, btnInventaire })
+            {
+                b.Location = new Point(x, 8);
+                panelTools.Controls.Add(b);
+                x += b.Width + 8;
+            }
         }
 
         /// <summary>Crée un bouton de la barre d'outils (140 x 30).</summary>
-        private Button MakeToolButton(string text, int x)
+        private Button MakeToolButton(string text)
         {
             Button b = new Button();
+            b.Font = AppFont.Get();      // avant toute mesure : l'héritage n'a pas encore eu lieu
             b.Text = text;
-            b.Width = 140;
-            b.Height = 30;
-            b.Location = new Point(x, 6);
+            b.Width = AppFont.Width(text, 34);
+            b.Height = 32;
             return b;
         }
 
@@ -219,6 +225,9 @@ namespace AskThem
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.RowHeadersWidth = 30;
+            grid.ColumnHeadersHeight = AppFont.Width("Hg", 0) > 0 ? 34 : 34;
+            grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.EnableResizing;
+            grid.RowTemplate.Height = 30;
             grid.VirtualMode = false;
             grid.AutoGenerateColumns = false;
             // Un seul clic suffit pour modifier une cellule (au lieu du double-clic par defaut).
@@ -227,10 +236,10 @@ namespace AskThem
             grid.BorderStyle = BorderStyle.None;
 
             // Seules les colonnes que l'utilisateur remplit lui-meme.
-            colPartNumber = MakeColumn("colPartNumber", "N° article", "PartNumber", 34, false);
-            colQty1 = MakeColumn("colQty1", "Qté 1", "Qty1", 10, false);
-            colQty2 = MakeColumn("colQty2", "Qté 2", "Qty2", 10, false);
-            colQty3 = MakeColumn("colQty3", "Qté 3", "Qty3", 10, false);
+            colPartNumber = MakeColumn("colPartNumber", "N° article", "PartNumber", 28, false);
+            colQty1 = MakeColumn("colQty1", "Qté 1", "Qty1", 12, false);
+            colQty2 = MakeColumn("colQty2", "Qté 2", "Qty2", 12, false);
+            colQty3 = MakeColumn("colQty3", "Qté 3", "Qty3", 12, false);
             colRemark = MakeColumn("colRemark", "Remarque", "Remark", 36, false);
 
             grid.Columns.Add(colPartNumber);
@@ -257,6 +266,7 @@ namespace AskThem
             c.DataPropertyName = property;
             c.FillWeight = weight;
             c.ReadOnly = readOnly;
+            c.MinimumWidth = AppFont.Width(header, 26);
             c.SortMode = DataGridViewColumnSortMode.NotSortable;
             return c;
         }
@@ -303,28 +313,35 @@ namespace AskThem
         {
             panelDetail = new Panel();
             panelDetail.Dock = DockStyle.Right;
-            panelDetail.Width = 330;
+            panelDetail.Width = 390;
             panelDetail.Padding = new Padding(14, 10, 14, 10);
             panelDetail.BackColor = Color.FromArgb(247, 249, 250);
 
             lblDetailTitre = new Label();
             lblDetailTitre.Text = "Aucune ligne sélectionnée";
             lblDetailTitre.Dock = DockStyle.Top;
-            lblDetailTitre.Height = 38;
-            lblDetailTitre.Font = new Font("Segoe UI", 11F, FontStyle.Bold);
+            lblDetailTitre.Height = 42;
+            lblDetailTitre.Font = AppFont.Bold();
             lblDetailTitre.TextAlign = ContentAlignment.MiddleLeft;
 
             Label note = new Label();
             note.Text = "Lu dans le coffre PDM au moment de la génération. Rien à saisir ici.";
             note.Dock = DockStyle.Bottom;
-            note.Height = 46;
+            note.Height = 58;
             note.ForeColor = Color.Gray;
 
             // TableLayoutPanel plutot que des positions en pixels : suit la densite d'ecran.
             TableLayoutPanel t = new TableLayoutPanel();
             t.Dock = DockStyle.Fill;
             t.ColumnCount = 2;
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 104));
+            int largeurIntitules = 0;
+            foreach (string c in new string[] { "Désignation", "Rév. plan", "Rév. modèle",
+                                                "Date de réalisé", "Matière", "Finitions",
+                                                "État PDM", "Statut", "Fichiers" })
+            {
+                largeurIntitules = Math.Max(largeurIntitules, AppFont.Width(c, 14));
+            }
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, largeurIntitules));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
             t.AutoScroll = true;
 
@@ -351,15 +368,17 @@ namespace AskThem
             t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
 
             Label c = new Label();
+            c.Font = AppFont.Get();
             c.Text = caption;
             c.ForeColor = Color.Gray;
             c.AutoSize = true;
             c.Margin = new Padding(0, 7, 6, 1);
 
             Label v = new Label();
+            v.Font = AppFont.Get();
             v.Text = "—";
             v.AutoSize = true;
-            v.MaximumSize = new Size(178, 0);
+            v.MaximumSize = new Size(216, 0);
             v.Margin = new Padding(0, 7, 0, 1);
 
             t.Controls.Add(c, 0, row);
@@ -533,138 +552,188 @@ namespace AskThem
             return string.Join(Environment.NewLine, parts);
         }
 
+        /// <summary>
+        /// Bandeau de paramètres en disposition fluide : chaque groupe est dimensionné
+        /// d'après son texte, et l'ensemble se replie tout seul quand la fenêtre rétrécit.
+        /// Les positions en pixels ne survivaient pas à un changement de police.
+        /// </summary>
         private void BuildParamsPanel()
         {
             panelParams = new Panel();
             panelParams.Dock = DockStyle.Bottom;
-            panelParams.Height = 168;
-            // La largeur doit etre fixee avant de positionner les boutons ancres a droite,
-            // sinon l'ancrage memorise une distance calculee sur la largeur par defaut du Panel.
-            panelParams.Width = ClientSize.Width;
+            panelParams.Height = 210;
+            panelParams.Padding = new Padding(12, 8, 12, 8);
 
-            Label lblSupplier = new Label();
-            lblSupplier.Text = "Destinataire :";
-            lblSupplier.Location = new Point(12, 13);
-            lblSupplier.AutoSize = true;
-
-            // On choisit un fournisseur dans la liste : plus de saisie d'adresse à la main.
-            cboSupplier = new ComboBox();
-            cboSupplier.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboSupplier.Location = new Point(108, 10);
-            cboSupplier.Width = 250;
-            cboSupplier.SelectedIndexChanged += new EventHandler(Supplier_Changed);
-
-            btnSuppliers = new Button();
-            btnSuppliers.Text = "Fournisseurs…";
-            btnSuppliers.Location = new Point(364, 9);
-            btnSuppliers.Size = new Size(100, 25);
-            btnSuppliers.Click += new EventHandler(BtnSuppliers_Click);
-
-            Label lblProject = new Label();
-            lblProject.Text = "Référence projet :";
-            lblProject.Location = new Point(478, 13);
-            lblProject.AutoSize = true;
-
-            txtProject = new TextBox();
-            txtProject.Location = new Point(588, 10);
-            txtProject.Width = 150;
-
-            Label lblDeadline = new Label();
-            lblDeadline.Text = "Délai souhaité :";
-            lblDeadline.Location = new Point(752, 13);
-            lblDeadline.AutoSize = true;
-
-            dtpDeadline = new DateTimePicker();
-            dtpDeadline.Format = DateTimePickerFormat.Short;
-            dtpDeadline.ShowCheckBox = true;
-            dtpDeadline.Checked = false;
-            dtpDeadline.Location = new Point(852, 10);
-            dtpDeadline.Width = 130;
-
-            chk3D = new CheckBox();
-            chk3D.Text = "Exporter 3D (STEP AP203)";
-            chk3D.Location = new Point(12, 50);
-            chk3D.Width = 200;
-            chk3D.Checked = _config.Export3D;
-
-            chk2D = new CheckBox();
-            chk2D.Text = "Exporter 2D (PDF + DXF)";
-            chk2D.Location = new Point(222, 50);
-            chk2D.Width = 200;
-            chk2D.Checked = _config.Export2D;
-
+            // --- Les deux actions, toujours à droite ---
             btnVerify = new Button();
             btnVerify.Text = "Vérifier";
-            btnVerify.Width = 130;
-            btnVerify.Height = 34;
-            btnVerify.Location = new Point(panelParams.Width - 344, 108);
-            btnVerify.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnVerify.Size = new Size(AppFont.Width(btnVerify.Text, 44), 38);
             btnVerify.Click += new EventHandler(BtnVerify_Click);
 
             btnGenerate = new Button();
             btnGenerate.Text = "Générer la demande";
-            btnGenerate.Width = 190;
-            btnGenerate.Height = 34;
-            btnGenerate.Location = new Point(panelParams.Width - 202, 108);
-            btnGenerate.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnGenerate.Size = new Size(AppFont.Width(btnGenerate.Text, 44), 38);
             btnGenerate.BackColor = Color.FromArgb(0, 90, 158);
             btnGenerate.ForeColor = Color.White;
             btnGenerate.FlatStyle = FlatStyle.Flat;
             btnGenerate.Click += new EventHandler(BtnGenerate_Click);
 
-            Label lblConditions = new Label();
-            lblConditions.Text = "Conditions générales (ajoutées en fin d'email) :";
-            lblConditions.Location = new Point(12, 80);
-            lblConditions.AutoSize = true;
+            Panel actions = new Panel();
+            actions.Dock = DockStyle.Right;
+            actions.Width = btnVerify.Width + btnGenerate.Width + 24;
+            actions.Padding = new Padding(12, 0, 0, 0);
+            btnVerify.Location = new Point(12, 8);
+            btnGenerate.Location = new Point(12 + btnVerify.Width + 10, 8);
+            actions.Controls.Add(btnVerify);
+            actions.Controls.Add(btnGenerate);
 
-            txtConditions = new TextBox();
-            txtConditions.Multiline = true;
-            txtConditions.ScrollBars = ScrollBars.Vertical;
-            txtConditions.Location = new Point(12, 100);
-            txtConditions.Size = new Size(600, 56);
-            txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage...";
+            // --- Les champs, qui se replient selon la largeur ---
+            FlowLayoutPanel flow = new FlowLayoutPanel();
+            flow.Dock = DockStyle.Fill;
+            flow.FlowDirection = FlowDirection.LeftToRight;
+            flow.WrapContents = true;
+            flow.AutoScroll = true;
 
-            // Bon de commande : obligatoire en fabrication, sans objet en demande d'offre.
+            cboSupplier = new ComboBox();
+            cboSupplier.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboSupplier.Width = 260;
+            cboSupplier.SelectedIndexChanged += new EventHandler(Supplier_Changed);
+
+            btnSuppliers = new Button();
+            btnSuppliers.Text = "Fournisseurs…";
+            btnSuppliers.Size = new Size(AppFont.Width(btnSuppliers.Text, 34), 30);
+            btnSuppliers.Click += new EventHandler(BtnSuppliers_Click);
+
+            txtProject = new TextBox();
+            txtProject.Width = 170;
+
+            dtpDeadline = new DateTimePicker();
+            dtpDeadline.Format = DateTimePickerFormat.Short;
+            dtpDeadline.ShowCheckBox = true;
+            dtpDeadline.Checked = false;
+            dtpDeadline.Width = 160;
+
+            chk3D = new CheckBox();
+            chk3D.Text = "Exporter 3D (STEP AP203)";
+            chk3D.AutoSize = true;
+            chk3D.Checked = _config.Export3D;
+
+            chk2D = new CheckBox();
+            chk2D.Text = "Exporter 2D (PDF + DXF)";
+            chk2D.AutoSize = true;
+            chk2D.Checked = _config.Export2D;
+
             lblPo = new Label();
             lblPo.Text = "Bon de commande (PDF) :";
-            lblPo.Location = new Point(440, 52);
             lblPo.AutoSize = true;
 
             txtPo = new TextBox();
-            txtPo.Location = new Point(600, 48);
-            txtPo.Width = 280;
+            txtPo.Width = 240;
             txtPo.ReadOnly = true;
             txtPo.PlaceholderText = "aucun fichier choisi";
 
             btnPo = new Button();
             btnPo.Text = "Parcourir…";
-            btnPo.Location = new Point(886, 47);
-            btnPo.Size = new Size(92, 25);
+            btnPo.Size = new Size(AppFont.Width(btnPo.Text, 34), 30);
             btnPo.Click += new EventHandler(BtnPo_Click);
 
-            panelParams.Controls.Add(lblPo);
-            panelParams.Controls.Add(txtPo);
-            panelParams.Controls.Add(btnPo);
-            panelParams.Controls.Add(lblConditions);
-            panelParams.Controls.Add(txtConditions);
-            panelParams.Controls.Add(lblSupplier);
-            panelParams.Controls.Add(cboSupplier);
-            panelParams.Controls.Add(btnSuppliers);
-            panelParams.Controls.Add(lblProject);
-            panelParams.Controls.Add(txtProject);
-            panelParams.Controls.Add(lblDeadline);
-            panelParams.Controls.Add(dtpDeadline);
-            panelParams.Controls.Add(chk3D);
-            panelParams.Controls.Add(chk2D);
-            panelParams.Controls.Add(btnVerify);
-            panelParams.Controls.Add(btnGenerate);
+            txtConditions = new TextBox();
+            txtConditions.Multiline = true;
+            txtConditions.ScrollBars = ScrollBars.Vertical;
+            txtConditions.Size = new Size(520, 68);
+            txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage...";
+
+            flow.Controls.Add(Groupe("Destinataire :", cboSupplier, btnSuppliers));
+            flow.Controls.Add(Groupe("Référence projet :", txtProject, null));
+            flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
+            flow.Controls.Add(Groupe("", chk3D, chk2D));
+            groupePo = Groupe(lblPo.Text, txtPo, btnPo);
+            flow.Controls.Add(groupePo);
+            flow.Controls.Add(Groupe("Conditions générales (fin d'email) :", txtConditions, null));
+
+            panelParams.Controls.Add(flow);
+            panelParams.Controls.Add(actions);
+        }
+
+        /// <summary>
+        /// Un groupe intitulé + champ, dimensionné d'après son contenu : c'est lui qui
+        /// permet au bandeau de se replier proprement quelle que soit la police.
+        /// </summary>
+        private Panel Groupe(string intitule, Control champ, Control complement)
+        {
+            Panel g = new Panel();
+            g.Margin = new Padding(0, 4, 22, 6);
+
+            // La police doit être posée avant de mesurer : un contrôle non rattaché
+            // se mesure encore avec la police par défaut, et le texte se retrouve coupé.
+            champ.Font = AppFont.Get();
+            if (complement != null) complement.Font = AppFont.Get();
+
+            int y = 0;
+            int largeur = LargeurReelle(champ);
+
+            if (intitule != "")
+            {
+                Label l = new Label();
+                l.Font = AppFont.Get();
+                l.Text = intitule;
+                l.AutoSize = true;
+                l.Location = new Point(0, 0);
+                g.Controls.Add(l);
+                y = l.PreferredHeight + 4;
+                largeur = Math.Max(largeur, l.PreferredSize.Width);
+            }
+
+            champ.Location = new Point(0, y);
+            g.Controls.Add(champ);
+
+            if (complement != null)
+            {
+                // Le complément se place à droite du champ, ou sous lui pour une case à cocher.
+                if (complement is CheckBox)
+                {
+                    complement.Location = new Point(0, y + HauteurReelle(champ) + 6);
+                    largeur = Math.Max(largeur, LargeurReelle(complement));
+                    g.Height = y + HauteurReelle(champ) + 6 + HauteurReelle(complement);
+                }
+                else
+                {
+                    complement.Location = new Point(LargeurReelle(champ) + 8, y - 1);
+                    largeur = LargeurReelle(champ) + 8 + LargeurReelle(complement);
+                    g.Height = y + Math.Max(HauteurReelle(champ), HauteurReelle(complement));
+                }
+                g.Controls.Add(complement);
+            }
+            else
+            {
+                g.Height = y + HauteurReelle(champ);
+            }
+
+            g.Width = largeur;
+            return g;
+        }
+
+        /// <summary>
+        /// Largeur d'un contrôle, en tenant compte de l'auto-dimensionnement : tant que
+        /// le contrôle n'est pas affiché, sa propriété Width n'est pas encore à jour.
+        /// </summary>
+        private static int LargeurReelle(Control c)
+        {
+            if (c.AutoSize) return Math.Max(c.Width, c.PreferredSize.Width);
+            return c.Width;
+        }
+
+        private static int HauteurReelle(Control c)
+        {
+            if (c.AutoSize) return Math.Max(c.Height, c.PreferredSize.Height);
+            return c.Height;
         }
 
         private void BuildStatusPanel()
         {
             panelStatus = new Panel();
             panelStatus.Dock = DockStyle.Bottom;
-            panelStatus.Height = 90;
+            panelStatus.Height = 118;
 
             progress = new ProgressBar();
             progress.Dock = DockStyle.Top;
@@ -672,7 +741,7 @@ namespace AskThem
 
             panelStatusLine = new Panel();
             panelStatusLine.Dock = DockStyle.Top;
-            panelStatusLine.Height = 30;
+            panelStatusLine.Height = 34;
 
             lblProgress = new Label();
             lblProgress.Text = "Prêt.";
@@ -740,9 +809,7 @@ namespace AskThem
             colQty3.Visible = offre;
 
             // Le bon de commande n'a de sens que pour une demande de fabrication.
-            lblPo.Visible = !offre;
-            txtPo.Visible = !offre;
-            btnPo.Visible = !offre;
+            if (groupePo != null) groupePo.Visible = !offre;
             if (offre) txtPo.Text = "";
 
             if (!offre)

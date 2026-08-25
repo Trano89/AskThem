@@ -31,9 +31,9 @@ namespace AskThem
 
             Text = "Fournisseurs";
             AppIcon.Apply(this);
-            Font = new Font("Segoe UI", 9F);
-            Size = new Size(780, 470);
-            MinimumSize = new Size(680, 420);
+            Font = AppFont.Get();
+            Size = new Size(860, 520);
+            MinimumSize = new Size(780, 480);
             StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false;
             MaximizeBox = false;
@@ -74,7 +74,7 @@ namespace AskThem
             t.Dock = DockStyle.Fill;
             t.Padding = new Padding(14, 12, 14, 12);
             t.ColumnCount = 2;
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 118));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, AppFont.Width("Destinataires", 22)));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
             txtName = new TextBox();
@@ -137,7 +137,7 @@ namespace AskThem
         {
             Panel gauche = new Panel();
             gauche.Dock = DockStyle.Left;
-            gauche.Width = 250;
+            gauche.Width = 290;
             gauche.Padding = new Padding(12, 12, 6, 12);
 
             lstSuppliers = new ListBox();
@@ -147,23 +147,23 @@ namespace AskThem
 
             Panel outils = new Panel();
             outils.Dock = DockStyle.Bottom;
-            outils.Height = 76;
+            outils.Height = 84;
 
             Button btnAdd = new Button();
             btnAdd.Text = "Ajouter";
-            btnAdd.Size = new Size(110, 28);
+            btnAdd.Size = new Size(AppFont.Width(btnAdd.Text, 34), 32);
             btnAdd.Location = new Point(0, 8);
             btnAdd.Click += new EventHandler(Add_Click);
 
             Button btnRemove = new Button();
             btnRemove.Text = "Supprimer";
-            btnRemove.Size = new Size(110, 28);
-            btnRemove.Location = new Point(118, 8);
+            btnRemove.Size = new Size(AppFont.Width(btnRemove.Text, 34), 32);
+            btnRemove.Location = new Point(btnAdd.Width + 10, 8);
             btnRemove.Click += new EventHandler(Remove_Click);
 
             Button btnImport = new Button();
             btnImport.Text = "Importer une liste…";
-            btnImport.Size = new Size(228, 28);
+            btnImport.Size = new Size(AppFont.Width(btnImport.Text, 34), 32);
             btnImport.Location = new Point(0, 42);
             btnImport.Click += new EventHandler(Import_Click);
 
@@ -180,12 +180,12 @@ namespace AskThem
         {
             Panel bas = new Panel();
             bas.Dock = DockStyle.Bottom;
-            bas.Height = 56;
+            bas.Height = 62;
             bas.Padding = new Padding(12, 10, 12, 10);
 
             lblChemin = new Label();
-            lblChemin.Dock = DockStyle.Left;
-            lblChemin.Width = 430;
+            lblChemin.Dock = DockStyle.Fill;
+            lblChemin.AutoEllipsis = true;
             lblChemin.ForeColor = Color.Gray;
             lblChemin.TextAlign = ContentAlignment.MiddleLeft;
             string chemin = SupplierService.GetFilePath(_config);
@@ -193,7 +193,7 @@ namespace AskThem
 
             Button btnSave = new Button();
             btnSave.Text = "Enregistrer et fermer";
-            btnSave.Size = new Size(160, 32);
+            btnSave.Size = new Size(AppFont.Width(btnSave.Text, 40), 36);
             btnSave.Dock = DockStyle.Right;
             btnSave.BackColor = Color.FromArgb(0, 90, 158);
             btnSave.ForeColor = Color.White;
@@ -202,7 +202,7 @@ namespace AskThem
 
             Button btnCancel = new Button();
             btnCancel.Text = "Annuler";
-            btnCancel.Size = new Size(100, 32);
+            btnCancel.Size = new Size(AppFont.Width(btnCancel.Text, 40), 36);
             btnCancel.Dock = DockStyle.Right;
             btnCancel.Margin = new Padding(0, 0, 8, 0);
             btnCancel.DialogResult = DialogResult.Cancel;

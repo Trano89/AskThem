@@ -25,9 +25,9 @@ namespace AskThem
 
             Text = "Connexion à l'inventaire";
             AppIcon.Apply(this);
-            Font = new Font("Segoe UI", 9F);
-            Size = new Size(640, 330);
-            MinimumSize = new Size(580, 310);
+            Font = AppFont.Get();
+            Size = new Size(760, 420);
+            MinimumSize = new Size(700, 400);
             StartPosition = FormStartPosition.CenterParent;
             MinimizeBox = false;
             MaximizeBox = false;
@@ -37,7 +37,7 @@ namespace AskThem
             t.Dock = DockStyle.Fill;
             t.Padding = new Padding(16, 14, 16, 8);
             t.ColumnCount = 2;
-            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 128));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, AppFont.Width("Mot de passe", 22)));
             t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
 
             txtUrl = new TextBox();
@@ -58,7 +58,7 @@ namespace AskThem
 
             Label note = new Label();
             note.Dock = DockStyle.Bottom;
-            note.Height = 64;
+            note.Height = 108;
             note.ForeColor = Color.Gray;
             note.Text = "Le mot de passe est chiffré par Windows pour ce poste et cette session. "
                       + "Il n'est écrit ni dans le programme, ni dans config.json, ni sur le dépôt." + Environment.NewLine
@@ -68,7 +68,7 @@ namespace AskThem
 
             lblEtat = new Label();
             lblEtat.Dock = DockStyle.Bottom;
-            lblEtat.Height = 42;
+            lblEtat.Height = 46;
             lblEtat.Text = SecretStore.Exists(InventoryApiService.SecretName)
                 ? "Un mot de passe est déjà enregistré sur ce poste."
                 : "Aucun mot de passe enregistré sur ce poste.";
@@ -83,12 +83,12 @@ namespace AskThem
         {
             Panel bas = new Panel();
             bas.Dock = DockStyle.Bottom;
-            bas.Height = 54;
+            bas.Height = 62;
             bas.Padding = new Padding(16, 9, 16, 11);
 
             Button btnTest = new Button();
             btnTest.Text = "Tester et enregistrer";
-            btnTest.Size = new Size(170, 32);
+            btnTest.Size = new Size(AppFont.Width(btnTest.Text, 40), 36);
             btnTest.Dock = DockStyle.Right;
             btnTest.BackColor = Color.FromArgb(0, 90, 158);
             btnTest.ForeColor = Color.White;
@@ -97,13 +97,13 @@ namespace AskThem
 
             Button btnFermer = new Button();
             btnFermer.Text = "Fermer";
-            btnFermer.Size = new Size(100, 32);
+            btnFermer.Size = new Size(AppFont.Width(btnFermer.Text, 40), 36);
             btnFermer.Dock = DockStyle.Right;
             btnFermer.DialogResult = DialogResult.Cancel;
 
             Button btnOublier = new Button();
             btnOublier.Text = "Oublier le mot de passe";
-            btnOublier.Size = new Size(170, 32);
+            btnOublier.Size = new Size(AppFont.Width(btnOublier.Text, 40), 36);
             btnOublier.Dock = DockStyle.Left;
             btnOublier.Click += new EventHandler(Oublier_Click);
 
@@ -118,7 +118,7 @@ namespace AskThem
         {
             int row = t.RowCount;
             t.RowCount = row + 1;
-            t.RowStyles.Add(new RowStyle(SizeType.Absolute, 34));
+            t.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
             Label l = new Label();
             l.Text = caption;
             l.AutoSize = true;

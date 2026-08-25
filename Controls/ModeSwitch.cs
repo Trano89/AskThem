@@ -65,15 +65,13 @@ namespace AskThem.Controls
         {
             get
             {
-                Size g = TextRenderer.MeasureText(LeftText, BoldFont);
-                Size d = TextRenderer.MeasureText(RightText, BoldFont);
-                return g.Width + Gap + TrackWidth + Gap + d.Width + 4;
+                using (Font gras = new Font(Font, FontStyle.Bold))
+                {
+                    Size g = TextRenderer.MeasureText(LeftText, gras);
+                    Size d = TextRenderer.MeasureText(RightText, gras);
+                    return g.Width + Gap + TrackWidth + Gap + d.Width + 8;
+                }
             }
-        }
-
-        private Font BoldFont
-        {
-            get { return new Font(Font, FontStyle.Bold); }
         }
 
         protected override void OnPaint(PaintEventArgs e)

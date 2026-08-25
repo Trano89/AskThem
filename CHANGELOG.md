@@ -3,6 +3,22 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.10] — 2026-08-25
+
+### Modifié
+
+- **Une seule écriture dans toute l'application : Aptos, taille 12.** Aptos n'étant pas
+  présente sur tous les postes, une chaîne de repli explicite est appliquée — Aptos, puis
+  Segoe UI, puis Calibri. Sans elle, Windows substitue silencieusement une police très
+  datée quand la police demandée manque.
+- **Le bandeau de paramètres se replie tout seul.** Ses champs étaient posés à des
+  positions fixes en pixels, qui ne survivaient pas au changement de taille : chaque
+  groupe est désormais dimensionné d'après son texte et l'ensemble se réorganise selon
+  la largeur de la fenêtre.
+- Boutons, colonnes et intitulés tirent leur largeur du texte qu'ils portent, dans la
+  police réellement retenue. Vérifié par capture du rendu des trois fenêtres, à la taille
+  nominale comme à la taille minimale : plus aucun texte tronqué.
+
 ## [1.2.9] — 2026-08-25
 
 ### Corrigé
