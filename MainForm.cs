@@ -644,7 +644,7 @@ namespace AskThem
             txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage...";
 
             flow.Controls.Add(Groupe("Destinataire :", cboSupplier, btnSuppliers));
-            flow.Controls.Add(Groupe("Référence projet :", txtProject, null));
+            flow.Controls.Add(Groupe("Référence commande :", txtProject, null));
             flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
             flow.Controls.Add(Groupe("", chk3D, chk2D));
             groupePo = Groupe(lblPo.Text, txtPo, btnPo);

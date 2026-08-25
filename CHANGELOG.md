@@ -3,6 +3,21 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.11] — 2026-08-25
+
+### Modifié
+
+- **L'ancienne référence suit immédiatement le numéro d'article** dans le tableau, au lieu
+  d'être reléguée après la désignation.
+- **Les notes en couleur sont regroupées en fin de message**, juste avant la signature :
+  article recodifié puis rappel sur la révision des plans. Elles n'interrompent plus la
+  lecture entre le tableau et le corps du message.
+- **Le commentaire général devient un bloc titré placé sous le tableau**, dans la même
+  taille que le reste du message. Il était jusqu'ici rendu en petits caractères gris,
+  perdu en fin de message.
+- **La référence demandée est celle de la commande**, et non plus celle du projet — dans
+  le champ de saisie, dans l'objet de l'email et dans son corps.
+
 ## [1.2.10] — 2026-08-25
 
 ### Modifié

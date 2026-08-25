@@ -10,6 +10,10 @@ namespace AskThem.Services
     /// <summary>Construit l'objet et le corps HTML de l'email à partir des modèles.</summary>
     public static class EmailBuilder
     {
+        // Sauts de ligne composes par code, pour ne dependre d aucun echappement.
+        private static readonly string CRLF = new string(new char[] { (char)13, (char)10 });
+        private static readonly string LF = ((char)10).ToString();
+
         private const string CellStyle = " style=\"border:1px solid #999; padding:4px 8px;\"";
         private const string HeadStyle = " style=\"border:1px solid #999; padding:4px 8px; background:#eef2f6; font-weight:bold;\"";
 
@@ -34,10 +38,11 @@ namespace AskThem.Services
             string deadlineText = string.IsNullOrWhiteSpace(deadline) ? "non précisé" : deadline.Trim();
 
             html = html.Replace("{{NB_ARTICLES}}", lines.Count.ToString());
-            html = html.Replace("{{PROJET}}", WebUtility.HtmlEncode(projectText));
+            html = html.Replace("{{COMMANDE}}", WebUtility.HtmlEncode(projectText));
             html = html.Replace("{{DELAI}}", WebUtility.HtmlEncode(deadlineText));
-            html = html.Replace("{{TABLEAU}}", BuildTable(type, lines) + BuildRecodification(lines));
-            html = html.Replace("{{CONDITIONS}}", BuildConditions(conditions));
+            html = html.Replace("{{TABLEAU}}", BuildTable(type, lines));
+            html = html.Replace("{{COMMENTAIRE}}", BuildCommentaire(conditions));
+            html = html.Replace("{{NOTES}}", BuildNotes(type, lines));
             html = html.Replace("{{PO}}", BuildPo(poFileName));
             return html;
         }
@@ -78,17 +83,41 @@ namespace AskThem.Services
         }
 
         /// <summary>
-        /// Bloc de conditions générales ajouté en fin de message. Vide si rien n'a été saisi.
-        /// Les retours à la ligne saisis par l'utilisateur sont conservés.
+        /// Commentaire general : bloc titre place juste sous le tableau, dans la meme
+        /// taille que le reste du message. Vide si rien n'a ete saisi.
         /// </summary>
-        private static string BuildConditions(string conditions)
+        private static string BuildCommentaire(string commentaire)
         {
-            if (string.IsNullOrWhiteSpace(conditions)) return "";
-            string texte = WebUtility.HtmlEncode(conditions.Trim());
-            texte = texte.Replace("\r\n", "<br/>").Replace("\n", "<br/>");
-            return "<div style=\"margin-top:20px; padding-top:12px; border-top:1px solid #cccccc; "
-                 + "font-size:13px; color:#333333;\">" + texte + "</div>";
+            if (string.IsNullOrWhiteSpace(commentaire)) return "";
+            string texte = WebUtility.HtmlEncode(commentaire.Trim());
+            texte = texte.Replace(CRLF, "<br/>").Replace(LF, "<br/>");
+            return "<div style=\"margin:18px 0; border:1px solid #b8c4cc;\">"
+                 + "<div style=\"background:#eef2f6; padding:7px 13px; font-weight:bold; "
+                 + "border-bottom:1px solid #b8c4cc;\">Commentaire général</div>"
+                 + "<div style=\"padding:11px 13px;\">" + texte + "</div></div>";
         }
+
+        /// <summary>
+        /// Notes en couleur, regroupees en fin de message juste avant la signature :
+        /// article recodifie, puis rappel sur la revision des plans en fabrication.
+        /// </summary>
+        private static string BuildNotes(RequestType type, List<PartLine> lines)
+        {
+            StringBuilder sb = new StringBuilder();
+            sb.Append(BuildRecodification(lines));
+            if (type == RequestType.Fabrication) sb.Append(NoteRevision);
+            return sb.ToString();
+        }
+
+        /// <summary>Rappel sur la revision des plans, propre a la fabrication.</summary>
+        private const string NoteRevision =
+            "<div style=\"border-left:4px solid #c00000; background:#fff4f4; padding:10px 14px; margin:14px 0;\">"
+            + "<b>IMPORTANT &mdash; Révision des plans</b><br/>"
+            + "Merci de contrôler impérativement la <b>révision indiquée dans le cartouche de "
+            + "chaque plan</b> et de la comparer à celle du tableau ci-dessus. La fabrication doit "
+            + "être réalisée <b>exclusivement selon la révision indiquée</b>. Nous vous prions "
+            + "de nous <b>confirmer par retour de message la révision sur laquelle vous travaillez</b>, "
+            + "afin de garantir que les dernières mises à jour sont bien prises en compte.</div>";
 
         /// <summary>Charge le modèle HTML ; si le fichier est absent, utilise le modèle intégré.</summary>
         private static string LoadTemplate(RequestType type)
@@ -135,8 +164,8 @@ namespace AskThem.Services
 
             sb.Append("<tr>");
             sb.Append("<th" + HeadStyle + ">N° article</th>");
-            sb.Append("<th" + HeadStyle + ">Désignation</th>");
             if (showOldRef) sb.Append("<th" + HeadStyle + ">Ancienne réf.</th>");
+            sb.Append("<th" + HeadStyle + ">Désignation</th>");
             if (showRef) sb.Append("<th" + HeadStyle + ">Votre référence</th>");
             sb.Append("<th" + HeadStyle + ">Rév. plan</th>");
             if (showDate) sb.Append("<th" + HeadStyle + ">Date de réalisé</th>");
@@ -159,8 +188,8 @@ namespace AskThem.Services
             {
                 sb.Append("<tr>");
                 sb.Append("<td" + CellStyle + ">" + Enc(l.PartNumber) + "</td>");
-                sb.Append("<td" + CellStyle + ">" + Dash(l.Description) + "</td>");
                 if (showOldRef) sb.Append("<td" + CellStyle + ">" + Dash(l.OldRef) + "</td>");
+                sb.Append("<td" + CellStyle + ">" + Dash(l.Description) + "</td>");
                 if (showRef) sb.Append("<td" + CellStyle + ">" + Dash(l.SupplierRef) + "</td>");
 
                 // La révision du plan est mise en évidence en fabrication.
@@ -213,41 +242,35 @@ namespace AskThem.Services
 
         private const string TemplateOffre =
 @"<html>
-<body style=""font-family:Segoe UI, Arial, sans-serif; font-size:14px; color:#222;"">
+<body style=""font-family:Aptos, 'Segoe UI', Arial, sans-serif; font-size:14px; color:#222;"">
 <p>Bonjour,</p>
 <p>Nous vous prions de bien vouloir nous faire parvenir votre meilleure offre
 pour les {{NB_ARTICLES}} article(s) ci-dessous.</p>
 <p>Merci d'indiquer un <b>prix unitaire pour chaque palier de quantité</b>,
 ainsi que le <b>délai de livraison</b> correspondant.</p>
-<p>Référence projet : <b>{{PROJET}}</b><br/>
+<p>Référence commande : <b>{{COMMANDE}}</b><br/>
 Délai souhaité : <b>{{DELAI}}</b></p>
 {{TABLEAU}}
-{{CONDITIONS}}
+{{COMMENTAIRE}}
 <p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) lorsqu'il existe.</p>
 <p>Dans l'attente de votre retour, nous vous adressons nos meilleures salutations.</p>
+{{NOTES}}
 </body>
 </html>";
 
         private const string TemplateFabrication =
 @"<html>
-<body style=""font-family:Segoe UI, Arial, sans-serif; font-size:14px; color:#222;"">
+<body style=""font-family:Aptos, 'Segoe UI', Arial, sans-serif; font-size:14px; color:#222;"">
 <p>Bonjour,</p>
 <p>Nous vous confions la fabrication des {{NB_ARTICLES}} article(s) listés ci-dessous.</p>
-<p>Référence projet : <b>{{PROJET}}</b><br/>
+<p>Référence commande : <b>{{COMMANDE}}</b><br/>
 Délai souhaité : <b>{{DELAI}}</b></p>
 {{TABLEAU}}
-<div style=""border-left:4px solid #c00; background:#fff4f4; padding:10px 14px; margin:18px 0;"">
-<b>IMPORTANT — Révision des plans</b><br/>
-Merci de contrôler impérativement la <b>révision indiquée dans le cartouche de chaque plan</b>
-et de la comparer à celle du tableau ci-dessus. La fabrication doit être réalisée
-<b>exclusivement selon la révision indiquée</b>. Nous vous prions de nous
-<b>confirmer par retour de message la révision sur laquelle vous travaillez</b>,
-afin de garantir que les dernières mises à jour sont bien prises en compte.
-</div>
-{{CONDITIONS}}
+{{COMMENTAIRE}}
 {{PO}}
 <p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) lorsqu'il existe.</p>
 <p>Avec nos remerciements et nos meilleures salutations.</p>
+{{NOTES}}
 </body>
 </html>";
     }

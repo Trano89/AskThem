@@ -141,7 +141,7 @@ Le journal d'exécution est écrit dans `%LOCALAPPDATA%\AskThem\logs\askthem_AAA
    récapitulant les refus pour un collage ou un import.
 3. **Cliquer sur *Vérifier*** pour contrôler la présence des fichiers dans le coffre.
    Vert = 3D et 2D trouvés, orange = un des deux manque, rouge = introuvable.
-4. **Renseigner les paramètres** en bas : **fournisseur** choisi dans la liste, référence projet, délai souhaité,
+4. **Renseigner les paramètres** en bas : **fournisseur** choisi dans la liste, référence de commande, délai souhaité,
    exports souhaités, et éventuellement des **conditions générales** — ce texte libre est
    ajouté en fin d'email, après le tableau des articles.
 
