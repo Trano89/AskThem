@@ -3,6 +3,20 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.12] — 2026-08-25
+
+### Corrigé
+
+- **La police déclarée dans les modèles d'email n'était jamais appliquée.** Elle était
+  portée par la balise `body`, or seul le contenu interne est repris lors de la fusion
+  avec la signature Outlook : le style était donc perdu à chaque envoi. Le message est
+  désormais enveloppé dans un conteneur qui, lui, survit à la fusion.
+- **Les emails s'écrivent en Aptos, taille 12**, avec repli sur Segoe UI puis Calibri.
+  Toutes les tailles fixées en pixels ont été retirées : tableau, notes et commentaire
+  héritent de cette unique déclaration.
+- L'interface conserve sa police d'origine — le changement ne portait que sur les emails.
+- Le champ de commentaire porte à l'écran le même intitulé que dans l'email.
+
 ## [1.2.11] — 2026-08-25
 
 ### Modifié

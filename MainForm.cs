@@ -561,7 +561,7 @@ namespace AskThem
         {
             panelParams = new Panel();
             panelParams.Dock = DockStyle.Bottom;
-            panelParams.Height = 210;
+            panelParams.Height = 176;
             panelParams.Padding = new Padding(12, 8, 12, 8);
 
             // --- Les deux actions, toujours à droite ---
@@ -649,7 +649,7 @@ namespace AskThem
             flow.Controls.Add(Groupe("", chk3D, chk2D));
             groupePo = Groupe(lblPo.Text, txtPo, btnPo);
             flow.Controls.Add(groupePo);
-            flow.Controls.Add(Groupe("Conditions générales (fin d'email) :", txtConditions, null));
+            flow.Controls.Add(Groupe("Commentaire général (bas de l'email) :", txtConditions, null));
 
             panelParams.Controls.Add(flow);
             panelParams.Controls.Add(actions);

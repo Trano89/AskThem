@@ -6,19 +6,18 @@ using System.Windows.Forms;
 namespace AskThem.Services
 {
     /// <summary>
-    /// Police unique de l'application : Aptos en taille 12.
+    /// Police de l'interface. Elle sert aussi à mesurer les libellés : c'est d'elle que
+    /// les boutons et les colonnes tirent leur largeur, plutôt que de valeurs figées.
     ///
-    /// Aptos n'est pas présente sur tous les postes — elle arrive avec les versions
-    /// récentes de Microsoft 365. Demander une police absente ne provoque pas d'erreur :
-    /// Windows substitue silencieusement une police de repli très datée. On choisit donc
-    /// nous-mêmes le repli, pour que l'application reste lisible partout.
+    /// La police des emails est distincte et définie dans les modèles : ce qui s'affiche
+    /// à l'écran et ce qui part chez le fournisseur n'ont pas les mêmes contraintes.
     /// </summary>
     public static class AppFont
     {
         /// <summary>Taille unique, en points.</summary>
-        public const float Size = 12F;
+        public const float Size = 9F;
 
-        private static readonly string[] Preferences = { "Aptos", "Aptos Display", "Segoe UI", "Calibri" };
+        private static readonly string[] Preferences = { "Segoe UI", "Aptos", "Calibri" };
 
         private static string _famille;
         private static Font _normale;

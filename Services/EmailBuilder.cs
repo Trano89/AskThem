@@ -160,7 +160,7 @@ namespace AskThem.Services
             }
 
             StringBuilder sb = new StringBuilder();
-            sb.Append("<table style=\"border-collapse:collapse; font-size:13px;\">");
+            sb.Append("<table style=\"border-collapse:collapse;\">");
 
             sb.Append("<tr>");
             sb.Append("<th" + HeadStyle + ">N° article</th>");
@@ -242,7 +242,8 @@ namespace AskThem.Services
 
         private const string TemplateOffre =
 @"<html>
-<body style=""font-family:Aptos, 'Segoe UI', Arial, sans-serif; font-size:14px; color:#222;"">
+<body>
+<div style=""font-family:Aptos, 'Segoe UI', Calibri, Arial, sans-serif; font-size:12pt; color:#222222;"">
 <p>Bonjour,</p>
 <p>Nous vous prions de bien vouloir nous faire parvenir votre meilleure offre
 pour les {{NB_ARTICLES}} article(s) ci-dessous.</p>
@@ -255,12 +256,14 @@ Délai souhaité : <b>{{DELAI}}</b></p>
 <p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) lorsqu'il existe.</p>
 <p>Dans l'attente de votre retour, nous vous adressons nos meilleures salutations.</p>
 {{NOTES}}
+</div>
 </body>
 </html>";
 
         private const string TemplateFabrication =
 @"<html>
-<body style=""font-family:Aptos, 'Segoe UI', Arial, sans-serif; font-size:14px; color:#222;"">
+<body>
+<div style=""font-family:Aptos, 'Segoe UI', Calibri, Arial, sans-serif; font-size:12pt; color:#222222;"">
 <p>Bonjour,</p>
 <p>Nous vous confions la fabrication des {{NB_ARTICLES}} article(s) listés ci-dessous.</p>
 <p>Référence commande : <b>{{COMMANDE}}</b><br/>
@@ -271,6 +274,7 @@ Délai souhaité : <b>{{DELAI}}</b></p>
 <p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) lorsqu'il existe.</p>
 <p>Avec nos remerciements et nos meilleures salutations.</p>
 {{NOTES}}
+</div>
 </body>
 </html>";
     }
