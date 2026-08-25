@@ -3,6 +3,18 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.9] — 2026-08-25
+
+### Corrigé
+
+- **L'icône n'apparaissait pas dans la barre des tâches.** Elle était bien présente dans
+  l'exécutable, mais la barre des tâches affiche l'icône de la **fenêtre**, pas celle du
+  fichier. Elle était chargée par extraction depuis l'exécutable, ce qui ne fonctionnait
+  pas dans un exécutable unique et ne fournissait qu'une seule taille.
+- L'icône est désormais **embarquée dans l'assembly** et chargée directement, avec toutes
+  ses tailles : Windows choisit la bonne selon le contexte. Vérifié sur l'application en
+  fonctionnement, en interrogeant la fenêtre elle-même en 16 et 32 pixels.
+
 ## [1.2.8] — 2026-08-25
 
 ### Ajouté

@@ -10,9 +10,9 @@
     <AssemblyName>AskThem</AssemblyName>
     <RootNamespace>AskThem</RootNamespace>
     <!-- Version affichée dans le titre et comparée aux publications GitHub. -->
-    <Version>1.2.8</Version>
-    <AssemblyVersion>1.2.8.0</AssemblyVersion>
-    <FileVersion>1.2.8.0</FileVersion>
+    <Version>1.2.9</Version>
+    <AssemblyVersion>1.2.9.0</AssemblyVersion>
+    <FileVersion>1.2.9.0</FileVersion>
     <Company>Lyncée Tec SA</Company>
     <Product>AskThem</Product>
     <Description>Préparation des demandes d'offre et de fabrication depuis le coffre SolidWorks PDM.</Description>
@@ -37,6 +37,11 @@
     <SwRedist>$(MSBuildProjectDirectory)\lib</SwRedist>
     <SwRedist Condition="!Exists('$(SwRedist)\SolidWorks.Interop.sldworks.dll')">C:\Program Files\SOLIDWORKS Corp\SOLIDWORKS\api\redist</SwRedist>
   </PropertyGroup>
+  <!-- L'icone est embarquee : la fenetre la charge depuis l'assembly, sans dependre
+       de l'extraction des ressources de l'executable. -->
+  <ItemGroup>
+    <EmbeddedResource Include="assets\askthem.ico" />
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="SolidWorks.Interop.sldworks">
       <HintPath>$(SwRedist)\SolidWorks.Interop.sldworks.dll</HintPath>
