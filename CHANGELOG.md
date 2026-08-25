@@ -3,6 +3,18 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.14] — 2026-08-25
+
+### Ajouté
+
+- **Une demande d'offre peut être accompagnée d'une demande de PO au format PDF.**
+  Le champ existe désormais dans les deux modes : *Demande de PO* en offre, où il est
+  **facultatif**, et *Bon de commande* en fabrication, où il reste **obligatoire**.
+- Le document est archivé avec la demande et joint à l'email **séparément** des archives
+  par article, pour être vu sans rien décompresser. L'email le mentionne par son nom,
+  avec le libellé correspondant au type de demande.
+- Un fichier choisi puis disparu entre-temps est signalé avant l'envoi, dans les deux modes.
+
 ## [1.2.13] — 2026-08-25
 
 ### Corrigé

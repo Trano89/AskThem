@@ -43,7 +43,7 @@ namespace AskThem.Services
             html = html.Replace("{{TABLEAU}}", BuildTable(type, lines));
             html = html.Replace("{{COMMENTAIRE}}", BuildCommentaire(conditions));
             html = html.Replace("{{NOTES}}", BuildNotes(type, lines));
-            html = html.Replace("{{PO}}", BuildPo(poFileName));
+            html = html.Replace("{{PO}}", BuildPo(type, poFileName));
             return html;
         }
 
@@ -74,12 +74,19 @@ namespace AskThem.Services
                  + "</div>";
         }
 
-        /// <summary>Mention du bon de commande joint. Vide si aucun n'accompagne la demande.</summary>
-        private static string BuildPo(string poFileName)
+        /// <summary>
+        /// Mention du document joint : bon de commande en fabrication, demande de PO
+        /// en offre. Vide si aucun document n'accompagne la demande.
+        /// </summary>
+        private static string BuildPo(RequestType type, string poFileName)
         {
             if (string.IsNullOrWhiteSpace(poFileName)) return "";
-            return "<p>Notre <b>bon de commande</b> est joint à ce message : "
-                 + WebUtility.HtmlEncode(poFileName.Trim()) + "</p>";
+            string nom = WebUtility.HtmlEncode(poFileName.Trim());
+            if (type == RequestType.Offre)
+            {
+                return "<p>Notre <b>demande de PO</b> est jointe à ce message : " + nom + "</p>";
+            }
+            return "<p>Notre <b>bon de commande</b> est joint à ce message : " + nom + "</p>";
         }
 
         /// <summary>
@@ -253,6 +260,7 @@ ainsi que le <b>délai de livraison</b> correspondant.</p>
 Délai souhaité : <b>{{DELAI}}</b></p>
 {{TABLEAU}}
 {{COMMENTAIRE}}
+{{PO}}
 <p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) lorsqu'il existe.</p>
 <p>Dans l'attente de votre retour, nous vous adressons nos meilleures salutations.</p>
 {{NOTES}}

@@ -624,7 +624,7 @@ namespace AskThem
             chk2D.Checked = _config.Export2D;
 
             lblPo = new Label();
-            lblPo.Text = "Bon de commande (PDF) :";
+            lblPo.Text = LibellePo(true);
             lblPo.AutoSize = true;
 
             txtPo = new TextBox();
@@ -808,9 +808,15 @@ namespace AskThem
             colQty2.Visible = offre;
             colQty3.Visible = offre;
 
-            // Le bon de commande n'a de sens que pour une demande de fabrication.
-            if (groupePo != null) groupePo.Visible = !offre;
-            if (offre) txtPo.Text = "";
+            // Le document joint change de nature selon le mode : bon de commande en
+            // fabrication, demande de PO en offre. Il reste facultatif en offre.
+            if (groupePo != null)
+            {
+                foreach (Control c in groupePo.Controls)
+                {
+                    if (c is Label) { ((Label)c).Text = LibellePo(offre); break; }
+                }
+            }
 
             if (!offre)
             {
@@ -939,22 +945,30 @@ namespace AskThem
             FillSupplierBox(nom);
         }
 
+        /// <summary>Intitulé du document joint, selon le type de demande.</summary>
+        private static string LibellePo(bool offre)
+        {
+            return offre ? "Demande de PO (PDF, facultatif) :" : "Bon de commande (PDF) :";
+        }
+
         private void BtnPo_Click(object sender, EventArgs e)
         {
             using (OpenFileDialog dlg = new OpenFileDialog())
             {
-                dlg.Title = "Choisir le bon de commande";
+                dlg.Title = CurrentType == RequestType.Offre
+                    ? "Choisir la demande de PO"
+                    : "Choisir le bon de commande";
                 dlg.Filter = "Bon de commande PDF (*.pdf)|*.pdf";
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
                 if (!string.Equals(Path.GetExtension(dlg.FileName), ".pdf", StringComparison.OrdinalIgnoreCase))
                 {
-                    MessageBox.Show("Le bon de commande doit être un fichier PDF.", "AskThem",
+                    MessageBox.Show("Le document doit être un fichier PDF.", "AskThem",
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
                 txtPo.Text = dlg.FileName;
-                Log("Bon de commande : " + Path.GetFileName(dlg.FileName));
+                Log("Document joint : " + Path.GetFileName(dlg.FileName));
             }
         }
 
@@ -1177,6 +1191,16 @@ namespace AskThem
             // 5) Destinataire obligatoire pour la génération.
             if (forGeneration)
             {
+                // Facultatif en offre, obligatoire en fabrication : dans les deux cas,
+                // un fichier indiqué mais disparu doit être signalé avant l'envoi.
+                string po = txtPo.Text.Trim();
+                if (po != "" && !File.Exists(po))
+                {
+                    MessageBox.Show("Le document joint est introuvable :" + Environment.NewLine + po,
+                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return false;
+                }
+
                 Supplier fournisseur = SelectedSupplier;
                 if (fournisseur == null)
                 {
@@ -1211,17 +1235,10 @@ namespace AskThem
                         return false;
                     }
 
-                    string po = txtPo.Text.Trim();
-                    if (po == "")
+                    if (txtPo.Text.Trim() == "")
                     {
                         MessageBox.Show("Une demande de fabrication exige un bon de commande." + Environment.NewLine +
                             "Utilisez « Parcourir… » pour joindre le PDF.",
-                            "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        return false;
-                    }
-                    if (!File.Exists(po))
-                    {
-                        MessageBox.Show("Le bon de commande est introuvable :" + Environment.NewLine + po,
                             "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return false;
                     }
@@ -1269,7 +1286,7 @@ namespace AskThem
             _optProject = txtProject.Text.Trim();
             _optDeadline = dtpDeadline.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
             _optConditions = txtConditions.Text;
-            _optPoPath = CurrentType == RequestType.Fabrication ? txtPo.Text.Trim() : "";
+            _optPoPath = txtPo.Text.Trim();
             _optType = CurrentType;
             _work = new List<PartLine>(_lines);
 

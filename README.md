@@ -145,9 +145,10 @@ Le journal d'exécution est écrit dans `%LOCALAPPDATA%\AskThem\logs\askthem_AAA
    exports souhaités, et éventuellement des **conditions générales** — ce texte libre est
    ajouté en fin d'email, après le tableau des articles.
 
-   En **demande de fabrication**, le **bon de commande au format PDF est obligatoire** :
-   la génération est refusée tant qu'il n'est pas joint. Il est archivé avec la demande et
-   joint à l'email à part, hors des archives par article.
+   Un **document PDF** peut accompagner la demande : le **bon de commande** en fabrication,
+   où il est **obligatoire** — la génération est refusée tant qu'il n'est pas joint — ou une
+   **demande de PO** en offre, où il est facultatif. Il est archivé avec la demande et joint
+   à l'email à part, hors des archives par article.
 
    Le destinataire ne se tape pas : il se choisit. Le bouton **Fournisseurs…** ouvre la
    gestion de la liste — création, modification, suppression, avec **plusieurs adresses
