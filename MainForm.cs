@@ -109,6 +109,7 @@ namespace AskThem
 
             // --- Fenêtre ---
             Text = "AskThem " + UpdateService.CurrentVersion();
+            AppIcon.Apply(this);
             Font = new Font("Segoe UI", 9F);
             Size = new Size(1180, 760);
             MinimumSize = new Size(1000, 640);

@@ -24,6 +24,7 @@ namespace AskThem
             _config = config;
 
             Text = "Connexion à l'inventaire";
+            AppIcon.Apply(this);
             Font = new Font("Segoe UI", 9F);
             Size = new Size(640, 330);
             MinimumSize = new Size(580, 310);

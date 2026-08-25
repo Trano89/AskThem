@@ -10,13 +10,13 @@
     <AssemblyName>AskThem</AssemblyName>
     <RootNamespace>AskThem</RootNamespace>
     <!-- Version affichée dans le titre et comparée aux publications GitHub. -->
-    <Version>1.2.7</Version>
-    <AssemblyVersion>1.2.7.0</AssemblyVersion>
-    <FileVersion>1.2.7.0</FileVersion>
+    <Version>1.2.8</Version>
+    <AssemblyVersion>1.2.8.0</AssemblyVersion>
+    <FileVersion>1.2.8.0</FileVersion>
     <Company>Lyncée Tec SA</Company>
     <Product>AskThem</Product>
     <Description>Préparation des demandes d'offre et de fabrication depuis le coffre SolidWorks PDM.</Description>
-    <ApplicationIcon></ApplicationIcon>
+    <ApplicationIcon>assets\askthem.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>

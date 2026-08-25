@@ -3,6 +3,18 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.8] — 2026-08-25
+
+### Ajouté
+
+- **Icône propre à l'application.** Une feuille de plan avec son coin replié et son
+  cartouche, sur fond pétrole, et une pastille d'envoi ambre. Elle reprend le langage
+  visuel des rapports du projet.
+- L'icône est déclinée en neuf tailles, de 16 à 256 pixels, chacune contrôlée : la
+  silhouette reste lisible dans la barre des tâches comme dans l'explorateur.
+- Les fenêtres de l'application — principale, fournisseurs, inventaire — portent la même
+  icône, extraite de l'exécutable pour qu'elle le suive où qu'il soit copié.
+
 ## [1.2.7] — 2026-08-25
 
 ### Sécurité

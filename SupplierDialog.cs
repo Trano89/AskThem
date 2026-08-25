@@ -30,6 +30,7 @@ namespace AskThem
             _suppliers = Copy(suppliers);
 
             Text = "Fournisseurs";
+            AppIcon.Apply(this);
             Font = new Font("Segoe UI", 9F);
             Size = new Size(780, 470);
             MinimumSize = new Size(680, 420);
