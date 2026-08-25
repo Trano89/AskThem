@@ -3,6 +3,24 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.7] — 2026-08-25
+
+### Sécurité
+
+- **AskThem ne peut pas écrire dans l'inventaire.** Un garde-fou placé au niveau du
+  transport refuse toute requête qui n'est pas une lecture, avant qu'elle ne parte sur
+  le réseau. La seule exception est le `POST` d'ouverture de session, limité à l'adresse
+  exacte de connexion — le serveur n'offrant aucun autre moyen de s'authentifier.
+- Le contrôle est **indépendant des droits du compte** : un utilisateur disposant de
+  droits de gestion sur l'inventaire ne peut rien y modifier en passant par AskThem.
+- Le client d'inventaire n'expose **aucune méthode d'écriture**, et toutes ses lectures
+  passent par une primitive `GET` unique.
+- Vérifié par test : sur dix tentatives — création, modification, suppression d'articles,
+  de commandes et de fournisseurs, sauvegarde d'administration — huit sont refusées et
+  seules la lecture des articles et l'ouverture de session atteignent le réseau.
+- Le compte connecté est journalisé, et la fenêtre de connexion recommande un compte en
+  lecture seule : le refus vient alors du serveur et non du seul programme.
+
 ## [1.2.6] — 2026-08-25
 
 ### Ajouté

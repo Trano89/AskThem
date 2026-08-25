@@ -60,9 +60,10 @@ namespace AskThem
             note.Height = 64;
             note.ForeColor = Color.Gray;
             note.Text = "Le mot de passe est chiffré par Windows pour ce poste et cette session. "
-                      + "Il n'est écrit ni dans le programme, ni dans config.json, ni sur le dépôt : "
-                      + "un mot de passe placé dans le code serait lisible par quiconque obtient "
-                      + "l'exécutable. Chaque poste le saisit une fois.";
+                      + "Il n'est écrit ni dans le programme, ni dans config.json, ni sur le dépôt." + Environment.NewLine
+                      + "AskThem ne fait que consulter l'inventaire : il refuse lui-même toute écriture, "
+                      + "quels que soient les droits du compte. Un compte en lecture seule reste "
+                      + "préférable — le refus vient alors du serveur, pas seulement du programme.";
 
             lblEtat = new Label();
             lblEtat.Dock = DockStyle.Bottom;
@@ -151,7 +152,9 @@ namespace AskThem
 
                     string messageLecture;
                     api.LoadAll(out messageLecture);
-                    lblEtat.Text = message + " " + messageLecture;
+                    string qui = api.WhoAmI();
+                    lblEtat.Text = message + " " + messageLecture
+                                 + (qui == "" ? "" : Environment.NewLine + "Compte : " + qui + " — consultation en lecture seule.");
 
                     // La connexion fonctionne : on peut conserver les réglages.
                     _config.InventoryApiUrl = url;

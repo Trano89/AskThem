@@ -917,6 +917,8 @@ namespace AskThem
                     if (api.Connect(_config.InventoryApiUrl, _config.InventoryUser, mdp, out message))
                     {
                         Log(message);
+                        string qui = api.WhoAmI();
+                        if (qui != "") Log("Inventaire consulté en lecture seule par : " + qui);
                         _inventaire = api.LoadAll(out message);
                         Log(message);
                         if (_inventaire.Count > 0) return;
