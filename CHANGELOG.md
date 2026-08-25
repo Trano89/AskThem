@@ -3,6 +3,20 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.6] — 2026-08-25
+
+### Ajouté
+
+- **Connexion directe à l'inventaire.** Un bouton *Inventaire…* ouvre une fenêtre où
+  l'adresse, l'utilisateur et le mot de passe sont saisis une fois. La connexion est
+  éprouvée avant d'être enregistrée. Les demandes lisent ensuite les articles par l'API,
+  avec **repli automatique sur l'export** si le service est indisponible.
+- **Le mot de passe est chiffré par Windows** (DPAPI) dans `%LOCALAPPDATA%\AskThem`,
+  lié à ce poste et à cette session. Il n'existe **ni dans le code, ni dans l'exécutable,
+  ni dans `config.json`, ni sur le dépôt** : un identifiant placé dans un programme
+  distribuable est lisible par quiconque en obtient une copie, et l'historique d'un dépôt
+  est définitif. Le bouton *Oublier le mot de passe* l'efface du poste.
+
 ## [1.2.5] — 2026-08-25
 
 ### Ajouté

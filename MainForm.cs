@@ -58,6 +58,7 @@ namespace AskThem
         private Button btnImportCsv;
         private Button btnExportCsv;
         private Button btnClear;
+        private Button btnInventaire;
 
         private DataGridView grid;
         private DataGridViewTextBoxColumn colPartNumber;
@@ -186,11 +187,15 @@ namespace AskThem
             btnClear = MakeToolButton("Tout vider", 596);
             btnClear.Click += new EventHandler(BtnClear_Click);
 
+            btnInventaire = MakeToolButton("Inventaire…", 742);
+            btnInventaire.Click += new EventHandler(BtnInventaire_Click);
+
             panelTools.Controls.Add(btnAddLine);
             panelTools.Controls.Add(btnPaste);
             panelTools.Controls.Add(btnImportCsv);
             panelTools.Controls.Add(btnExportCsv);
             panelTools.Controls.Add(btnClear);
+            panelTools.Controls.Add(btnInventaire);
         }
 
         /// <summary>Crée un bouton de la barre d'outils (140 x 30).</summary>
@@ -885,6 +890,48 @@ namespace AskThem
             }
         }
 
+        private void BtnInventaire_Click(object sender, EventArgs e)
+        {
+            using (InventoryDialog dlg = new InventoryDialog(_config))
+            {
+                dlg.ShowDialog(this);
+            }
+            _config = ConfigService.Load();
+        }
+
+        /// <summary>
+        /// Charge l'inventaire : par son API si une session peut s'ouvrir, sinon par
+        /// l'export déposé sur le réseau. La source retenue est écrite au journal.
+        /// </summary>
+        private void LoadInventory()
+        {
+            string message;
+
+            string mdp = SecretStore.Load(InventoryApiService.SecretName);
+            if (!string.IsNullOrWhiteSpace(_config.InventoryApiUrl)
+                && !string.IsNullOrWhiteSpace(_config.InventoryUser)
+                && !string.IsNullOrWhiteSpace(mdp))
+            {
+                using (InventoryApiService api = new InventoryApiService())
+                {
+                    if (api.Connect(_config.InventoryApiUrl, _config.InventoryUser, mdp, out message))
+                    {
+                        Log(message);
+                        _inventaire = api.LoadAll(out message);
+                        Log(message);
+                        if (_inventaire.Count > 0) return;
+                    }
+                    else
+                    {
+                        Log(message + " Repli sur l'export.");
+                    }
+                }
+            }
+
+            _inventaire = InventoryService.Load(_config, out message);
+            Log(message);
+        }
+
         private void BtnAddLine_Click(object sender, EventArgs e)
         {
             _lines.Add(new PartLine());
@@ -1199,9 +1246,7 @@ namespace AskThem
         {
             BuildPdmIndex();
 
-            string messageInventaire;
-            _inventaire = InventoryService.Load(_config, out messageInventaire);
-            Log(messageInventaire);
+            LoadInventory();
 
             int total = _work.Count;
             int ok = 0;
@@ -1297,9 +1342,7 @@ namespace AskThem
 
             BuildPdmIndex();
 
-            string messageInventaire;
-            _inventaire = InventoryService.Load(_config, out messageInventaire);
-            Log(messageInventaire);
+            LoadInventory();
 
             SetProgress(0, "Préparation...");
 
@@ -1874,6 +1917,7 @@ namespace AskThem
                 btnGenerate.Enabled = !busy;
                 modeSwitch.Enabled = !busy;
                 btnSuppliers.Enabled = !busy;
+                btnInventaire.Enabled = !busy;
                 btnCancel.Enabled = busy;
                 Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
             });

@@ -76,6 +76,15 @@ namespace AskThem.Models
         /// <summary>Dossier réseau où est enregistrée la liste des fournisseurs.</summary>
         public string SupplierListPath { get; set; }
 
+        /// <summary>Adresse de l'API de l'inventaire. Vide = consultation par export seulement.</summary>
+        public string InventoryApiUrl { get; set; }
+
+        /// <summary>
+        /// Utilisateur de l'inventaire. Le mot de passe n'est jamais enregistré ici :
+        /// il est chiffré par Windows, hors du programme et hors du dépôt.
+        /// </summary>
+        public string InventoryUser { get; set; }
+
         /// <summary>
         /// Export de l'inventaire (CSV ou Excel) contenant la référence interne,
         /// l'ancienne référence, le fournisseur et sa référence. Vide = pas de consultation.
@@ -111,6 +120,8 @@ namespace AskThem.Models
             ReleasedStates = new List<string> { "Libéré", "Libere", "Released", "Approuvé", "Approved" };
             ArchiveRoot = "P:\\PRODUCTION\\3) Document fournisseur";
             SupplierListPath = "P:\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs";
+            InventoryApiUrl = "http://inventaire.lynceetec.local/api/v1";
+            InventoryUser = "";
             InventoryExportPath = "P:\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs\\inventaire.xlsx";
             CheckUpdatesOnStartup = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
