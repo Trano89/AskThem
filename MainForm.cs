@@ -24,6 +24,7 @@ namespace AskThem
         private AppConfig _config;
         private List<Supplier> _suppliers = new List<Supplier>();
         private Dictionary<string, string> _pdmIndex;
+        private Dictionary<string, InventoryService.Entry> _inventaire;
         private List<PartLine> _work;
         private volatile bool _cancelRequested;
         private bool _busy;
@@ -1198,6 +1199,10 @@ namespace AskThem
         {
             BuildPdmIndex();
 
+            string messageInventaire;
+            _inventaire = InventoryService.Load(_config, out messageInventaire);
+            Log(messageInventaire);
+
             int total = _work.Count;
             int ok = 0;
             int warn = 0;
@@ -1210,6 +1215,14 @@ namespace AskThem
                 PartLine line = _work[i];
                 line.Model3DPath = PdmSearchService.Find3DInIndex(_pdmIndex, line.PartNumber);
                 line.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, line.PartNumber);
+
+                InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
+                if (inv != null)
+                {
+                    line.OldRef = inv.OldRef;
+                    line.SupplierRef = inv.SupplierRef;
+                    line.PdmSupplier = inv.Supplier;
+                }
 
                 if (line.Model3DPath != null && line.DrawingPath != null) { line.Status = "OK"; ok++; }
                 else if (line.Model3DPath != null) { line.Status = "Manquant 2D"; warn++; }
@@ -1283,6 +1296,11 @@ namespace AskThem
             }
 
             BuildPdmIndex();
+
+            string messageInventaire;
+            _inventaire = InventoryService.Load(_config, out messageInventaire);
+            Log(messageInventaire);
+
             SetProgress(0, "Préparation...");
 
             // --- Étape 2 : connexion à SolidWorks ---
@@ -1507,6 +1525,15 @@ namespace AskThem
                 {
                     exporter.CloseDocument(doc);
                 }
+            }
+
+            // --- Ce que l'inventaire sait de cet article ---
+            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
+            if (inv != null)
+            {
+                line.OldRef = inv.OldRef;
+                if (line.SupplierRef == "") line.SupplierRef = inv.SupplierRef;
+                if (line.PdmSupplier == "") line.PdmSupplier = inv.Supplier;
             }
 
             // --- Une archive par numéro d'article ---

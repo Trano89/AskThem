@@ -3,6 +3,23 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.5] — 2026-08-25
+
+### Ajouté
+
+- **Anciennes références.** L'application consulte l'inventaire pour savoir si un article
+  a déjà porté une autre référence. Quand c'est le cas, l'email affiche une colonne
+  *Ancienne réf.* et un encadré avertit le fournisseur qu'il s'agit d'une **nouvelle
+  référence de production**, que des **modifications ont pu être apportées**, et qu'il
+  convient de **revoir la gamme** plutôt que de reconduire une préparation établie sur
+  l'ancienne version. Rien ne s'affiche si aucun article n'est concerné.
+- L'inventaire fournit également le **fournisseur** et la **référence fournisseur** des
+  articles catalogue, données absentes du PDM.
+- La source est un **export déposé sur le réseau**, dont le chemin est réglé par
+  `InventoryExportPath`. Les colonnes sont reconnues par leur intitulé : `internal_ref`,
+  `old_ref`, `supplier`, `supplier_ref`, ou leurs équivalents français.
+  Un export absent ou illisible est signalé sans empêcher de travailler.
+
 ## [1.2.4] — 2026-08-24
 
 ### Modifié

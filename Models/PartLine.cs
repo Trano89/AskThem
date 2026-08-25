@@ -51,6 +51,12 @@ namespace AskThem.Models
         /// <summary>Référence de l'article chez ce fournisseur.</summary>
         public string SupplierRef { get; set; }
 
+        /// <summary>
+        /// Ancienne référence de l'article, lue dans l'inventaire. Sa présence signale
+        /// que l'article a été recodifié et que la gamme mérite d'être revue.
+        /// </summary>
+        public string OldRef { get; set; }
+
         /// <summary>Type de l'article : les deux caractères YZ du code.</summary>
         public string TypeCode { get; set; }
 
@@ -95,6 +101,7 @@ namespace AskThem.Models
             State = "";
             PdmSupplier = "";
             SupplierRef = "";
+            OldRef = "";
             TypeCode = "";
             Status = "";
             Model3DPath = null;

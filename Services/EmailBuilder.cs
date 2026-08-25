@@ -36,10 +36,37 @@ namespace AskThem.Services
             html = html.Replace("{{NB_ARTICLES}}", lines.Count.ToString());
             html = html.Replace("{{PROJET}}", WebUtility.HtmlEncode(projectText));
             html = html.Replace("{{DELAI}}", WebUtility.HtmlEncode(deadlineText));
-            html = html.Replace("{{TABLEAU}}", BuildTable(type, lines));
+            html = html.Replace("{{TABLEAU}}", BuildTable(type, lines) + BuildRecodification(lines));
             html = html.Replace("{{CONDITIONS}}", BuildConditions(conditions));
             html = html.Replace("{{PO}}", BuildPo(poFileName));
             return html;
+        }
+
+        /// <summary>
+        /// Avertissement sur les articles recodifiés : leur ancienne référence existe encore
+        /// chez le fournisseur, et la pièce a pu évoluer entre-temps. Vide si aucun article
+        /// de la demande n'est concerné.
+        /// </summary>
+        private static string BuildRecodification(List<PartLine> lines)
+        {
+            int nombre = 0;
+            foreach (PartLine l in lines)
+            {
+                if (!string.IsNullOrWhiteSpace(l.OldRef)) nombre++;
+            }
+            if (nombre == 0) return "";
+
+            string pluriel = nombre > 1 ? "s" : "";
+            return "<div style=\"border-left:4px solid #b8860b; background:#fdf6e3; "
+                 + "padding:10px 14px; margin:18px 0;\">"
+                 + "<b>IMPORTANT &mdash; Article" + pluriel + " recodifié" + pluriel + "</b><br/>"
+                 + nombre + " article" + pluriel + " de cette demande porte" + (nombre > 1 ? "nt" : "")
+                 + " une <b>nouvelle référence de production</b>, qui remplace la référence "
+                 + "antérieure indiquée dans la colonne <i>Ancienne réf.</i> du tableau. "
+                 + "<b>Des modifications ont pu être apportées</b> depuis la version que vous "
+                 + "connaissez sous l'ancienne référence. Merci de <b>revoir la gamme</b> et de ne "
+                 + "pas reconduire telle quelle une préparation établie sur l'ancienne version."
+                 + "</div>";
         }
 
         /// <summary>Mention du bon de commande joint. Vide si aucun n'accompagne la demande.</summary>
@@ -88,6 +115,7 @@ namespace AskThem.Services
             bool showMaterial = false;
             bool showTreatment = false;
             bool showRef = false;
+            bool showOldRef = false;
             foreach (PartLine l in lines)
             {
                 if (type == RequestType.Offre)
@@ -99,6 +127,7 @@ namespace AskThem.Services
                 if (!string.IsNullOrWhiteSpace(l.Material)) showMaterial = true;
                 if (!string.IsNullOrWhiteSpace(l.Treatment)) showTreatment = true;
                 if (!string.IsNullOrWhiteSpace(l.SupplierRef)) showRef = true;
+                if (!string.IsNullOrWhiteSpace(l.OldRef)) showOldRef = true;
             }
 
             StringBuilder sb = new StringBuilder();
@@ -107,6 +136,7 @@ namespace AskThem.Services
             sb.Append("<tr>");
             sb.Append("<th" + HeadStyle + ">N° article</th>");
             sb.Append("<th" + HeadStyle + ">Désignation</th>");
+            if (showOldRef) sb.Append("<th" + HeadStyle + ">Ancienne réf.</th>");
             if (showRef) sb.Append("<th" + HeadStyle + ">Votre référence</th>");
             sb.Append("<th" + HeadStyle + ">Rév. plan</th>");
             if (showDate) sb.Append("<th" + HeadStyle + ">Date de réalisé</th>");
@@ -130,6 +160,7 @@ namespace AskThem.Services
                 sb.Append("<tr>");
                 sb.Append("<td" + CellStyle + ">" + Enc(l.PartNumber) + "</td>");
                 sb.Append("<td" + CellStyle + ">" + Dash(l.Description) + "</td>");
+                if (showOldRef) sb.Append("<td" + CellStyle + ">" + Dash(l.OldRef) + "</td>");
                 if (showRef) sb.Append("<td" + CellStyle + ">" + Dash(l.SupplierRef) + "</td>");
 
                 // La révision du plan est mise en évidence en fabrication.

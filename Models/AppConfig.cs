@@ -76,6 +76,12 @@ namespace AskThem.Models
         /// <summary>Dossier réseau où est enregistrée la liste des fournisseurs.</summary>
         public string SupplierListPath { get; set; }
 
+        /// <summary>
+        /// Export de l'inventaire (CSV ou Excel) contenant la référence interne,
+        /// l'ancienne référence, le fournisseur et sa référence. Vide = pas de consultation.
+        /// </summary>
+        public string InventoryExportPath { get; set; }
+
         /// <summary>Rechercher une nouvelle version au démarrage.</summary>
         public bool CheckUpdatesOnStartup { get; set; }
 
@@ -105,6 +111,7 @@ namespace AskThem.Models
             ReleasedStates = new List<string> { "Libéré", "Libere", "Released", "Approuvé", "Approved" };
             ArchiveRoot = "P:\\PRODUCTION\\3) Document fournisseur";
             SupplierListPath = "P:\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs";
+            InventoryExportPath = "P:\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs\\inventaire.xlsx";
             CheckUpdatesOnStartup = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
 
