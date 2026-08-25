@@ -3,6 +3,13 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.13] — 2026-08-25
+
+### Corrigé
+
+- Le titre du volet de détail retrouve sa taille d'origine. Le retour à la police de
+  l'interface, en 1.2.12, l'avait laissé plus petit qu'avant.
+
 ## [1.2.12] — 2026-08-25
 
 ### Corrigé

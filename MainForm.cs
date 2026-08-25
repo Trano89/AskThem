@@ -321,7 +321,7 @@ namespace AskThem
             lblDetailTitre.Text = "Aucune ligne sélectionnée";
             lblDetailTitre.Dock = DockStyle.Top;
             lblDetailTitre.Height = 42;
-            lblDetailTitre.Font = AppFont.Bold();
+            lblDetailTitre.Font = new Font(AppFont.Family, 11F, FontStyle.Bold);
             lblDetailTitre.TextAlign = ContentAlignment.MiddleLeft;
 
             Label note = new Label();
