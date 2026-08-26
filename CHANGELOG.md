@@ -3,6 +3,24 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.2.15] — 2026-08-26
+
+### Corrigé
+
+- **Affichage tronqué sur un écran de densité différente**, notamment en session distante.
+  Les polices suivaient la densité de l'écran mais pas les hauteurs de panneaux, restées
+  en pixels : les boutons et les champs se retrouvaient coupés. La mise à l'échelle est
+  désormais explicite, et les hauteurs se déduisent du contenu.
+
+### Ajouté
+
+- **Trois séparateurs déplaçables** : entre la grille et le volet de détail, entre la
+  zone de travail et le bas de fenêtre, et entre les paramètres et le journal. Chaque
+  zone peut être agrandie ou réduite, et la répartition choisie est conservée.
+- Au redimensionnement de la fenêtre, c'est la grille qui absorbe l'espace : le volet et
+  les paramètres gardent leur taille. Tant qu'aucun séparateur n'a été déplacé à la main,
+  la répartition se recale toute seule.
+
 ## [1.2.14] — 2026-08-25
 
 ### Ajouté

@@ -97,6 +97,17 @@ namespace AskThem
         private Button btnGenerate;
 
         private Panel panelStatus;
+
+        // Separateurs deplacables : l'utilisateur repartit l'espace comme il l'entend.
+        private SplitContainer splitPrincipal;
+        private SplitContainer splitCentre;
+        private SplitContainer splitBas;
+
+        // Hauteurs souhaitees au demarrage, deduites du contenu.
+        private int hauteurParams;
+        private int hauteurStatus;
+        private int largeurDetail;
+        private bool separateurDeplaceParUtilisateur;
         private Panel panelStatusLine;
         private ProgressBar progress;
         private Label lblProgress;
@@ -109,6 +120,12 @@ namespace AskThem
             _config = ConfigService.Load();
 
             // --- Fenêtre ---
+            // Sans mise a l'echelle explicite, les polices suivent la densite d'ecran
+            // mais pas les hauteurs de panneaux : les controles se retrouvent rognes
+            // lors d'une session distante ou sur un ecran a densite differente.
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
+
             Text = "AskThem " + UpdateService.CurrentVersion();
             AppIcon.Apply(this);
             Font = AppFont.Get();
@@ -123,13 +140,7 @@ namespace AskThem
             BuildParamsPanel();
             BuildStatusPanel();
 
-            // L'ordre d'ajout compte : le dernier ajouté est ancré au plus près du bord.
-            Controls.Add(grid);
-            Controls.Add(panelDetail);
-            Controls.Add(panelParams);
-            Controls.Add(panelStatus);
-            Controls.Add(panelTools);
-            Controls.Add(panelTop);
+            AssembleAvecSeparateurs();
 
             ApplyMode();
             LoadSuppliers();
@@ -146,7 +157,6 @@ namespace AskThem
         {
             panelTop = new Panel();
             panelTop.Dock = DockStyle.Top;
-            panelTop.Height = 60;
 
             // Interrupteur : gauche = offre, droite = fabrication.
             modeSwitch = new ModeSwitch();
@@ -167,6 +177,7 @@ namespace AskThem
             lblInfo.AutoSize = true;
 
             panelTop.Controls.Add(modeSwitch);
+            panelTop.Height = Math.Max(modeSwitch.Height, lblInfo.PreferredHeight) + 30;
             panelTop.Controls.Add(lblInfo);
         }
 
@@ -174,7 +185,6 @@ namespace AskThem
         {
             panelTools = new Panel();
             panelTools.Dock = DockStyle.Top;
-            panelTools.Height = 48;
 
             btnAddLine = MakeToolButton("Ajouter ligne");
             btnAddLine.Click += new EventHandler(BtnAddLine_Click);
@@ -203,6 +213,7 @@ namespace AskThem
                 panelTools.Controls.Add(b);
                 x += b.Width + 8;
             }
+            panelTools.Height = btnAddLine.Height + 16;
         }
 
         /// <summary>Crée un bouton de la barre d'outils (140 x 30).</summary>
@@ -313,7 +324,8 @@ namespace AskThem
         {
             panelDetail = new Panel();
             panelDetail.Dock = DockStyle.Right;
-            panelDetail.Width = 390;
+            largeurDetail = 390;
+            panelDetail.Width = largeurDetail;
             panelDetail.Padding = new Padding(14, 10, 14, 10);
             panelDetail.BackColor = Color.FromArgb(247, 249, 250);
 
@@ -561,7 +573,11 @@ namespace AskThem
         {
             panelParams = new Panel();
             panelParams.Dock = DockStyle.Bottom;
-            panelParams.Height = 176;
+            // Largeur realiste avant toute mesure : sans elle, les groupes s'empilent
+            // au lieu de se repartir, et la hauteur deduite est trois fois trop grande.
+            panelParams.Width = ClientSize.Width;
+            hauteurParams = 176;
+            panelParams.Height = hauteurParams;
             panelParams.Padding = new Padding(12, 8, 12, 8);
 
             // --- Les deux actions, toujours à droite ---
@@ -653,6 +669,12 @@ namespace AskThem
 
             panelParams.Controls.Add(flow);
             panelParams.Controls.Add(actions);
+
+            // Hauteur reelle une fois les groupes repartis sur la largeur disponible.
+            flow.PerformLayout();
+            int bas = 0;
+            foreach (Control g in flow.Controls) bas = Math.Max(bas, g.Bottom + g.Margin.Bottom);
+            if (bas > 0) hauteurParams = bas + panelParams.Padding.Vertical + 10;
         }
 
         /// <summary>
@@ -733,7 +755,8 @@ namespace AskThem
         {
             panelStatus = new Panel();
             panelStatus.Dock = DockStyle.Bottom;
-            panelStatus.Height = 118;
+            hauteurStatus = 96;
+            panelStatus.Height = hauteurStatus;
 
             progress = new ProgressBar();
             progress.Dock = DockStyle.Top;
@@ -789,6 +812,126 @@ namespace AskThem
         // ==================================================================
         // Comportements de l'interface
         // ==================================================================
+
+        /// <summary>
+        /// Assemble la fenêtre autour de trois séparateurs déplaçables : entre la grille
+        /// et le volet de détail, entre le haut et le bas, et entre les paramètres et le
+        /// journal. Chacun peut être déplacé, chaque zone agrandie ou réduite.
+        /// </summary>
+        private void AssembleAvecSeparateurs()
+        {
+            grid.Dock = DockStyle.Fill;
+            panelDetail.Dock = DockStyle.Fill;
+            panelParams.Dock = DockStyle.Fill;
+            panelStatus.Dock = DockStyle.Fill;
+
+            splitCentre = new SplitContainer();
+            splitCentre.Dock = DockStyle.Fill;
+            splitCentre.Orientation = Orientation.Vertical;
+            splitCentre.SplitterWidth = 6;
+            splitCentre.FixedPanel = FixedPanel.Panel2;   // le volet garde sa largeur, la grille absorbe
+            splitCentre.SplitterMoving += new SplitterCancelEventHandler(Separateur_Deplace);
+            splitCentre.Panel1.Controls.Add(grid);
+            splitCentre.Panel2.Controls.Add(panelDetail);
+
+            splitBas = new SplitContainer();
+            splitBas.Dock = DockStyle.Fill;
+            splitBas.Orientation = Orientation.Horizontal;
+            splitBas.SplitterWidth = 6;
+            splitBas.FixedPanel = FixedPanel.Panel1;      // les paramètres gardent leur hauteur, le journal absorbe
+            splitBas.SplitterMoving += new SplitterCancelEventHandler(Separateur_Deplace);
+            splitBas.Panel1.Controls.Add(panelParams);
+            splitBas.Panel2.Controls.Add(panelStatus);
+
+            splitPrincipal = new SplitContainer();
+            splitPrincipal.Dock = DockStyle.Fill;
+            splitPrincipal.Orientation = Orientation.Horizontal;
+            splitPrincipal.SplitterWidth = 6;
+            splitPrincipal.FixedPanel = FixedPanel.Panel2; // le bas garde sa hauteur, la grille absorbe
+            splitPrincipal.SplitterMoving += new SplitterCancelEventHandler(Separateur_Deplace);
+            splitPrincipal.Panel1.Controls.Add(splitCentre);
+            splitPrincipal.Panel2.Controls.Add(splitBas);
+
+            Controls.Add(splitPrincipal);
+            Controls.Add(panelTools);
+            Controls.Add(panelTop);
+        }
+
+        /// <summary>
+        /// Position initiale des séparateurs, appliquée à l'affichage après un agencement
+        /// complet : avant cela les conteneurs n'ont pas leur taille définitive, et toutes
+        /// les distances calculées seraient rabotées.
+        /// </summary>
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            PerformLayout();
+            AppliquerSeparateurs();
+        }
+
+        /// <summary>Réapplique la répartition tant que l'utilisateur n'a rien déplacé.</summary>
+        protected override void OnResize(EventArgs e)
+        {
+            base.OnResize(e);
+            if (!separateurDeplaceParUtilisateur) AppliquerSeparateurs();
+        }
+
+        private void AppliquerSeparateurs()
+        {
+            if (separateurDeplaceParUtilisateur || splitPrincipal == null) return;
+            if (splitPrincipal.Height < 420 || splitCentre.Width < 640) return;
+
+            ReglerSeparateur(splitPrincipal, 140, 160,
+                splitPrincipal.Height - hauteurParams - hauteurStatus - splitBas.SplitterWidth);
+
+            // Le bas ne connait sa hauteur qu'une fois le separateur principal applique.
+            splitPrincipal.PerformLayout();
+            splitBas.PerformLayout();
+
+            ReglerSeparateur(splitCentre, 320, 220, splitCentre.Width - largeurDetail);
+            ReglerSeparateur(splitBas, 90, 70, hauteurParams);
+        }
+
+        /// <summary>
+        /// Dès que l'utilisateur fait glisser un séparateur, sa répartition fait foi.
+        /// On écoute le glissement et non le déplacement : ce dernier est aussi émis
+        /// par WinForms lors de ses propres agencements, ce qui figeait tout d'emblée.
+        /// </summary>
+        private void Separateur_Deplace(object sender, SplitterCancelEventArgs e)
+        {
+            separateurDeplaceParUtilisateur = true;
+        }
+
+        /// <summary>
+        /// Place un séparateur, puis seulement ensuite ses tailles minimales : dans
+        /// l'autre ordre, poser une taille minimale que la position courante viole lève
+        /// une exception, et la position demandée n'est jamais appliquée.
+        /// </summary>
+        private static void ReglerSeparateur(SplitContainer s, int min1, int min2, int distance)
+        {
+            if (s == null) return;
+            try
+            {
+                int taille = s.Orientation == Orientation.Vertical ? s.Width : s.Height;
+                if (taille < min1 + min2 + s.SplitterWidth + 20) return;   // trop petit : on laisse le défaut
+
+                // Contraintes relâchées le temps de repositionner.
+                s.Panel1MinSize = 0;
+                s.Panel2MinSize = 0;
+
+                int maxi = taille - min2 - s.SplitterWidth;
+                if (distance < min1) distance = min1;
+                if (distance > maxi) distance = maxi;
+                s.SplitterDistance = distance;
+
+                s.Panel1MinSize = min1;
+                s.Panel2MinSize = min2;
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Position de séparateur ignorée : " + ex.Message);
+            }
+        }
 
         /// <summary>Type de demande actuellement sélectionné.</summary>
         private RequestType CurrentType

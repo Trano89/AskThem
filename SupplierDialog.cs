@@ -29,6 +29,8 @@ namespace AskThem
             _config = config;
             _suppliers = Copy(suppliers);
 
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
             Text = "Fournisseurs";
             AppIcon.Apply(this);
             Font = AppFont.Get();

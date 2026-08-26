@@ -23,6 +23,8 @@ namespace AskThem
         {
             _config = config;
 
+            AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
             Text = "Connexion à l'inventaire";
             AppIcon.Apply(this);
             Font = AppFont.Get();
