@@ -48,6 +48,12 @@ namespace AskThem.Models
         /// <summary>Nombre d'archives au-delà duquel elles sont regroupées en une seule.</summary>
         public int MaxAttachments { get; set; }
 
+        /// <summary>
+        /// Niveau de compression des archives : Aucune, Rapide, Optimal ou Maximale.
+        /// Réglable dans le bandeau d'options, et conservé d'une session à l'autre.
+        /// </summary>
+        public string ZipCompression { get; set; }
+
         /// <summary>Expéditeur par défaut (réservé).</summary>
         public string DefaultSender { get; set; }
 
@@ -113,6 +119,7 @@ namespace AskThem.Models
             OutputRoot = "";
             ZipThresholdMb = 20;
             MaxAttachments = 25;
+            ZipCompression = "Optimal";
             DefaultSender = "";
             Export3D = true;
             Export2D = true;

@@ -3,6 +3,24 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.2] — 2026-08-31
+
+### Ajouté
+
+- **La demande part en plusieurs emails quand elle ne tient pas dans un seul.** Un message
+  ne porte jamais plus de `ZipThresholdMb` mégaoctets ni plus de `MaxAttachments` pièces
+  jointes ; au-delà, les articles sont répartis dans l'ordre de la grille, le sujet est
+  suffixé `(1/3)`, et chaque message ne décrit que les articles qu'il transporte. Le bon de
+  commande n'est joint qu'au premier. Tous les messages restent suivis et archivés en .msg.
+- **Le niveau de compression des archives est réglable dans le bandeau d'options** : Aucune,
+  Rapide, Optimal ou Maximale. Le choix est conservé d'une session à l'autre.
+
+### Modifié
+
+- Le regroupement en une archive maîtresse unique est remplacé par le découpage en
+  plusieurs emails. Il réduisait le nombre de pièces jointes sans rien changer au poids
+  total, qui était le vrai obstacle.
+
 ## [1.3.1] — 2026-08-31
 
 ### Modifié

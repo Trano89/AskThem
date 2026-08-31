@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Drawing;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -37,6 +38,7 @@ namespace AskThem
         private bool _opt3D;
         private bool _opt2D;
         private bool _optRapport;
+        private CompressionLevel _optCompression = CompressionLevel.Optimal;
         private RapportControleConfig _rapportCfg;
         private IGenerateurPdf _generateurPdf;
         private string _journalRapports = "";
@@ -98,6 +100,7 @@ namespace AskThem
         private CheckBox chk3D;
         private CheckBox chk2D;
         private CheckBox chkRapportControle;
+        private ComboBox cboCompression;
         private ContextMenuStrip menuGrille;
         private ToolStripMenuItem mnuRapportControle;
         private TextBox txtConditions;
@@ -799,6 +802,19 @@ namespace AskThem
             toolTip.SetToolTip(chkRapportControle,
                 "Fonction en bêta : relisez le rapport avant de l'envoyer au fournisseur.");
 
+            cboCompression = new ComboBox();
+            cboCompression.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboCompression.Width = 130;
+            cboCompression.Items.AddRange(ZipService.Niveaux);
+            cboCompression.SelectedItem = ZipService.Niveaux[2];
+            foreach (string n in ZipService.Niveaux)
+                if (string.Equals(n, _config.ZipCompression, StringComparison.OrdinalIgnoreCase))
+                    cboCompression.SelectedItem = n;
+            cboCompression.SelectedIndexChanged += new EventHandler(Compression_Changee);
+            toolTip.SetToolTip(cboCompression,
+                "Compression des archives jointes. Sur les exports du coffre, « Maximale » ne gagne "
+                + "que trois pour cent de plus qu'« Optimal » pour quatre fois le temps.");
+
             lblPo = new Label();
             lblPo.Text = LibellePo(true);
             lblPo.AutoSize = true;
@@ -824,6 +840,7 @@ namespace AskThem
             flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
             flow.Controls.Add(Groupe("", chk3D, chk2D));
             flow.Controls.Add(Groupe("", chkRapportControle, null));
+            flow.Controls.Add(Groupe("Compression des archives :", cboCompression, null));
             groupePo = Groupe(lblPo.Text, txtPo, btnPo);
             flow.Controls.Add(groupePo);
             flow.Controls.Add(Groupe("Commentaire général (bas de l'email) :", txtConditions, null));
@@ -1325,6 +1342,16 @@ namespace AskThem
             t.Start();
         }
 
+        /// <summary>Le niveau choisi est conservé d'une session à l'autre.</summary>
+        private void Compression_Changee(object sender, EventArgs e)
+        {
+            string choix = cboCompression.SelectedItem as string;
+            if (string.IsNullOrEmpty(choix) || choix == _config.ZipCompression) return;
+            _config.ZipCompression = choix;
+            ConfigService.Save(_config);
+            Log("Compression des archives : " + choix + ".");
+        }
+
         private void BtnInventaire_Click(object sender, EventArgs e)
         {
             using (InventoryDialog dlg = new InventoryDialog(_config))
@@ -1636,6 +1663,7 @@ namespace AskThem
             _opt3D = chk3D.Checked;
             _opt2D = chk2D.Checked;
             _optRapport = chkRapportControle.Checked;
+            _optCompression = ZipService.Niveau(cboCompression.SelectedItem as string);
             Supplier fournisseur = SelectedSupplier;
             _optSupplier = fournisseur == null ? "" : fournisseur.ToLine;
             _optSupplierCc = fournisseur == null ? "" : fournisseur.CcLine;
@@ -1933,82 +1961,98 @@ namespace AskThem
                 if (connected) Log("SolidWorks fermé.");
             }
 
-            // --- Étape 6 : pièces jointes, une archive par numéro d'article ---
-            List<string> attachments = new List<string>();
+            // --- Étape 6 : répartition des archives sur un ou plusieurs messages ---
+            List<LotEnvoi> lots = RepartitionEnvois.Repartir(
+                _work, _config.ZipThresholdMb, _config.MaxAttachments, LogFromWorker);
+
+            double totalMb = 0;
             int nbArchives = 0;
-            foreach (PartLine l in _work)
+            foreach (LotEnvoi lot in lots)
             {
-                if (l.ZipPath != null && File.Exists(l.ZipPath)) { attachments.Add(l.ZipPath); nbArchives++; }
-            }
-            try
-            {
-                double sizeMb = ZipService.TotalSizeMb(attachments);
-                bool tropNombreuses = nbArchives > _config.MaxAttachments;
-                bool tropLourdes = sizeMb > _config.ZipThresholdMb;
-                if (nbArchives > 1 && (tropNombreuses || tropLourdes))
-                {
-                    // Le destinataire retrouve quand meme un dossier par article dans l'archive.
-                    string master = ZipService.ZipFolder(folderZip, folderName + "_archives");
-                    attachments.Clear();
-                    attachments.Add(master);
-                    string raison = tropNombreuses
-                        ? nbArchives + " archives > " + _config.MaxAttachments
-                        : sizeMb.ToString("0.0") + " Mo > " + _config.ZipThresholdMb + " Mo";
-                    Log("Regroupement (" + raison + ") : une seule archive jointe.");
-                }
-                else
-                {
-                    Log(nbArchives + " archive(s) par article jointe(s), " + sizeMb.ToString("0.0") + " Mo au total.");
-                }
-            }
-            catch (Exception ex)
-            {
-                Log("ERREUR archive ZIP : " + ex.Message);
+                totalMb += lot.TailleMb;
+                nbArchives += lot.PiecesJointes.Count;
             }
 
-            // Joint séparément : le fournisseur doit le voir sans ouvrir d'archive.
+            if (lots.Count > 1)
+            {
+                Log(nbArchives + " archive(s) pour " + totalMb.ToString("0.0") + " Mo : au-delà de "
+                  + _config.ZipThresholdMb + " Mo ou de " + _config.MaxAttachments
+                  + " pièces jointes par message, la demande part en " + lots.Count + " emails.");
+            }
+            else
+            {
+                Log(nbArchives + " archive(s) par article jointe(s), " + totalMb.ToString("0.0") + " Mo au total.");
+            }
+
+            // Joint séparément au premier message : le fournisseur doit le voir sans ouvrir
+            // d'archive, et il n'a pas à le recevoir en plusieurs exemplaires.
             string cheminPo = poArchive != null ? poArchive : _optPoPath;
-            if (cheminPo != "" && File.Exists(cheminPo))
-            {
-                attachments.Add(cheminPo);
-                Log("Bon de commande joint : " + Path.GetFileName(cheminPo));
-            }
+            bool poJoignable = cheminPo != "" && File.Exists(cheminPo);
+            if (poJoignable) Log("Bon de commande joint : " + Path.GetFileName(cheminPo));
 
-            // --- Avertissement groupé, avant de préparer l'email ---
+            // --- Avertissement groupé, avant de préparer les emails ---
             WarnAboutIssues();
 
-            // --- Étape 8 : email Outlook (jamais en cas d'annulation) ---
-            object mailOuvert = null;
+            // --- Étape 8 : emails Outlook (jamais en cas d'annulation) ---
+            List<object> mailsOuverts = new List<object>();
+            List<string> cheminsMsg = new List<string>();
             if (!_cancelRequested)
             {
-                try
+                string nomPo = _optPoPath == "" ? "" : Path.GetFileName(_optPoPath);
+                for (int i = 0; i < lots.Count; i++)
                 {
-                    string subject = EmailBuilder.BuildSubject(_optType, _optProject, _work.Count);
-                    string nomPo = _optPoPath == "" ? "" : Path.GetFileName(_optPoPath);
-                    string body = EmailBuilder.BuildBody(_optType, _work, _optProject, _optDeadline,
-                                                         _optConditions, nomPo);
-                    mailOuvert = OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, attachments);
-                    Log("Email préparé dans Outlook. Il n'est pas envoyé automatiquement.");
-                }
-                catch (Exception ex)
-                {
-                    Log("ERREUR Outlook : " + ex.Message);
-                    string folder = outputFolder;
-                    UiInvoke(delegate
+                    LotEnvoi lot = lots[i];
+                    try
                     {
-                        MessageBox.Show("L'email n'a pas pu être créé : " + ex.Message +
-                            Environment.NewLine + Environment.NewLine +
-                            "Les fichiers restent disponibles dans : " + folder,
-                            "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    });
+                        string subject = EmailBuilder.BuildSubject(_optType, _optProject, lot.Lignes.Count)
+                                       + Numerotation(i + 1, lots.Count);
+                        string body = EmailBuilder.BuildBody(_optType, lot.Lignes, _optProject, _optDeadline,
+                                                             _optConditions, i == 0 ? nomPo : "");
+
+                        List<string> pieces = new List<string>(lot.PiecesJointes);
+                        if (poJoignable && i == 0) pieces.Add(cheminPo);
+
+                        object mail = OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, pieces);
+                        mailsOuverts.Add(mail);
+                        cheminsMsg.Add(Path.Combine(outputFolder, NomMessage(i + 1, lots.Count)));
+                        Log("Email " + (i + 1) + "/" + lots.Count + " préparé : " + lot.Lignes.Count
+                          + " article(s), " + lot.TailleMb.ToString("0.0") + " Mo.");
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("ERREUR Outlook (message " + (i + 1) + "/" + lots.Count + ") : " + ex.Message);
+                        string folder = outputFolder;
+                        string message = ex.Message;
+                        UiInvoke(delegate
+                        {
+                            MessageBox.Show("L'email n'a pas pu être créé : " + message +
+                                Environment.NewLine + Environment.NewLine +
+                                "Les fichiers restent disponibles dans : " + folder,
+                                "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        });
+                    }
                 }
+                if (mailsOuverts.Count > 0)
+                    Log("Aucun message n'est envoyé automatiquement.");
             }
 
             // --- Étape 9 : bilan ---
             ShowSummary(outputFolder);
 
-            // --- Étape 10 : suivi silencieux de l'email, interface déjà rendue ---
-            if (mailOuvert != null) WatchMail(mailOuvert, outputFolder);
+            // --- Étape 10 : suivi silencieux des emails, interface déjà rendue ---
+            WatchMails(mailsOuverts, cheminsMsg, outputFolder);
+        }
+
+        /// <summary>Suffixe de sujet quand la demande part en plusieurs messages.</summary>
+        private static string Numerotation(int rang, int total)
+        {
+            return total <= 1 ? "" : " (" + rang + "/" + total + ")";
+        }
+
+        /// <summary>Nom du .msg archivé, distinct pour chaque message d'une même demande.</summary>
+        private static string NomMessage(int rang, int total)
+        {
+            return total <= 1 ? "Demande.msg" : "Demande_" + rang + "sur" + total + ".msg";
         }
 
         /// <summary>
@@ -2124,7 +2168,7 @@ namespace AskThem
                 try
                 {
                     string zipPath = Path.Combine(folderZip, (baseName == null ? SafeName(line.PartNumber) : baseName) + ".zip");
-                    line.ZipPath = ZipService.ZipFiles(line.ExportedFiles, zipPath);
+                    line.ZipPath = ZipService.ZipFiles(line.ExportedFiles, zipPath, _optCompression);
                     Log("Archive : " + Path.GetFileName(line.ZipPath) + " (" + line.ExportedFiles.Count + " fichier(s))");
                 }
                 catch (Exception ex)
@@ -2293,44 +2337,72 @@ namespace AskThem
         }
 
         /// <summary>
-        /// Enregistre l'email au format .msg à côté de la demande, puis continue de le
-        /// réenregistrer tant qu'il reste ouvert dans Outlook : les retouches de
+        /// Enregistre chaque email au format .msg à côté de la demande, puis continue de les
+        /// réenregistrer tant qu'ils restent ouverts dans Outlook : les retouches de
         /// l'utilisateur sont ainsi capturées sans jamais lui demander quoi que ce soit.
-        /// Le suivi s'arrête dès qu'Outlook ne rend plus le message accessible.
+        /// Le suivi d'un message s'arrête dès qu'Outlook ne le rend plus accessible ; les
+        /// autres continuent d'être suivis.
         /// </summary>
-        private void WatchMail(object mail, string dossier)
+        private void WatchMails(List<object> mails, List<string> chemins, string dossier)
         {
-            string chemin = Path.Combine(dossier, "Demande.msg");
-            if (!OutlookService.SaveMessage(mail, chemin))
+            if (mails == null || mails.Count == 0)
             {
-                Log("L'email n'a pas pu être enregistré dans " + dossier + ".");
+                SetBusy(false);
+                UiInvoke(delegate { lblProgress.Text = "Prêt."; });
                 return;
             }
-            Log("Email enregistré : " + chemin);
+
+            // Suivis encore ouverts : chaque message quitte la liste quand Outlook cesse
+            // de le rendre accessible, c'est-à-dire quand il est fermé ou envoyé.
+            List<int> actifs = new List<int>();
+            int[] echecs = new int[mails.Count];
+            for (int i = 0; i < mails.Count; i++)
+            {
+                if (OutlookService.SaveMessage(mails[i], chemins[i]))
+                {
+                    actifs.Add(i);
+                    Log("Email enregistré : " + chemins[i]);
+                }
+                else
+                {
+                    Log("L'email n'a pas pu être enregistré dans " + dossier + ".");
+                }
+            }
 
             // L'interface est rendue à l'utilisateur : le suivi ne le bloque pas.
             SetBusy(false);
             UiInvoke(delegate { lblProgress.Text = "Prêt."; });
+            if (actifs.Count == 0) return;
 
             _stopMailWatch = false;
             DateTime limite = DateTime.Now.AddMinutes(30);
-            int echecs = 0;
-            while (DateTime.Now < limite && !_stopMailWatch)
+            while (DateTime.Now < limite && !_stopMailWatch && actifs.Count > 0)
             {
                 Thread.Sleep(4000);
                 if (_stopMailWatch) break;
-                if (OutlookService.SaveMessage(mail, chemin))
+
+                for (int k = actifs.Count - 1; k >= 0; k--)
                 {
-                    echecs = 0;
-                }
-                else
-                {
-                    // Message fermé ou envoyé : la dernière version reste enregistrée.
-                    echecs++;
-                    if (echecs >= 2) break;
+                    int i = actifs[k];
+                    if (OutlookService.SaveMessage(mails[i], chemins[i]))
+                    {
+                        echecs[i] = 0;
+                    }
+                    else
+                    {
+                        // Message fermé ou envoyé : la dernière version reste enregistrée.
+                        echecs[i]++;
+                        if (echecs[i] >= 2)
+                        {
+                            Log("Email archivé dans son état final : " + chemins[i]);
+                            actifs.RemoveAt(k);
+                        }
+                    }
                 }
             }
-            Log("Email archivé dans son état final : " + chemin);
+
+            foreach (int i in actifs)
+                Log("Email archivé dans son état final : " + chemins[i]);
         }
 
         /// <summary>

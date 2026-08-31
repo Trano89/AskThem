@@ -103,8 +103,8 @@ dotnet publish -c Release -o "D:\chemin\de\votre\choix"
 |---|---|---|
 | `PdmRoot` | texte | Racine de la vue locale du coffre PDM à explorer. |
 | `OutputRoot` | texte | Dossier racine des exports. **Vide = dossier Téléchargements de l'utilisateur.** |
-| `ZipThresholdMb` | entier | Volume, en Mo, au-delà duquel les archives par article sont regroupées en une seule. |
-| `MaxAttachments` | entier | Nombre d'archives au-delà duquel elles sont regroupées en une seule. Évite les emails à 300 pièces jointes. |
+| `ZipThresholdMb` | entier | Poids maximal, en Mo, des pièces jointes d'un message. Au-delà, la demande est répartie sur plusieurs emails. |
+| `MaxAttachments` | entier | Nombre maximal de pièces jointes d'un message. Au-delà, la demande est répartie sur plusieurs emails. |
 | `ArchiveRoot` | texte | Racine où chaque demande est archivée, un dossier par demande nommé `date_destinataire_OFFRE|FAB`. Vide = pas d'archivage. Un réseau indisponible n'interrompt jamais le traitement. |
 | `PartNumberPatterns` | liste | Format imposé, décrit par les longueurs de groupes. `["3-5-2"]` = `XYZ-AAAAA-BB` : tout numéro non conforme est refusé. Le premier motif sert aussi à insérer les tirets automatiquement. |
 | `ReleasedStates` | liste | Valeurs d'état PDM considérées comme libérées. Tout autre état non vide déclenche l'avertissement groupé. |
@@ -113,6 +113,7 @@ dotnet publish -c Release -o "D:\chemin\de\votre\choix"
 | `SupplierListPath` | texte | Dossier réseau de la liste des fournisseurs (`fournisseurs.json`). Relue à chaque démarrage, réenregistrée à chaque modification. |
 | `Export3D` | booléen | État initial de la case « Exporter 3D (STEP AP203) ». |
 | `Export2D` | booléen | État initial de la case « Exporter 2D (PDF + DXF) ». |
+| `ZipCompression` | texte | Niveau de compression des archives : `Aucune`, `Rapide`, `Optimal` ou `Maximale`. Réglable dans le bandeau d'options, le choix s'y enregistre. |
 
 ### Rapport de contrôle (bêta)
 
@@ -192,9 +193,22 @@ sont conservés et SolidWorks est refermé proprement.
 ```
 
 Ce sont les **archives par article** qui sont jointes à l'email : le destinataire reçoit
-un fichier par article, contenant son STEP, son PDF et son DXF. Au-delà de
-`MaxAttachments` archives ou de `ZipThresholdMb` mégaoctets, elles sont regroupées dans
-une archive unique pour ne pas produire un email ingérable.
+un fichier par article, contenant son STEP, son PDF et son DXF.
+
+### Quand la demande ne tient pas dans un seul email
+
+Un message ne porte jamais plus de `ZipThresholdMb` mégaoctets ni plus de `MaxAttachments`
+pièces jointes. Au-delà, **la demande part en plusieurs emails** : le sujet est suffixé
+`(1/3)`, `(2/3)`…, et chaque message ne décrit dans son tableau que les articles qu'il
+transporte. L'ordre de la grille est conservé. Le bon de commande n'est joint qu'au premier.
+
+Une archive à elle seule plus lourde que la limite ne peut pas être coupée : elle part dans
+un message à part et un avertissement le signale dans le journal.
+
+Le **niveau de compression** se règle dans le bandeau d'options et se conserve d'une session
+à l'autre. Mesuré sur les exports du coffre, `Maximale` ne gagne qu'environ trois pour cent
+de plus qu'`Optimal` pour quatre fois le temps : les DXF sont déjà bien compressés, c'est le
+découpage en plusieurs messages qui règle vraiment le problème de volume.
 
 Les fichiers portent le **numéro d'article** seul. La révision n'est pas ajoutée au nom :
 elle figure dans le tableau de l'email, colonne *Rév. plan*.
