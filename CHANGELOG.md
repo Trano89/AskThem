@@ -3,6 +3,34 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.0] — 2026-08-31
+
+### Ajouté
+
+- **Rapport de contrôle de fabrication (PDF) — en bêta**, un par plan, joint dans l'archive
+  ZIP de l'article. Le fournisseur le remplit à la main pendant la fabrication, le signe, et
+  nous le retourne avec la livraison. Deux entrées : la case *Générer le rapport de contrôle
+  (PDF) — bêta*, cochée d'office en mode Fabrication, et un clic droit sur une ligne de la
+  grille pour le rapport d'un seul article, ouvert à la fin. La fonction étant en bêta,
+  relisez le rapport avant de l'envoyer.
+- Le rapport reprend les cotes tolérancées, toutes les tolérances géométriques et tous les
+  états de surface, chacune située par sa case du quadrillage du cadre. Une ligne fixe clôt
+  le tableau : aspect, bavures et arêtes. **Les tolérances générales n'y figurent pas** :
+  elles sont portées sur le plan et ne se contrôlent pas à la réception.
+- Le quadrillage n'est pas codé en dur : les repères du cadre sont relevés sur la feuille
+  avec leurs coordonnées, et la grille en est déduite. Un A4 comme un A0 sont traités par
+  la même mesure, quel que soit le sens des lettres.
+- Réglages dans `config\rapport-controle.json` : aucun nom de propriété SolidWorks n'est
+  écrit dans le code. Journal détaillé dans `RapportsControle\extraction.log`.
+
+### Corrigé
+
+- **La session « inventaire » est rétablie au démarrage** à partir des identifiants
+  conservés sur le poste, qui survivent au redémarrage. Une pastille verte ou rouge à côté
+  du bouton *Inventaire…* montre l'état de la connexion, et une demande lancée hors
+  connexion prévient que les anciennes références et les références fournisseur
+  manqueront.
+
 ## [1.2.15] — 2026-08-26
 
 ### Corrigé

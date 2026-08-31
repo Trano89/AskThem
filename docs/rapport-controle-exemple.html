@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>94-48-006-01600 rev.2 — Rapport de controle</title>
+<style>
+  @page { size: A4 landscape; margin: 8mm; }
+
+  :root{
+    --ink:#15181c;
+    --ink-soft:#5a6169;
+    --rule:#aab0b7;
+    --rule-strong:#15181c;
+    --auto:#eceff2;      /* rempli automatiquement par AskThem */
+    --fill:#fffbe6;      /* a remplir par le fournisseur */
+    --key:#ffe14d;       /* identification piece */
+    --ok:#1b7f4b;
+    --ko:#b3261e;
+  }
+
+  *{ box-sizing:border-box; }
+
+  body{
+    margin:0;
+    background:#7a7f85;
+    font-family:Arial, "Helvetica Neue", Helvetica, sans-serif;
+    color:var(--ink);
+    font-size:9pt;
+    line-height:1.25;
+  }
+
+  .sheet{
+    width:297mm; min-height:210mm;
+    margin:12mm auto;
+    padding:8mm;
+    background:#fff;
+    box-shadow:0 2px 14px rgba(0,0,0,.35);
+    display:flex; flex-direction:column;
+  }
+
+  .en{ font-style:italic; color:var(--ink-soft); font-size:7.5pt; display:block; }
+
+  /* ---------- bandeau titre ---------- */
+  .top{
+    display:flex; align-items:flex-end; justify-content:space-between;
+    border-bottom:1.6pt solid var(--rule-strong);
+    padding-bottom:2mm; margin-bottom:3mm;
+  }
+  .brand{ font-size:13pt; font-weight:bold; letter-spacing:.02em; }
+  .brand span{ font-weight:normal; color:var(--ink-soft); }
+  .doctitle{ text-align:right; }
+  .doctitle b{ font-size:12pt; }
+  .stamp{ font-size:7pt; color:var(--ink-soft); margin-top:1mm; }
+
+  /* ---------- blocs identification ---------- */
+  table{ border-collapse:collapse; width:100%; }
+  td,th{ border:.5pt solid var(--rule); padding:1.2mm 1.6mm; vertical-align:top; }
+
+  .lab{ width:1%; white-space:nowrap; color:var(--ink); background:#fff; }
+  .lab b{ font-weight:bold; font-size:8.5pt; }
+  .auto{ background:var(--auto); font-weight:bold; }
+  .fill{ background:var(--fill); }
+  .key{ background:var(--key); font-weight:bold; font-size:11pt; text-align:center; letter-spacing:.03em; }
+
+  .idblock{ margin-bottom:2.5mm; }
+  .idblock td{ height:8mm; }
+
+  /* ---------- tableau caracteristiques ---------- */
+  .charac{ margin-top:1mm; }
+  .charac th{
+    background:#15181c; color:#fff; font-size:8pt; font-weight:bold;
+    text-align:left; padding:1.4mm 1.6mm; border-color:#15181c;
+  }
+  .charac th .en{ color:#c9ced4; }
+  .charac td{ height:7.2mm; }
+  .charac tr:nth-child(even) td{ background-image:linear-gradient(rgba(0,0,0,.018),rgba(0,0,0,.018)); }
+  .num{ text-align:center; font-weight:bold; width:9mm; }
+  .zone{ text-align:center; width:13mm; }
+  .spec{ font-weight:bold; white-space:nowrap; }
+  .sym{ font-size:11pt; line-height:1; }
+  .w-meas{ width:24mm; }
+  .w-inst{ width:34mm; }
+  .w-ok{ width:16mm; }
+  .okko{ text-align:center; font-size:8pt; color:var(--ink-soft); }
+  .okko b{ color:var(--ok); } .okko i{ color:var(--ko); font-style:normal; }
+
+  /* ---------- pied ---------- */
+  .bottom{ display:flex; gap:4mm; margin-top:3mm; }
+  .legend{ width:96mm; }
+  .legend table td{ padding:.8mm 1.4mm; font-size:7.5pt; }
+  .sign{ flex:1; }
+  .sign td{ height:11mm; }
+  .sign .cap{ height:auto; font-size:7.5pt; background:#fff; }
+
+  .foot{
+    margin-top:2.5mm; padding-top:1.5mm; border-top:.5pt solid var(--rule);
+    display:flex; justify-content:space-between; font-size:7pt; color:var(--ink-soft);
+  }
+
+  .key-legend{ display:flex; gap:5mm; font-size:7.5pt; align-items:center; margin-bottom:2mm; }
+  .chip{ display:inline-block; width:4mm; height:3mm; border:.5pt solid var(--rule); vertical-align:-.3mm; margin-right:1.2mm; }
+
+  @media print{
+    body{ background:#fff; }
+    .sheet{ margin:0; box-shadow:none; width:auto; min-height:0; padding:0; }
+    .charac tr{ page-break-inside:avoid; }
+  }
+</style>
+</head>
+<body>
+
+<div class="sheet">
+
+  <div class="top">
+    <div class="brand">Lyncée<span>Tec</span> SA</div>
+    <div class="doctitle">
+      <b>Rapport de controle de fabrication</b>
+      <span class="en">Manufacturing inspection report</span>
+      <div class="stamp">Genere par AskThem le 31.08.2026 — source&nbsp;: coffre PDM C:\00_LynceeTec\ — modele RC-01 rev.A</div>
+    </div>
+  </div>
+
+  <div class="key-legend">
+    <span><span class="chip" style="background:var(--auto)"></span>Rempli automatiquement — ne pas modifier</span>
+    <span><span class="chip" style="background:var(--fill)"></span>A completer par le fournisseur</span>
+    <span><span class="chip" style="background:var(--key)"></span>Identification de la piece</span>
+  </div>
+
+  <!-- IDENTIFICATION -->
+  <table class="idblock">
+    <tr>
+      <td class="lab"><b>N° de plan</b><span class="en">Drawing number</span></td>
+      <td class="key" style="width:44mm">94-48-006-01600</td>
+      <td class="lab"><b>Revision</b></td>
+      <td class="key" style="width:12mm">2</td>
+      <td class="lab"><b>Designation</b><span class="en">Article designation</span></td>
+      <td class="key">AXE 6H11X16X13.5 15NICR13</td>
+      <td class="lab"><b>Qte lot</b><span class="en">Batch qty</span></td>
+      <td class="auto" style="width:18mm">250</td>
+    </tr>
+    <tr>
+      <td class="lab"><b>Fournisseur</b><span class="en">Supplier</span></td>
+      <td class="auto">Mecanix Sarl</td>
+      <td class="lab"><b>N° cde</b><span class="en">Order</span></td>
+      <td class="auto" colspan="2">CDE-26-0412</td>
+      <td class="lab"><b>N° de lot</b><span class="en">Batch number</span></td>
+      <td class="fill"></td>
+      <td class="lab"><b>Date</b></td>
+      <td class="fill"></td>
+    </tr>
+  </table>
+
+  <!-- MATIERE / TRAITEMENT / PEINTURE -->
+  <table class="idblock">
+    <tr>
+      <td class="lab"><b>Matiere</b><span class="en">Raw material</span></td>
+      <td class="auto" style="width:46mm">15NiCr13 — EN 10084</td>
+      <td class="lab"><b>Traitement</b><span class="en">Heat treatment</span></td>
+      <td class="auto" style="width:56mm">Cementation + trempe, 58-62 HRC (prof. 0.6-0.9 mm)</td>
+      <td class="lab"><b>Peinture</b><span class="en">Paint</span></td>
+      <td class="auto" style="width:30mm">Sans</td>
+      <td class="lab"><b>N° coulee / certificat matiere</b><span class="en">Heat no. / material certificate</span></td>
+      <td class="fill"></td>
+    </tr>
+  </table>
+
+  <!-- CARACTERISTIQUES -->
+  <table class="charac">
+    <thead>
+      <tr>
+        <th class="num">N°</th>
+        <th class="zone">Zone<span class="en">Grid</span></th>
+        <th style="width:52mm">Caracteristique<span class="en">Characteristic</span></th>
+        <th style="width:46mm">Specification<span class="en">Specification</span></th>
+        <th class="w-meas">Valeur mesuree<span class="en">Measured</span></th>
+        <th class="w-inst">Instrument utilise<span class="en">Instrument used</span></th>
+        <th class="w-ok">OK / KO</th>
+        <th>Commentaire fournisseur<span class="en">Supplier comment</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td class="num">1</td><td class="zone">B3</td>
+        <td>Diametre corps <span class="en">Body diameter</span></td>
+        <td class="spec">&#8960;6 H11 (+0.075 / 0)</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">2</td><td class="zone">B3</td>
+        <td>Longueur totale <span class="en">Overall length</span></td>
+        <td class="spec">16 &plusmn;0.2</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">3</td><td class="zone">C2</td>
+        <td>Diametre tete <span class="en">Head diameter</span></td>
+        <td class="spec">&#8960;13.5 (0 / -0.1)</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">4</td><td class="zone">C2</td>
+        <td>Epaisseur tete <span class="en">Head thickness</span></td>
+        <td class="spec">2 &plusmn;0.1</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">5</td><td class="zone">C3</td>
+        <td>Chanfrein d'entree <span class="en">Lead-in chamfer</span></td>
+        <td class="spec">0.5 &times; 45&deg;</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">6</td><td class="zone">B3</td>
+        <td><span class="sym">&#9676;</span> Cylindricite <span class="en">Cylindricity</span></td>
+        <td class="spec">0.02</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">7</td><td class="zone">C2</td>
+        <td><span class="sym">&#8869;</span> Perpendicularite / A <span class="en">Perpendicularity</span></td>
+        <td class="spec">0.05 &nbsp;|&nbsp; A</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">8</td><td class="zone">B2</td>
+        <td><span class="sym">&#8599;</span> Oscillation circulaire / A <span class="en">Circular run-out</span></td>
+        <td class="spec">0.1 &nbsp;|&nbsp; A</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">9</td><td class="zone">B3</td>
+        <td>Etat de surface corps <span class="en">Surface finish, body</span></td>
+        <td class="spec">Ra 0.8</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">10</td><td class="zone">—</td>
+        <td>Tolerances generales <span class="en">General tolerances</span></td>
+        <td class="spec">ISO 2768 - mK</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+      <tr>
+        <td class="num">11</td><td class="zone">—</td>
+        <td>Aspect, bavures, aretes <span class="en">Visual, burrs, edges</span></td>
+        <td class="spec">Ebavure, sans rayure</td>
+        <td class="fill"></td><td class="fill"></td>
+        <td class="fill okko"><b>OK</b> &nbsp;/&nbsp; <i>KO</i></td><td class="fill"></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <!-- PIED -->
+  <div class="bottom">
+    <div class="legend">
+      <table>
+        <tr>
+          <td style="width:8mm; text-align:center"><b>4</b></td>
+          <td class="sym" style="width:8mm; text-align:center">&#9676;</td>
+          <td>Cylindricite <span class="en">Cylindricity</span></td>
+        </tr>
+        <tr>
+          <td style="text-align:center"><b>8</b></td>
+          <td class="sym" style="text-align:center">&#8869;</td>
+          <td>Perpendicularite <span class="en">Perpendicularity</span></td>
+        </tr>
+        <tr>
+          <td style="text-align:center"><b>13</b></td>
+          <td class="sym" style="text-align:center">&#8599;</td>
+          <td>Oscillation circulaire <span class="en">Circular run-out</span></td>
+        </tr>
+        <tr>
+          <td colspan="3" style="font-size:7pt; color:var(--ink-soft); border:none; padding-left:0">
+            Seuls les symboles presents sur le plan sont repris. Numerotation TF&amp;P LyncéeTec.
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="sign">
+      <table>
+        <tr>
+          <td class="lab cap" style="width:24mm"><b>Controle par</b><span class="en">Inspected by</span></td>
+          <td class="fill" style="width:38mm"></td>
+          <td class="lab cap" style="width:16mm"><b>Date</b></td>
+          <td class="fill" style="width:24mm"></td>
+          <td class="lab cap" style="width:22mm"><b>Signature</b></td>
+          <td class="fill"></td>
+        </tr>
+        <tr>
+          <td class="lab cap"><b>Piece conforme</b><span class="en">Conformity</span></td>
+          <td class="fill okko" style="font-size:9pt"><b>OUI</b> &nbsp;&nbsp;/&nbsp;&nbsp; <i>NON — voir commentaires</i></td>
+          <td class="lab cap"><b>Derogation</b><span class="en">Derogation</span></td>
+          <td class="fill" colspan="3"></td>
+        </tr>
+        <tr>
+          <td class="lab cap"><b>Recu / valide par</b><span class="en">Received by</span></td>
+          <td class="auto" style="background:var(--auto)"></td>
+          <td class="lab cap"><b>Date</b></td>
+          <td class="auto"></td>
+          <td class="lab cap"><b>Visa</b></td>
+          <td class="auto"></td>
+        </tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="foot">
+    <span>94-48-006-01600 rev.2 — 11 caracteristiques relevees automatiquement sur 1 feuille</span>
+    <span>Retourner ce document rempli et signe avec la livraison — Page 1 / 1</span>
+  </div>
+
+</div>
+</body>
+</html>

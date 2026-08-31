@@ -10,9 +10,9 @@
     <AssemblyName>AskThem</AssemblyName>
     <RootNamespace>AskThem</RootNamespace>
     <!-- Version affichée dans le titre et comparée aux publications GitHub. -->
-    <Version>1.2.15</Version>
-    <AssemblyVersion>1.2.15.0</AssemblyVersion>
-    <FileVersion>1.2.15.0</FileVersion>
+    <Version>1.3.0</Version>
+    <AssemblyVersion>1.3.0.0</AssemblyVersion>
+    <FileVersion>1.3.0.0</FileVersion>
     <Company>Lyncée Tec SA</Company>
     <Product>AskThem</Product>
     <Description>Préparation des demandes d'offre et de fabrication depuis le coffre SolidWorks PDM.</Description>
@@ -42,6 +42,14 @@
   <ItemGroup>
     <EmbeddedResource Include="assets\askthem.ico" />
   </ItemGroup>
+  <!-- Reglages du rapport de controle : deposes a cote de l'executable, modifiables
+       sur un poste sans recompiler. Recrees avec leurs valeurs par defaut s'ils manquent. -->
+  <ItemGroup>
+    <None Update="Config\rapport-controle.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>config\rapport-controle.json</Link>
+    </None>
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="SolidWorks.Interop.sldworks">
       <HintPath>$(SwRedist)\SolidWorks.Interop.sldworks.dll</HintPath>
@@ -53,5 +61,8 @@
       <EmbedInteropTypes>False</EmbedInteropTypes>
       <Private>True</Private>
     </Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="QuestPDF" Version="2026.8.0" />
   </ItemGroup>
 </Project>

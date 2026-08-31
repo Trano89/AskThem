@@ -7,7 +7,10 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using AskThem.Controls;
+using AskThem.Config;
+using AskThem.Inspection;
 using AskThem.Models;
+using AskThem.Pdf;
 using AskThem.Services;
 // Alias cible : l'interop SolidWorks expose aussi un type Environment, qui masquerait System.Environment.
 using ModelDoc2 = SolidWorks.Interop.sldworks.ModelDoc2;
@@ -33,6 +36,10 @@ namespace AskThem
         private bool _generateMode;
         private bool _opt3D;
         private bool _opt2D;
+        private bool _optRapport;
+        private RapportControleConfig _rapportCfg;
+        private IGenerateurPdf _generateurPdf;
+        private string _journalRapports = "";
         private string _optSupplier = "";
         private string _optSupplierCc = "";
         private string _optSupplierName = "";
@@ -59,6 +66,8 @@ namespace AskThem
         private Button btnExportCsv;
         private Button btnClear;
         private Button btnInventaire;
+        private Label pastilleInventaire;
+        private volatile bool inventaireConnecte;
 
         private DataGridView grid;
         private DataGridViewTextBoxColumn colPartNumber;
@@ -88,6 +97,9 @@ namespace AskThem
         private DateTimePicker dtpDeadline;
         private CheckBox chk3D;
         private CheckBox chk2D;
+        private CheckBox chkRapportControle;
+        private ContextMenuStrip menuGrille;
+        private ToolStripMenuItem mnuRapportControle;
         private TextBox txtConditions;
         private Label lblPo;
         private TextBox txtPo;
@@ -146,6 +158,7 @@ namespace AskThem
             LoadSuppliers();
             Log("AskThem " + UpdateService.CurrentVersion() + " prêt. Coffre PDM : " + _config.PdmRoot);
             StartUpdateCheck();
+            LancerVerificationInventaire();
             Log("Dossier des exports : " + _config.OutputRoot);
         }
 
@@ -213,7 +226,18 @@ namespace AskThem
                 panelTools.Controls.Add(b);
                 x += b.Width + 8;
             }
+            pastilleInventaire = new Label();
+            pastilleInventaire.Size = new Size(14, 14);
+            pastilleInventaire.Location = new Point(btnInventaire.Right + 8, btnInventaire.Top + (btnInventaire.Height - 14) / 2);
+            using (System.Drawing.Drawing2D.GraphicsPath rond = new System.Drawing.Drawing2D.GraphicsPath())
+            {
+                rond.AddEllipse(0, 0, 14, 14);
+                pastilleInventaire.Region = new Region(rond);
+            }
+            panelTools.Controls.Add(pastilleInventaire);
+
             panelTools.Height = btnAddLine.Height + 16;
+            AfficherEtatInventaire(false, "État de la connexion inconnu.");
         }
 
         /// <summary>Crée un bouton de la barre d'outils (140 x 30).</summary>
@@ -260,6 +284,14 @@ namespace AskThem
             grid.Columns.Add(colRemark);
 
             grid.DataSource = _lines;
+            mnuRapportControle = new ToolStripMenuItem("Rapport de contrôle… (bêta)");
+            mnuRapportControle.Click += new EventHandler(MnuRapportControle_Click);
+            menuGrille = new ContextMenuStrip();
+            menuGrille.Items.Add(mnuRapportControle);
+            menuGrille.Opening += new CancelEventHandler(MenuGrille_Ouverture);
+            grid.ContextMenuStrip = menuGrille;
+            grid.MouseDown += new MouseEventHandler(Grid_MouseDown);
+
             grid.CellFormatting += new DataGridViewCellFormattingEventHandler(Grid_CellFormatting);
             grid.KeyDown += new KeyEventHandler(Grid_KeyDown);
             grid.DataError += new DataGridViewDataErrorEventHandler(Grid_DataError);
@@ -283,6 +315,127 @@ namespace AskThem
         }
 
         /// <summary>Colore la ligne selon son statut.</summary>
+        /// <summary>Un clic droit selectionne la ligne visee avant d'ouvrir le menu.</summary>
+        private void Grid_MouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Right) return;
+            DataGridView.HitTestInfo cible = grid.HitTest(e.X, e.Y);
+            if (cible.RowIndex < 0 || cible.RowIndex >= _lines.Count) return;
+            grid.ClearSelection();
+            grid.Rows[cible.RowIndex].Selected = true;
+            grid.CurrentCell = grid.Rows[cible.RowIndex].Cells[0];
+        }
+
+        /// <summary>Le menu ne s'ouvre que sur une ligne portant un numero d'article.</summary>
+        private void MenuGrille_Ouverture(object sender, CancelEventArgs e)
+        {
+            PartLine ligne = LigneSelectionnee();
+            if (_busy || ligne == null || string.IsNullOrWhiteSpace(ligne.PartNumber)) { e.Cancel = true; return; }
+            mnuRapportControle.Text = "Rapport de contrôle… (" + ligne.PartNumber + ") — bêta";
+        }
+
+        private PartLine LigneSelectionnee()
+        {
+            int i = grid.CurrentCell == null ? -1 : grid.CurrentCell.RowIndex;
+            if (i < 0 || i >= _lines.Count) return null;
+            return _lines[i];
+        }
+
+        /// <summary>Produit le rapport de ce seul article, puis ouvre le PDF.</summary>
+        private void MnuRapportControle_Click(object sender, EventArgs e)
+        {
+            PartLine ligne = LigneSelectionnee();
+            if (ligne == null || string.IsNullOrWhiteSpace(ligne.PartNumber)) return;
+            if (!ConfirmerSolidWorks()) return;
+
+            _optSupplierName = "";
+            _optProject = txtProject.Text.Trim();
+            Supplier fournisseur = SelectedSupplier;
+            if (fournisseur != null) _optSupplierName = fournisseur.Name;
+
+            PartLine cible = ligne;
+            SetBusy(true);
+            Thread worker = new Thread(delegate() { RunRapportSeul(cible); });
+            worker.IsBackground = true;
+            worker.SetApartmentState(ApartmentState.STA);
+            worker.Start();
+        }
+
+        /// <summary>
+        /// Rapport a la demande : sa propre session SolidWorks, son propre dossier, hors
+        /// de toute demande. Le fichier est ecrit dans le dossier de sortie local.
+        /// </summary>
+        private void RunRapportSeul(PartLine ligne)
+        {
+            string pdf = null;
+            SolidWorksExporter exporter = new SolidWorksExporter(_config.Properties);
+            try
+            {
+                _rapportCfg = RapportControleConfig.Load();
+                TableSymbolesGtol.Charger(LogFromWorker);
+                _generateurPdf = new QuestPdfGenerateur();
+
+                string dossier = Path.Combine(_config.OutputRoot, "RapportsControle");
+                Directory.CreateDirectory(dossier);
+                _journalRapports = Path.Combine(dossier, "extraction.log");
+
+                BuildPdmIndex();
+                ligne.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, ligne.PartNumber);
+                if (ligne.DrawingPath == null)
+                {
+                    Log("Aucun plan pour " + ligne.PartNumber + " : pas de rapport de contrôle.");
+                    return;
+                }
+
+                exporter.Connect();
+                ModelDoc2 doc = null;
+                try
+                {
+                    doc = exporter.OpenDocument(ligne.DrawingPath);
+                    SolidWorksExporter.DocMetadata m = exporter.ReadMetadata(doc);
+                    if (ligne.DrawingRevision == "") ligne.DrawingRevision = m.Revision;
+                    if (ligne.Description == "") ligne.Description = m.Description;
+                    if (ligne.Material == "") ligne.Material = m.Material;
+                    if (ligne.Treatment == "") ligne.Treatment = m.Treatment;
+
+                    int avant = ligne.ExportedFiles.Count;
+                    pdf = GenererRapport(doc, ligne, dossier);
+                    // Ce rapport isole n'appartient a aucune demande : il ne rejoint pas le ZIP.
+                    if (ligne.ExportedFiles.Count > avant) ligne.ExportedFiles.RemoveAt(ligne.ExportedFiles.Count - 1);
+                }
+                finally
+                {
+                    exporter.CloseDocument(doc);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log("ERREUR rapport de contrôle : " + ex.Message);
+            }
+            finally
+            {
+                exporter.Dispose();
+                SetBusy(false);
+            }
+
+            if (pdf != null) OuvrirFichier(pdf);
+        }
+
+        /// <summary>Ouvre un fichier avec l'application par defaut du poste.</summary>
+        private void OuvrirFichier(string chemin)
+        {
+            try
+            {
+                System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo(chemin);
+                psi.UseShellExecute = true;
+                System.Diagnostics.Process.Start(psi);
+            }
+            catch (Exception ex)
+            {
+                Log("Ouverture impossible : " + ex.Message);
+            }
+        }
+
         private void Grid_CellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
             if (e.RowIndex < 0 || e.RowIndex >= grid.Rows.Count) return;
@@ -639,6 +792,13 @@ namespace AskThem
             chk2D.AutoSize = true;
             chk2D.Checked = _config.Export2D;
 
+            chkRapportControle = new CheckBox();
+            chkRapportControle.Text = "Générer le rapport de contrôle (PDF) — bêta";
+            chkRapportControle.AutoSize = true;
+            chkRapportControle.Checked = false;
+            toolTip.SetToolTip(chkRapportControle,
+                "Fonction en bêta : relisez le rapport avant de l'envoyer au fournisseur.");
+
             lblPo = new Label();
             lblPo.Text = LibellePo(true);
             lblPo.AutoSize = true;
@@ -663,6 +823,7 @@ namespace AskThem
             flow.Controls.Add(Groupe("Référence commande :", txtProject, null));
             flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
             flow.Controls.Add(Groupe("", chk3D, chk2D));
+            flow.Controls.Add(Groupe("", chkRapportControle, null));
             groupePo = Groupe(lblPo.Text, txtPo, btnPo);
             flow.Controls.Add(groupePo);
             flow.Controls.Add(Groupe("Commentaire général (bas de l'email) :", txtConditions, null));
@@ -951,6 +1112,10 @@ namespace AskThem
             colQty2.Visible = offre;
             colQty3.Visible = offre;
 
+            // Le rapport accompagne une fabrication ; sur une demande d'offre il ne se
+            // justifie pas, la piece n'est pas encore commandee.
+            if (chkRapportControle != null) chkRapportControle.Checked = !offre;
+
             // Le document joint change de nature selon le mode : bon de commande en
             // fabrication, demande de PO en offre. Il reste facultatif en offre.
             if (groupePo != null)
@@ -1115,6 +1280,51 @@ namespace AskThem
             }
         }
 
+        /// <summary>Couleur et infobulle de la pastille, selon l'état de la connexion.</summary>
+        private void AfficherEtatInventaire(bool connecte, string detail)
+        {
+            inventaireConnecte = connecte;
+            UiInvoke(delegate
+            {
+                pastilleInventaire.BackColor = connecte
+                    ? Color.FromArgb(32, 150, 70)
+                    : Color.FromArgb(180, 60, 60);
+                toolTip.SetToolTip(pastilleInventaire,
+                    (connecte ? "Connecté à l'inventaire. " : "Non connecté à l'inventaire. ") + detail);
+            });
+        }
+
+        /// <summary>
+        /// Ouvre une session avec les identifiants conservés sur ce poste. Le mot de
+        /// passe survit au redémarrage : il est chiffré par Windows dans un fichier.
+        /// </summary>
+        private void VerifierInventaire()
+        {
+            string mdp = SecretStore.Load(InventoryApiService.SecretName);
+            if (string.IsNullOrWhiteSpace(_config.InventoryApiUrl)
+                || string.IsNullOrWhiteSpace(_config.InventoryUser)
+                || string.IsNullOrWhiteSpace(mdp))
+            {
+                AfficherEtatInventaire(false, "Aucun identifiant enregistré sur ce poste.");
+                return;
+            }
+
+            using (InventoryApiService api = new InventoryApiService())
+            {
+                string message;
+                bool ok = api.Connect(_config.InventoryApiUrl, _config.InventoryUser, mdp, out message);
+                AfficherEtatInventaire(ok, message);
+                Log(message);
+            }
+        }
+
+        private void LancerVerificationInventaire()
+        {
+            Thread t = new Thread(new ThreadStart(VerifierInventaire));
+            t.IsBackground = true;
+            t.Start();
+        }
+
         private void BtnInventaire_Click(object sender, EventArgs e)
         {
             using (InventoryDialog dlg = new InventoryDialog(_config))
@@ -1122,6 +1332,7 @@ namespace AskThem
                 dlg.ShowDialog(this);
             }
             _config = ConfigService.Load();
+            LancerVerificationInventaire();
         }
 
         /// <summary>
@@ -1141,6 +1352,7 @@ namespace AskThem
                 {
                     if (api.Connect(_config.InventoryApiUrl, _config.InventoryUser, mdp, out message))
                     {
+                        AfficherEtatInventaire(true, message);
                         Log(message);
                         string qui = api.WhoAmI();
                         if (qui != "") Log("Inventaire consulté en lecture seule par : " + qui);
@@ -1150,6 +1362,7 @@ namespace AskThem
                     }
                     else
                     {
+                        AfficherEtatInventaire(false, message);
                         Log(message + " Repli sur l'export.");
                     }
                 }
@@ -1399,29 +1612,30 @@ namespace AskThem
             if (_busy) return;
             if (!ValidateInput(generate)) return;
 
-            // Une session SolidWorks deja ouverte appartient a l'utilisateur : on previent
-            // avant d'y ouvrir et refermer des documents.
-            if (generate && SolidWorksExporter.IsSolidWorksRunning())
+            // Sans session d'inventaire, la demande partira sans les anciennes références
+            // ni les références fournisseur : on le dit avant, pas après.
+            if (generate && !inventaireConnecte)
             {
-                DialogResult reponse = MessageBox.Show(
-                    "SolidWorks est déjà ouvert sur ce poste." + Environment.NewLine + Environment.NewLine +
-                    "Les documents seront ouverts et refermés dans votre session pendant le traitement, " +
-                    "et un document que vous avez déjà ouvert pourrait être refermé." + Environment.NewLine + Environment.NewLine +
-                    "Enregistrez votre travail avant de continuer." + Environment.NewLine + Environment.NewLine +
-                    "Continuer malgré tout ?",
-                    "AskThem", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
-                if (reponse != DialogResult.Yes)
+                if (MessageBox.Show(
+                        "AskThem n'est pas connecté à l'inventaire." + Environment.NewLine + Environment.NewLine +
+                        "Les anciennes références et les références fournisseur ne seront pas " +
+                        "renseignées dans cette demande." + Environment.NewLine +
+                        "Le bouton « Inventaire… » permet de rétablir la connexion." +
+                        Environment.NewLine + Environment.NewLine + "Envoyer quand même ?",
+                        "AskThem", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
+                        MessageBoxDefaultButton.Button2) != DialogResult.Yes)
                 {
-                    Log("Traitement abandonné : SolidWorks est déjà ouvert.");
                     return;
                 }
-                Log("SolidWorks déjà ouvert : le traitement se déroulera dans la session existante.");
             }
+
+            if (generate && !ConfirmerSolidWorks()) return;
 
             // Les valeurs de l'interface sont lues ici, sur le thread interface.
             _generateMode = generate;
             _opt3D = chk3D.Checked;
             _opt2D = chk2D.Checked;
+            _optRapport = chkRapportControle.Checked;
             Supplier fournisseur = SelectedSupplier;
             _optSupplier = fournisseur == null ? "" : fournisseur.ToLine;
             _optSupplierCc = fournisseur == null ? "" : fournisseur.CcLine;
@@ -1528,6 +1742,86 @@ namespace AskThem
             Log("Index construit : " + _pdmIndex.Count + " fichier(s) SolidWorks en " + seconds + " s.");
         }
 
+        /// <summary>
+        /// Produit le rapport de controle d'un article, a partir du plan deja ouvert.
+        /// Le PDF rejoint les fichiers de l'article : il part donc dans son archive ZIP.
+        /// </summary>
+        private string GenererRapport(ModelDoc2 plan, PartLine line, string dossier)
+        {
+            List<string> traces = new List<string>();
+            try
+            {
+                ExtracteurCaracteristiques extracteur = new ExtracteurCaracteristiques(
+                    _rapportCfg,
+                    delegate(string m) { traces.Add(m); });
+
+                RapportControle rapport = extracteur.Extraire(plan, line, _optSupplierName, _optProject);
+                string pdf = _generateurPdf.Generer(rapport, dossier);
+
+                line.ExportedFiles.Add(pdf);
+                Log("Rapport de controle (beta) : " + Path.GetFileName(pdf)
+                    + " (" + rapport.Caracteristiques.Count + " caracteristique(s))");
+                if (rapport.ExtractionPartielle)
+                    Log("ATTENTION " + line.PartNumber + " : extraction partielle, verifier le plan avant envoi.");
+
+                EcrireJournalRapport(line, rapport.Caracteristiques.Count, traces, rapport.Avertissements);
+                return pdf;
+            }
+            catch (Exception ex)
+            {
+                // Aucune exception ne remonte : l'article suivant doit etre traite.
+                Log("ERREUR rapport de controle " + line.PartNumber + " : " + ex.Message);
+                traces.Add("ECHEC : " + ex.Message);
+                EcrireJournalRapport(line, 0, traces, new List<string>());
+                return null;
+            }
+        }
+
+        /// <summary>Une ligne par article dans RapportsControle\extraction.log.</summary>
+        private void EcrireJournalRapport(PartLine line, int retenues,
+                                          List<string> traces, List<string> avertissements)
+        {
+            if (string.IsNullOrEmpty(_journalRapports)) return;
+            try
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.Append(DateTime.Now.ToString("HH:mm:ss")).Append("  ").Append(line.PartNumber)
+                  .Append("  -> ").Append(retenues).Append(" caracteristique(s)");
+                foreach (string t in traces) sb.AppendLine().Append("      ").Append(t);
+                foreach (string a in avertissements) sb.AppendLine().Append("      AVERTISSEMENT : ").Append(a);
+                sb.AppendLine();
+                File.AppendAllText(_journalRapports, sb.ToString(), Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                Log("Journal des rapports non ecrit : " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Une session SolidWorks deja ouverte appartient a l'utilisateur : on previent
+        /// avant d'y ouvrir et refermer des documents. Vrai si l'on peut poursuivre.
+        /// </summary>
+        private bool ConfirmerSolidWorks()
+        {
+            if (!SolidWorksExporter.IsSolidWorksRunning()) return true;
+
+            DialogResult reponse = MessageBox.Show(
+                "SolidWorks est déjà ouvert sur ce poste." + Environment.NewLine + Environment.NewLine +
+                "Les documents seront ouverts et refermés dans votre session pendant le traitement, " +
+                "et un document que vous avez déjà ouvert pourrait être refermé." + Environment.NewLine + Environment.NewLine +
+                "Enregistrez votre travail avant de continuer." + Environment.NewLine + Environment.NewLine +
+                "Continuer malgré tout ?",
+                "AskThem", MessageBoxButtons.YesNo, MessageBoxIcon.Warning, MessageBoxDefaultButton.Button2);
+            if (reponse != DialogResult.Yes)
+            {
+                Log("Traitement abandonné : SolidWorks est déjà ouvert.");
+                return false;
+            }
+            Log("SolidWorks déjà ouvert : le traitement se déroulera dans la session existante.");
+            return true;
+        }
+
         /// <summary>Passerelle de journalisation utilisable par les services.</summary>
         private void LogFromWorker(string message)
         {
@@ -1547,9 +1841,11 @@ namespace AskThem
             string folder3D = Path.Combine(outputFolder, "3D_STEP");
             string folder2D = Path.Combine(outputFolder, "2D_PLANS");
             string folderZip = Path.Combine(outputFolder, "ZIP_par_article");
+            string folderRapports = Path.Combine(outputFolder, "RapportsControle");
             Directory.CreateDirectory(folder3D);
             Directory.CreateDirectory(folder2D);
             Directory.CreateDirectory(folderZip);
+            if (_optRapport) Directory.CreateDirectory(folderRapports);
             _archivePath = outputFolder;
             Log("Dossier de la demande : " + outputFolder);
 
@@ -1568,6 +1864,14 @@ namespace AskThem
                     poArchive = null;
                     Log("ERREUR copie du bon de commande : " + ex.Message);
                 }
+            }
+
+            if (_optRapport)
+            {
+                _rapportCfg = RapportControleConfig.Load();
+                TableSymbolesGtol.Charger(LogFromWorker);
+                _generateurPdf = new QuestPdfGenerateur();
+                _journalRapports = Path.Combine(folderRapports, "extraction.log");
             }
 
             BuildPdmIndex();
@@ -1607,7 +1911,7 @@ namespace AskThem
                     SetProgress(i, "Traitement " + (i + 1) + "/" + total + " : " + line.PartNumber);
                     try
                     {
-                        ProcessOneLine(exporter, line, folder3D, folder2D, folderZip);
+                        ProcessOneLine(exporter, line, folder3D, folder2D, folderZip, folderRapports);
                     }
                     catch (Exception ex)
                     {
@@ -1713,7 +2017,8 @@ namespace AskThem
         /// car il porte la révision de référence, qui nomme tous les fichiers de l'article.
         /// </summary>
         private void ProcessOneLine(SolidWorksExporter exporter, PartLine line,
-                                    string folder3D, string folder2D, string folderZip)
+                                    string folder3D, string folder2D, string folderZip,
+                                    string folderRapports)
         {
             line.ExportedFiles.Clear();
             line.ZipPath = null;
@@ -1761,6 +2066,10 @@ namespace AskThem
                         line.ExportedFiles.AddRange(created);
                         foreach (string f in created) Log("Plan : " + Path.GetFileName(f));
                     }
+
+                    // Le rapport est tire du plan deja ouvert : le document n'est jamais
+                    // rouvert. Un echec ici ne touche ni l'export PDF/DXF ni les autres articles.
+                    if (_optRapport && regle.Export2D) GenererRapport(doc, line, folderRapports);
                 }
                 finally
                 {

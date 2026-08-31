@@ -114,6 +114,13 @@ dotnet publish -c Release -o "D:\chemin\de\votre\choix"
 | `Export3D` | booléen | État initial de la case « Exporter 3D (STEP AP203) ». |
 | `Export2D` | booléen | État initial de la case « Exporter 2D (PDF + DXF) ». |
 
+### Rapport de contrôle (bêta)
+
+Un second fichier, `config\rapport-controle.json`, règle le module de rapport de contrôle :
+noms de propriétés à lire pour la matière, le traitement et la peinture, valeur écrite quand
+aucune n'est trouvée, exigence d'aspect et marge de détection des repères de cadre.
+Il est recréé avec ses valeurs d'origine s'il manque. Voir [docs/RapportControle.md](docs/RapportControle.md).
+
 Le journal d'exécution est écrit dans `%LOCALAPPDATA%\AskThem\logs\askthem_AAAAMMJJ.log`.
 
 ---

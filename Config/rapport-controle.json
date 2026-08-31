@@ -1,0 +1,13 @@
+{
+  "proprietes": {
+    "matiere": [ "Material", "Matiere", "Matière", "MATIERE", "SW-Material" ],
+    "traitement": [ "Traitement", "TraitementSurface", "Finition", "Finitions", "HeatTreatment" ],
+    "peinture": [ "Peinture", "RAL", "Paint" ],
+    "durete": [ "Durete", "Dureté", "Hardness" ],
+    "designation": [ "Description", "Designation", "Désignation" ],
+    "revision": [ "Revision", "Indice", "Rev" ]
+  },
+  "valeurSiVide": "Sans",
+  "aspectParDefaut": "Ébavuré, sans rayure",
+  "margeBordRepere": 12.0
+}
