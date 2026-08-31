@@ -2014,7 +2014,7 @@ namespace AskThem
         /// <summary>
         /// Traite un article. Chaque document n'est ouvert QU'UNE FOIS : les propriétés sont
         /// lues et l'export réalisé dans la même ouverture. Le plan est traité en premier
-        /// car il porte la révision de référence, qui nomme tous les fichiers de l'article.
+        /// car sa révision prime sur celle du modèle dans le tableau de l'email.
         /// </summary>
         private void ProcessOneLine(SolidWorksExporter exporter, PartLine line,
                                     string folder3D, string folder2D, string folderZip,
@@ -2059,7 +2059,7 @@ namespace AskThem
                     line.PdmSupplier = m.Supplier;
                     line.SupplierRef = m.SupplierRef;
 
-                    baseName = SafeName(BuildBaseName(line));
+                    baseName = SafeName(line.PartNumber);
                     if (livrer2D)
                     {
                         List<string> created = exporter.ExportDrawing(doc, folder2D, baseName);
@@ -2095,7 +2095,7 @@ namespace AskThem
                     if (line.PdmSupplier == "") line.PdmSupplier = m.Supplier;
                     if (line.SupplierRef == "") line.SupplierRef = m.SupplierRef;
 
-                    if (baseName == null) baseName = SafeName(BuildBaseName(line));
+                    if (baseName == null) baseName = SafeName(line.PartNumber);
                     if (livrer3D)
                     {
                         string step = exporter.ExportStep(doc, folder3D, baseName);
@@ -2290,14 +2290,6 @@ namespace AskThem
             if (items.Count > max)
                 sb.AppendLine("    … et " + (items.Count - max) + " autre(s).");
             return sb.ToString().TrimEnd();
-        }
-
-        /// <summary>Nom de base des fichiers : numéro d'article, suffixé de la révision si connue.</summary>
-        private static string BuildBaseName(PartLine line)
-        {
-            string rev = line.EffectiveRevision;
-            if (string.IsNullOrWhiteSpace(rev)) return line.PartNumber;
-            return line.PartNumber + "_Rev" + rev;
         }
 
         /// <summary>

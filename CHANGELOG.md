@@ -3,6 +3,14 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.1] — 2026-08-31
+
+### Modifié
+
+- **Les fichiers exportés portent le numéro d'article seul.** Le suffixe `_Rev<x>` a été
+  retiré : la révision figure déjà dans le tableau de l'email, colonne *Rév. plan*, et le
+  suffixe faisait changer de nom un même document à chaque indice.
+
 ## [1.3.0] — 2026-08-31
 
 ### Ajouté

@@ -196,5 +196,5 @@ un fichier par article, contenant son STEP, son PDF et son DXF. Au-delà de
 `MaxAttachments` archives ou de `ZipThresholdMb` mégaoctets, elles sont regroupées dans
 une archive unique pour ne pas produire un email ingérable.
 
-Les fichiers sont nommés `<Numéro d'article>_Rev<Révision>` lorsque la révision est
-lisible dans les propriétés SolidWorks, sinon `<Numéro d'article>`.
+Les fichiers portent le **numéro d'article** seul. La révision n'est pas ajoutée au nom :
+elle figure dans le tableau de l'email, colonne *Rév. plan*.
