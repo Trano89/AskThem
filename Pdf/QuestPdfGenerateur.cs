@@ -34,7 +34,7 @@ namespace AskThem.Pdf
 
         static QuestPdfGenerateur()
         {
-            // Licence Community : LyncéeTec est sous le seuil de 1 000 000 USD de chiffre
+            // Licence Community : la division est sous le seuil de 1 000 000 USD de chiffre
             // d'affaires annuel et n'est pas cotée en bourse.
             QuestPDF.Settings.License = LicenseType.Community;
         }
@@ -83,9 +83,10 @@ namespace AskThem.Pdf
              {
                  row.RelativeItem().AlignBottom().Text(delegate (TextDescriptor t)
                  {
-                     t.Span("Lyncée").FontSize(reduit ? 10 : 13).Bold();
-                     t.Span("Tec").FontSize(reduit ? 10 : 13).FontColor(InkSoft);
-                     t.Span(" SA").FontSize(reduit ? 10 : 13).Bold();
+                     float taille = reduit ? 10 : 13;
+                     t.Span("Park").FontSize(taille).Bold();
+                     t.Span("Systems").FontSize(taille).FontColor(InkSoft);
+                     t.Span("  /  Lyncée Tec Division").FontSize(taille - 3.5f).FontColor(InkSoft);
                  });
 
                  row.AutoItem().AlignBottom().AlignRight().Column(delegate (ColumnDescriptor col)
@@ -411,7 +412,7 @@ namespace AskThem.Pdf
                 }
 
                 col.Item().PaddingTop(1, Unit.Millimetre)
-                   .Text("Seuls les symboles présents sur le plan sont repris. Numérotation TF&P LyncéeTec.")
+                   .Text("Seuls les symboles présents sur le plan sont repris. Numérotation TF&P Lyncée Tec.")
                    .FontSize(TaillePied).FontColor(InkSoft);
             });
         }
@@ -457,7 +458,7 @@ namespace AskThem.Pdf
                     CaseSignature(row.RelativeItem(), Fill, 9);
                 });
 
-                // Réservé LyncéeTec : le fournisseur n'y touche pas.
+                // Réservé Lyncée Tec : le fournisseur n'y touche pas.
                 col.Item().Row(delegate (RowDescriptor row)
                 {
                     EtiquetteSignature(row, "Reçu / validé par", "Received by", 24);

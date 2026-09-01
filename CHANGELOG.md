@@ -3,6 +3,13 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.4] — 2026-08-31
+
+### Modifié
+
+- **La société est désignée « ParkSystems / Lyncée Tec Division »** dans le bandeau du
+  rapport de contrôle et dans les propriétés de l'exécutable, à la place de « Lyncée Tec SA ».
+
 ## [1.3.3] — 2026-08-31
 
 ### Corrigé
