@@ -7,14 +7,17 @@ using AskThem.Services;
 namespace AskThem.Config
 {
     /// <summary>
-    /// Réglages du rapport de contrôle, lus dans config\rapport-controle.json.
+    /// Réglages du contrôle de fabrication, lus dans config\controle-fabrication.json.
     /// Aucun nom de propriété SolidWorks n'est écrit dans le code : tout passe par ce fichier,
     /// que l'on peut corriger sur un poste sans recompiler.
     /// </summary>
-    public sealed class RapportControleConfig
+    public sealed class ControleFabricationConfig
     {
         private const string DossierConfig = "config";
-        private const string NomFichier = "rapport-controle.json";
+        private const string NomFichier = "controle-fabrication.json";
+
+        /// <summary>Nom porté par le fichier avant que le module ne soit renommé en CF.</summary>
+        private const string AncienNomFichier = "rapport-controle.json";
 
         /// <summary>Noms de propriétés à essayer, par champ (matiere, traitement, peinture...).</summary>
         public Dictionary<string, List<string>> Proprietes { get; set; }
@@ -32,7 +35,7 @@ namespace AskThem.Config
         /// </summary>
         public double MargeBordRepere { get; set; }
 
-        public RapportControleConfig()
+        public ControleFabricationConfig()
         {
             Proprietes = new Dictionary<string, List<string>>(StringComparer.OrdinalIgnoreCase);
             ValeurSiVide = "Sans";
@@ -47,26 +50,41 @@ namespace AskThem.Config
         }
 
         /// <summary>
+        /// Chemin à lire quand le fichier courant n'existe pas encore : un poste mis à jour
+        /// depuis une version antérieure garde ses réglages sous l'ancien nom, et les perdre
+        /// silencieusement serait pire que de les relire une fois.
+        /// </summary>
+        private static string CheminHerite()
+        {
+            return Path.Combine(AppContext.BaseDirectory, DossierConfig, AncienNomFichier);
+        }
+
+        /// <summary>
         /// Charge les réglages. Fichier absent ou illisible : valeurs par défaut, écrites
         /// sur le disque pour que l'utilisateur ait un point de départ à modifier.
         /// </summary>
-        public static RapportControleConfig Load()
+        public static ControleFabricationConfig Load()
         {
-            RapportControleConfig cfg = null;
+            ControleFabricationConfig cfg = null;
             try
             {
-                if (File.Exists(Chemin()))
+                string source = File.Exists(Chemin()) ? Chemin()
+                              : (File.Exists(CheminHerite()) ? CheminHerite() : null);
+                if (source != null)
                 {
                     JsonSerializerOptions options = new JsonSerializerOptions();
                     options.PropertyNameCaseInsensitive = true;
                     options.AllowTrailingCommas = true;
                     options.ReadCommentHandling = JsonCommentHandling.Skip;
-                    cfg = JsonSerializer.Deserialize<RapportControleConfig>(File.ReadAllText(Chemin()), options);
+                    cfg = JsonSerializer.Deserialize<ControleFabricationConfig>(File.ReadAllText(source), options);
+
+                    // Repris sous le nouveau nom : la reprise n'a lieu qu'une fois.
+                    if (source != Chemin() && cfg != null) Save(cfg);
                 }
             }
             catch (Exception ex)
             {
-                LogService.Write("rapport-controle.json illisible, valeurs par défaut : " + ex.Message);
+                LogService.Write("controle-fabrication.json illisible, valeurs par défaut : " + ex.Message);
                 cfg = null;
             }
 
@@ -92,7 +110,7 @@ namespace AskThem.Config
         }
 
         /// <summary>Écrit le fichier. Un échec est journalisé, jamais remonté.</summary>
-        public static void Save(RapportControleConfig cfg)
+        public static void Save(ControleFabricationConfig cfg)
         {
             try
             {
@@ -105,7 +123,7 @@ namespace AskThem.Config
             }
             catch (Exception ex)
             {
-                LogService.Write("Impossible d'écrire rapport-controle.json : " + ex.Message);
+                LogService.Write("Impossible d'écrire controle-fabrication.json : " + ex.Message);
             }
         }
 
@@ -121,9 +139,9 @@ namespace AskThem.Config
         /// Réglages d'origine. Les noms viennent des propriétés réellement observées dans
         /// le coffre : Material, Traitement, Description, Revision.
         /// </summary>
-        private static RapportControleConfig Defaut()
+        private static ControleFabricationConfig Defaut()
         {
-            RapportControleConfig c = new RapportControleConfig();
+            ControleFabricationConfig c = new ControleFabricationConfig();
             c.Proprietes["matiere"] = new List<string> { "Material", "Matiere", "Matière", "MATIERE", "SW-Material" };
             c.Proprietes["traitement"] = new List<string> { "Traitement", "TraitementSurface", "Finition", "Finitions", "HeatTreatment" };
             c.Proprietes["peinture"] = new List<string> { "Peinture", "RAL", "Paint" };

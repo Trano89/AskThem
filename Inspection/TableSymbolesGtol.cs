@@ -6,7 +6,7 @@ using AskThem.Services;
 
 namespace AskThem.Inspection
 {
-    /// <summary>Un symbole de tolérance géométrique, tel qu'il apparaîtra dans le rapport.</summary>
+    /// <summary>Un symbole de tolérance géométrique, tel qu'il apparaîtra dans le contrôle.</summary>
     public sealed class SymboleGtol
     {
         /// <summary>Numérotation interne LyncéeTec, reprise dans la table de pied de page.</summary>

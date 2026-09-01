@@ -10,8 +10,8 @@ using QuestPDF.Infrastructure;
 namespace AskThem.Pdf
 {
     /// <summary>
-    /// Met en page le rapport de contrôle avec QuestPDF, d'après la maquette validée
-    /// docs\rapport-controle-exemple.html. En cas de divergence, la maquette fait foi.
+    /// Met en page le contrôle de fabrication avec QuestPDF, d'après la maquette validée
+    /// docs\controle-fabrication-exemple.html. En cas de divergence, la maquette fait foi.
     /// </summary>
     public sealed class QuestPdfGenerateur : IGenerateurPdf
     {
@@ -39,11 +39,11 @@ namespace AskThem.Pdf
             QuestPDF.Settings.License = LicenseType.Community;
         }
 
-        public string Generer(RapportControle rapport, string dossier)
+        public string Generer(ControleFabrication controle, string dossier)
         {
-            if (rapport == null) throw new ArgumentNullException("rapport");
+            if (controle == null) throw new ArgumentNullException("controle");
             Directory.CreateDirectory(dossier);
-            string chemin = CheminUnique(dossier, rapport);
+            string chemin = CheminUnique(dossier, controle);
 
             Document.Create(delegate (IDocumentContainer conteneur)
             {
@@ -58,13 +58,13 @@ namespace AskThem.Pdf
 
                     page.Header().Column(delegate (ColumnDescriptor col)
                     {
-                        col.Item().ShowOnce().Element(delegate (IContainer c) { Bandeau(c, rapport, false); });
-                        col.Item().SkipOnce().Element(delegate (IContainer c) { Bandeau(c, rapport, true); });
+                        col.Item().ShowOnce().Element(delegate (IContainer c) { Bandeau(c, controle, false); });
+                        col.Item().SkipOnce().Element(delegate (IContainer c) { Bandeau(c, controle, true); });
                     });
 
-                    page.Content().Element(delegate (IContainer c) { Corps(c, rapport); });
+                    page.Content().Element(delegate (IContainer c) { Corps(c, controle); });
 
-                    page.Footer().Element(delegate (IContainer c) { Pied(c, rapport); });
+                    page.Footer().Element(delegate (IContainer c) { Pied(c, controle); });
                 });
             }).GeneratePdf(chemin);
 
@@ -75,7 +75,7 @@ namespace AskThem.Pdf
         // Bandeau titre
         // ------------------------------------------------------------------
 
-        private static void Bandeau(IContainer c, RapportControle r, bool reduit)
+        private static void Bandeau(IContainer c, ControleFabrication r, bool reduit)
         {
             c.PaddingBottom(1.5f, Unit.Millimetre)
              .BorderBottom(1.6f, Unit.Point).BorderColor(Ink)
@@ -91,16 +91,16 @@ namespace AskThem.Pdf
 
                  row.AutoItem().AlignBottom().AlignRight().Column(delegate (ColumnDescriptor col)
                  {
-                     col.Item().AlignRight().Text("Rapport de contrôle de fabrication")
+                     col.Item().AlignRight().Text("Contrôle de fabrication")
                         .FontSize(reduit ? 10 : 12).Bold();
 
                      if (!reduit)
                      {
-                         col.Item().AlignRight().Text("Manufacturing inspection report")
+                         col.Item().AlignRight().Text("Manufacturing inspection")
                             .FontSize(TailleEn).Italic().FontColor(InkSoft);
                          col.Item().AlignRight()
                             .Text("Généré par AskThem le " + r.DateGeneration.ToString("dd.MM.yyyy", CultureInfo.InvariantCulture)
-                                  + " — source : " + Source(r) + " — modèle RC-01 rev.A (bêta)")
+                                  + " — source : " + Source(r) + " — modèle CF-01 rev.A (bêta)")
                             .FontSize(TaillePied).FontColor(InkSoft);
                      }
                      else
@@ -112,7 +112,7 @@ namespace AskThem.Pdf
              });
         }
 
-        private static string Source(RapportControle r)
+        private static string Source(ControleFabrication r)
         {
             return string.IsNullOrWhiteSpace(r.CheminSourcePlan) ? "coffre PDM" : r.CheminSourcePlan;
         }
@@ -121,7 +121,7 @@ namespace AskThem.Pdf
         // Corps
         // ------------------------------------------------------------------
 
-        private static void Corps(IContainer c, RapportControle r)
+        private static void Corps(IContainer c, ControleFabrication r)
         {
             c.PaddingTop(2, Unit.Millimetre).Column(delegate (ColumnDescriptor col)
             {
@@ -166,7 +166,7 @@ namespace AskThem.Pdf
         // Identification et matière
         // ------------------------------------------------------------------
 
-        private static void Identification(IContainer c, RapportControle r)
+        private static void Identification(IContainer c, ControleFabrication r)
         {
             c.Column(delegate (ColumnDescriptor col)
             {
@@ -196,12 +196,12 @@ namespace AskThem.Pdf
             });
         }
 
-        private static string Quantite(RapportControle r)
+        private static string Quantite(ControleFabrication r)
         {
             return r.QuantiteLot > 0 ? r.QuantiteLot.ToString(CultureInfo.InvariantCulture) : "";
         }
 
-        private static void BlocMatiere(IContainer c, RapportControle r)
+        private static void BlocMatiere(IContainer c, ControleFabrication r)
         {
             c.Row(delegate (RowDescriptor row)
             {
@@ -219,7 +219,7 @@ namespace AskThem.Pdf
         /// <summary>
         /// Cellule d'intitulé : libellé français en gras, traduction en dessous. La largeur
         /// est imposée — laissée libre, un intitulé long se replie et fait grandir toute la
-        /// rangée, ce qui coûte une page entière sur un rapport dense.
+        /// rangée, ce qui coûte une page entière sur un contrôle dense.
         /// </summary>
         private static void Etiquette(RowDescriptor row, string fr, string en, float largeurMm)
         {
@@ -253,7 +253,7 @@ namespace AskThem.Pdf
         // Tableau des caractéristiques
         // ------------------------------------------------------------------
 
-        private static void Tableau(IContainer c, RapportControle r)
+        private static void Tableau(IContainer c, ControleFabrication r)
         {
             c.Table(delegate (TableDescriptor table)
             {
@@ -354,7 +354,7 @@ namespace AskThem.Pdf
         // Bas de page : table des symboles et bloc signature
         // ------------------------------------------------------------------
 
-        private static void BasDePage(IContainer c, RapportControle r)
+        private static void BasDePage(IContainer c, ControleFabrication r)
         {
             List<Caracteristique> avecSymbole = SymbolesUtilises(r);
 
@@ -369,8 +369,8 @@ namespace AskThem.Pdf
             });
         }
 
-        /// <summary>Seuls les symboles réellement présents dans ce rapport sont repris.</summary>
-        private static List<Caracteristique> SymbolesUtilises(RapportControle r)
+        /// <summary>Seuls les symboles réellement présents dans ce contrôle sont repris.</summary>
+        private static List<Caracteristique> SymbolesUtilises(ControleFabrication r)
         {
             List<Caracteristique> retenus = new List<Caracteristique>();
             List<int> vus = new List<int>();
@@ -495,7 +495,7 @@ namespace AskThem.Pdf
         // Pied de page
         // ------------------------------------------------------------------
 
-        private static void Pied(IContainer c, RapportControle r)
+        private static void Pied(IContainer c, ControleFabrication r)
         {
             c.Column(delegate (ColumnDescriptor col)
             {
@@ -524,9 +524,9 @@ namespace AskThem.Pdf
         // ------------------------------------------------------------------
 
         /// <summary>RC_{NumeroPlan}_rev{Revision}.pdf, suffixé _2, _3 en cas de collision.</summary>
-        private static string CheminUnique(string dossier, RapportControle r)
+        private static string CheminUnique(string dossier, ControleFabrication r)
         {
-            string racine = "RC_" + Sain(r.NumeroPlan) + "_rev" + Sain(r.Revision);
+            string racine = "CF_" + Sain(r.NumeroPlan) + "_rev" + Sain(r.Revision);
             string candidat = Path.Combine(dossier, racine + ".pdf");
             int n = 2;
             while (File.Exists(candidat))

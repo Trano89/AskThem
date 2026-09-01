@@ -37,11 +37,11 @@ namespace AskThem
         private bool _generateMode;
         private bool _opt3D;
         private bool _opt2D;
-        private bool _optRapport;
+        private bool _optControle;
         private CompressionLevel _optCompression = CompressionLevel.Optimal;
-        private RapportControleConfig _rapportCfg;
+        private ControleFabricationConfig _controleCfg;
         private IGenerateurPdf _generateurPdf;
-        private string _journalRapports = "";
+        private string _journalControles = "";
         private string _optSupplier = "";
         private string _optSupplierCc = "";
         private string _optSupplierName = "";
@@ -99,10 +99,10 @@ namespace AskThem
         private DateTimePicker dtpDeadline;
         private CheckBox chk3D;
         private CheckBox chk2D;
-        private CheckBox chkRapportControle;
+        private CheckBox chkControleFabrication;
         private ComboBox cboCompression;
         private ContextMenuStrip menuGrille;
-        private ToolStripMenuItem mnuRapportControle;
+        private ToolStripMenuItem mnuControleFabrication;
         private TextBox txtConditions;
         private Label lblPo;
         private TextBox txtPo;
@@ -287,10 +287,10 @@ namespace AskThem
             grid.Columns.Add(colRemark);
 
             grid.DataSource = _lines;
-            mnuRapportControle = new ToolStripMenuItem("Rapport de contrôle… (bêta)");
-            mnuRapportControle.Click += new EventHandler(MnuRapportControle_Click);
+            mnuControleFabrication = new ToolStripMenuItem("Contrôle de fabrication… (bêta)");
+            mnuControleFabrication.Click += new EventHandler(MnuControleFabrication_Click);
             menuGrille = new ContextMenuStrip();
-            menuGrille.Items.Add(mnuRapportControle);
+            menuGrille.Items.Add(mnuControleFabrication);
             menuGrille.Opening += new CancelEventHandler(MenuGrille_Ouverture);
             grid.ContextMenuStrip = menuGrille;
             grid.MouseDown += new MouseEventHandler(Grid_MouseDown);
@@ -334,7 +334,7 @@ namespace AskThem
         {
             PartLine ligne = LigneSelectionnee();
             if (_busy || ligne == null || string.IsNullOrWhiteSpace(ligne.PartNumber)) { e.Cancel = true; return; }
-            mnuRapportControle.Text = "Rapport de contrôle… (" + ligne.PartNumber + ") — bêta";
+            mnuControleFabrication.Text = "Contrôle de fabrication… (" + ligne.PartNumber + ") — bêta";
         }
 
         private PartLine LigneSelectionnee()
@@ -344,8 +344,8 @@ namespace AskThem
             return _lines[i];
         }
 
-        /// <summary>Produit le rapport de ce seul article, puis ouvre le PDF.</summary>
-        private void MnuRapportControle_Click(object sender, EventArgs e)
+        /// <summary>Produit le contrôle de ce seul article, puis ouvre le PDF.</summary>
+        private void MnuControleFabrication_Click(object sender, EventArgs e)
         {
             PartLine ligne = LigneSelectionnee();
             if (ligne == null || string.IsNullOrWhiteSpace(ligne.PartNumber)) return;
@@ -358,35 +358,35 @@ namespace AskThem
 
             PartLine cible = ligne;
             SetBusy(true);
-            Thread worker = new Thread(delegate() { RunRapportSeul(cible); });
+            Thread worker = new Thread(delegate() { RunControleSeul(cible); });
             worker.IsBackground = true;
             worker.SetApartmentState(ApartmentState.STA);
             worker.Start();
         }
 
         /// <summary>
-        /// Rapport a la demande : sa propre session SolidWorks, son propre dossier, hors
+        /// Controle a la demande : sa propre session SolidWorks, son propre dossier, hors
         /// de toute demande. Le fichier est ecrit dans le dossier de sortie local.
         /// </summary>
-        private void RunRapportSeul(PartLine ligne)
+        private void RunControleSeul(PartLine ligne)
         {
             string pdf = null;
             SolidWorksExporter exporter = new SolidWorksExporter(_config.Properties);
             try
             {
-                _rapportCfg = RapportControleConfig.Load();
+                _controleCfg = ControleFabricationConfig.Load();
                 TableSymbolesGtol.Charger(LogFromWorker);
                 _generateurPdf = new QuestPdfGenerateur();
 
-                string dossier = Path.Combine(_config.OutputRoot, "RapportsControle");
+                string dossier = Path.Combine(_config.OutputRoot, "ControleFabrication");
                 Directory.CreateDirectory(dossier);
-                _journalRapports = Path.Combine(dossier, "extraction.log");
+                _journalControles = Path.Combine(dossier, "extraction.log");
 
                 BuildPdmIndex();
                 ligne.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, ligne.PartNumber);
                 if (ligne.DrawingPath == null)
                 {
-                    Log("Aucun plan pour " + ligne.PartNumber + " : pas de rapport de contrôle.");
+                    Log("Aucun plan pour " + ligne.PartNumber + " : pas de contrôle de fabrication.");
                     return;
                 }
 
@@ -402,8 +402,8 @@ namespace AskThem
                     if (ligne.Treatment == "") ligne.Treatment = m.Treatment;
 
                     int avant = ligne.ExportedFiles.Count;
-                    pdf = GenererRapport(doc, ligne, dossier);
-                    // Ce rapport isole n'appartient a aucune demande : il ne rejoint pas le ZIP.
+                    pdf = GenererControle(doc, ligne, dossier);
+                    // Ce controle isole n'appartient a aucune demande : il ne rejoint pas le ZIP.
                     if (ligne.ExportedFiles.Count > avant) ligne.ExportedFiles.RemoveAt(ligne.ExportedFiles.Count - 1);
                 }
                 finally
@@ -413,7 +413,7 @@ namespace AskThem
             }
             catch (Exception ex)
             {
-                Log("ERREUR rapport de contrôle : " + ex.Message);
+                Log("ERREUR contrôle de fabrication : " + ex.Message);
             }
             finally
             {
@@ -795,12 +795,12 @@ namespace AskThem
             chk2D.AutoSize = true;
             chk2D.Checked = _config.Export2D;
 
-            chkRapportControle = new CheckBox();
-            chkRapportControle.Text = "Générer le rapport de contrôle (PDF) — bêta";
-            chkRapportControle.AutoSize = true;
-            chkRapportControle.Checked = false;
-            toolTip.SetToolTip(chkRapportControle,
-                "Fonction en bêta : relisez le rapport avant de l'envoyer au fournisseur.");
+            chkControleFabrication = new CheckBox();
+            chkControleFabrication.Text = "Générer le contrôle de fabrication (PDF) — bêta";
+            chkControleFabrication.AutoSize = true;
+            chkControleFabrication.Checked = false;
+            toolTip.SetToolTip(chkControleFabrication,
+                "Fonction en bêta : relisez le document avant de l'envoyer au fournisseur.");
 
             cboCompression = new ComboBox();
             cboCompression.DropDownStyle = ComboBoxStyle.DropDownList;
@@ -839,7 +839,7 @@ namespace AskThem
             flow.Controls.Add(Groupe("Référence commande :", txtProject, null));
             flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
             flow.Controls.Add(Groupe("", chk3D, chk2D));
-            flow.Controls.Add(Groupe("", chkRapportControle, null));
+            flow.Controls.Add(Groupe("", chkControleFabrication, null));
             flow.Controls.Add(Groupe("Compression des archives :", cboCompression, null));
             groupePo = Groupe(lblPo.Text, txtPo, btnPo);
             flow.Controls.Add(groupePo);
@@ -1129,9 +1129,9 @@ namespace AskThem
             colQty2.Visible = offre;
             colQty3.Visible = offre;
 
-            // Le rapport accompagne une fabrication ; sur une demande d'offre il ne se
+            // Le controle accompagne une fabrication ; sur une demande d'offre il ne se
             // justifie pas, la piece n'est pas encore commandee.
-            if (chkRapportControle != null) chkRapportControle.Checked = !offre;
+            if (chkControleFabrication != null) chkControleFabrication.Checked = !offre;
 
             // Le document joint change de nature selon le mode : bon de commande en
             // fabrication, demande de PO en offre. Il reste facultatif en offre.
@@ -1662,7 +1662,7 @@ namespace AskThem
             _generateMode = generate;
             _opt3D = chk3D.Checked;
             _opt2D = chk2D.Checked;
-            _optRapport = chkRapportControle.Checked;
+            _optControle = chkControleFabrication.Checked;
             _optCompression = ZipService.Niveau(cboCompression.SelectedItem as string);
             Supplier fournisseur = SelectedSupplier;
             _optSupplier = fournisseur == null ? "" : fournisseur.ToLine;
@@ -1771,45 +1771,45 @@ namespace AskThem
         }
 
         /// <summary>
-        /// Produit le rapport de controle d'un article, a partir du plan deja ouvert.
+        /// Produit le controle de fabrication d'un article, a partir du plan deja ouvert.
         /// Le PDF rejoint les fichiers de l'article : il part donc dans son archive ZIP.
         /// </summary>
-        private string GenererRapport(ModelDoc2 plan, PartLine line, string dossier)
+        private string GenererControle(ModelDoc2 plan, PartLine line, string dossier)
         {
             List<string> traces = new List<string>();
             try
             {
                 ExtracteurCaracteristiques extracteur = new ExtracteurCaracteristiques(
-                    _rapportCfg,
+                    _controleCfg,
                     delegate(string m) { traces.Add(m); });
 
-                RapportControle rapport = extracteur.Extraire(plan, line, _optSupplierName, _optProject);
-                string pdf = _generateurPdf.Generer(rapport, dossier);
+                ControleFabrication controle = extracteur.Extraire(plan, line, _optSupplierName, _optProject);
+                string pdf = _generateurPdf.Generer(controle, dossier);
 
                 line.ExportedFiles.Add(pdf);
-                Log("Rapport de controle (beta) : " + Path.GetFileName(pdf)
-                    + " (" + rapport.Caracteristiques.Count + " caracteristique(s))");
-                if (rapport.ExtractionPartielle)
+                Log("Controle de fabrication (beta) : " + Path.GetFileName(pdf)
+                    + " (" + controle.Caracteristiques.Count + " caracteristique(s))");
+                if (controle.ExtractionPartielle)
                     Log("ATTENTION " + line.PartNumber + " : extraction partielle, verifier le plan avant envoi.");
 
-                EcrireJournalRapport(line, rapport.Caracteristiques.Count, traces, rapport.Avertissements);
+                EcrireJournalControle(line, controle.Caracteristiques.Count, traces, controle.Avertissements);
                 return pdf;
             }
             catch (Exception ex)
             {
                 // Aucune exception ne remonte : l'article suivant doit etre traite.
-                Log("ERREUR rapport de controle " + line.PartNumber + " : " + ex.Message);
+                Log("ERREUR controle de fabrication " + line.PartNumber + " : " + ex.Message);
                 traces.Add("ECHEC : " + ex.Message);
-                EcrireJournalRapport(line, 0, traces, new List<string>());
+                EcrireJournalControle(line, 0, traces, new List<string>());
                 return null;
             }
         }
 
-        /// <summary>Une ligne par article dans RapportsControle\extraction.log.</summary>
-        private void EcrireJournalRapport(PartLine line, int retenues,
+        /// <summary>Une ligne par article dans ControleFabrication\extraction.log.</summary>
+        private void EcrireJournalControle(PartLine line, int retenues,
                                           List<string> traces, List<string> avertissements)
         {
-            if (string.IsNullOrEmpty(_journalRapports)) return;
+            if (string.IsNullOrEmpty(_journalControles)) return;
             try
             {
                 StringBuilder sb = new StringBuilder();
@@ -1818,11 +1818,11 @@ namespace AskThem
                 foreach (string t in traces) sb.AppendLine().Append("      ").Append(t);
                 foreach (string a in avertissements) sb.AppendLine().Append("      AVERTISSEMENT : ").Append(a);
                 sb.AppendLine();
-                File.AppendAllText(_journalRapports, sb.ToString(), Encoding.UTF8);
+                File.AppendAllText(_journalControles, sb.ToString(), Encoding.UTF8);
             }
             catch (Exception ex)
             {
-                Log("Journal des rapports non ecrit : " + ex.Message);
+                Log("Journal des controles non ecrit : " + ex.Message);
             }
         }
 
@@ -1869,11 +1869,11 @@ namespace AskThem
             string folder3D = Path.Combine(outputFolder, "3D_STEP");
             string folder2D = Path.Combine(outputFolder, "2D_PLANS");
             string folderZip = Path.Combine(outputFolder, "ZIP_par_article");
-            string folderRapports = Path.Combine(outputFolder, "RapportsControle");
+            string folderControles = Path.Combine(outputFolder, "ControleFabrication");
             Directory.CreateDirectory(folder3D);
             Directory.CreateDirectory(folder2D);
             Directory.CreateDirectory(folderZip);
-            if (_optRapport) Directory.CreateDirectory(folderRapports);
+            if (_optControle) Directory.CreateDirectory(folderControles);
             _archivePath = outputFolder;
             Log("Dossier de la demande : " + outputFolder);
 
@@ -1894,12 +1894,12 @@ namespace AskThem
                 }
             }
 
-            if (_optRapport)
+            if (_optControle)
             {
-                _rapportCfg = RapportControleConfig.Load();
+                _controleCfg = ControleFabricationConfig.Load();
                 TableSymbolesGtol.Charger(LogFromWorker);
                 _generateurPdf = new QuestPdfGenerateur();
-                _journalRapports = Path.Combine(folderRapports, "extraction.log");
+                _journalControles = Path.Combine(folderControles, "extraction.log");
             }
 
             BuildPdmIndex();
@@ -1939,7 +1939,7 @@ namespace AskThem
                     SetProgress(i, "Traitement " + (i + 1) + "/" + total + " : " + line.PartNumber);
                     try
                     {
-                        ProcessOneLine(exporter, line, folder3D, folder2D, folderZip, folderRapports);
+                        ProcessOneLine(exporter, line, folder3D, folder2D, folderZip, folderControles);
                     }
                     catch (Exception ex)
                     {
@@ -2062,7 +2062,7 @@ namespace AskThem
         /// </summary>
         private void ProcessOneLine(SolidWorksExporter exporter, PartLine line,
                                     string folder3D, string folder2D, string folderZip,
-                                    string folderRapports)
+                                    string folderControles)
         {
             line.ExportedFiles.Clear();
             line.ZipPath = null;
@@ -2111,9 +2111,9 @@ namespace AskThem
                         foreach (string f in created) Log("Plan : " + Path.GetFileName(f));
                     }
 
-                    // Le rapport est tire du plan deja ouvert : le document n'est jamais
+                    // Le controle est tire du plan deja ouvert : le document n'est jamais
                     // rouvert. Un echec ici ne touche ni l'export PDF/DXF ni les autres articles.
-                    if (_optRapport && regle.Export2D) GenererRapport(doc, line, folderRapports);
+                    if (_optControle && regle.Export2D) GenererControle(doc, line, folderControles);
                 }
                 finally
                 {

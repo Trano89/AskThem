@@ -25,12 +25,12 @@ namespace AskThem.Inspection
 
         private const double M2MM = 1000.0;
 
-        private readonly RapportControleConfig _cfg;
+        private readonly ControleFabricationConfig _cfg;
         private readonly Action<string> _journal;
 
-        public ExtracteurCaracteristiques(RapportControleConfig cfg, Action<string> journal)
+        public ExtracteurCaracteristiques(ControleFabricationConfig cfg, Action<string> journal)
         {
-            _cfg = cfg != null ? cfg : new RapportControleConfig();
+            _cfg = cfg != null ? cfg : new ControleFabricationConfig();
             _journal = journal;
         }
 
@@ -39,13 +39,13 @@ namespace AskThem.Inspection
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// Construit le rapport d'un article. Ne lève jamais : ce qui n'a pas pu être lu
+        /// Construit le contrôle d'un article. Ne lève jamais : ce qui n'a pas pu être lu
         /// devient un avertissement.
         /// </summary>
-        public RapportControle Extraire(ModelDoc2 plan, PartLine ligne,
+        public ControleFabrication Extraire(ModelDoc2 plan, PartLine ligne,
                                         string fournisseur, string numeroCommande)
         {
-            RapportControle r = new RapportControle();
+            ControleFabrication r = new ControleFabrication();
             r.DateGeneration = DateTime.Now;
             r.Fournisseur = fournisseur == null ? "" : fournisseur;
             r.NumeroCommande = numeroCommande == null ? "" : numeroCommande;
@@ -59,7 +59,7 @@ namespace AskThem.Inspection
             }
             if (plan == null)
             {
-                r.Avertissements.Add("Aucun plan fourni : rapport vide.");
+                r.Avertissements.Add("Aucun plan fourni : document vide.");
                 return r;
             }
 
@@ -87,7 +87,7 @@ namespace AskThem.Inspection
         // En-tête : matière, traitement, peinture
         // ------------------------------------------------------------------
 
-        private void RemplirEnTete(RapportControle r, ModelDoc2 plan, PartLine ligne)
+        private void RemplirEnTete(ControleFabrication r, ModelDoc2 plan, PartLine ligne)
         {
             // Priorité : le modèle référencé par la vue principale, puis le plan lui-même,
             // puis ce que la carte de données PDM avait déjà donné à AskThem.
@@ -104,7 +104,7 @@ namespace AskThem.Inspection
         }
 
         /// <summary>Première valeur non vide parmi le modèle, le plan, puis le repli.</summary>
-        private string Champ(RapportControle r, string champ, ModelDoc2 modele, ModelDoc2 plan, string repli)
+        private string Champ(ControleFabrication r, string champ, ModelDoc2 modele, ModelDoc2 plan, string repli)
         {
             List<string> noms = _cfg.NomsDe(champ);
             string v = LirePropriete(modele, noms);
@@ -184,7 +184,7 @@ namespace AskThem.Inspection
         // Parcours des feuilles
         // ------------------------------------------------------------------
 
-        private void ParcourirFeuilles(ModelDoc2 plan, RapportControle r, List<Releve> releves)
+        private void ParcourirFeuilles(ModelDoc2 plan, ControleFabrication r, List<Releve> releves)
         {
             DrawingDoc drw = (DrawingDoc)plan;
             object[] feuilles = drw.GetViews() as object[];
@@ -242,7 +242,7 @@ namespace AskThem.Inspection
         // Cotes
         // ------------------------------------------------------------------
 
-        private int LireCotes(View vue, GrilleZones grille, RapportControle r, List<Releve> sortie)
+        private int LireCotes(View vue, GrilleZones grille, ControleFabrication r, List<Releve> sortie)
         {
             int lues = 0;
             DisplayDimension dd = null;
@@ -263,7 +263,7 @@ namespace AskThem.Inspection
             return lues;
         }
 
-        private void UneCote(DisplayDimension dd, GrilleZones grille, RapportControle r, List<Releve> sortie)
+        private void UneCote(DisplayDimension dd, GrilleZones grille, ControleFabrication r, List<Releve> sortie)
         {
             // Une cote entre parenthèses est une cote de référence : elle informe, elle
             // n'engage pas. Attention, IsReferenceDim est vrai pour presque toute cote de
@@ -414,7 +414,7 @@ namespace AskThem.Inspection
         // Tolérances géométriques
         // ------------------------------------------------------------------
 
-        private void LireGtols(View vue, GrilleZones grille, RapportControle r, List<Releve> sortie)
+        private void LireGtols(View vue, GrilleZones grille, ControleFabrication r, List<Releve> sortie)
         {
             object[] tab = null;
             try { tab = vue.GetGTols() as object[]; }
@@ -435,7 +435,7 @@ namespace AskThem.Inspection
         /// GetFrameValues) reviennent vides sur les plans du coffre ; le contenu réel est
         /// dans la liste de textes, où chaque code de symbole ouvre un nouveau cadre.
         /// </summary>
-        private void UnGtol(Gtol g, GrilleZones grille, RapportControle r, List<Releve> sortie)
+        private void UnGtol(Gtol g, GrilleZones grille, ControleFabrication r, List<Releve> sortie)
         {
             int nb = 0;
             try { nb = g.GetTextCount(); }
@@ -517,7 +517,7 @@ namespace AskThem.Inspection
         // États de surface et notes
         // ------------------------------------------------------------------
 
-        private void LireEtatsSurface(View vue, GrilleZones grille, RapportControle r, List<Releve> sortie)
+        private void LireEtatsSurface(View vue, GrilleZones grille, ControleFabrication r, List<Releve> sortie)
         {
             object[] tab = null;
             try { tab = vue.GetSFSymbols() as object[]; }
@@ -575,7 +575,7 @@ namespace AskThem.Inspection
         // Zones, numérotation, lignes fixes
         // ------------------------------------------------------------------
 
-        private GrilleZones ConstruireGrille(DrawingDoc drw, string nomFeuille, View fondDePlan, RapportControle r)
+        private GrilleZones ConstruireGrille(DrawingDoc drw, string nomFeuille, View fondDePlan, ControleFabrication r)
         {
             double largeur = 0, hauteur = 0;
             Sheet sh = null;
@@ -596,7 +596,7 @@ namespace AskThem.Inspection
             return grille;
         }
 
-        private void PoserZone(Releve rel, object annotation, GrilleZones grille, RapportControle r)
+        private void PoserZone(Releve rel, object annotation, GrilleZones grille, ControleFabrication r)
         {
             double[] p = null;
             try
@@ -647,7 +647,7 @@ namespace AskThem.Inspection
             }
         }
 
-        private static void Numeroter(RapportControle r, List<Releve> releves)
+        private static void Numeroter(ControleFabrication r, List<Releve> releves)
         {
             foreach (Releve rel in releves)
             {
@@ -665,12 +665,12 @@ namespace AskThem.Inspection
         }
 
         /// <summary>
-        /// La ligne présente sur tous les rapports, quoi qu'il arrive.
+        /// La ligne présente sur tous les contrôles, quoi qu'il arrive.
         ///
         /// Les tolérances générales n'y figurent pas : elles sont portées sur le plan et ne
         /// font pas l'objet d'un contrôle à la réception.
         /// </summary>
-        private void AjouterLignesFixes(RapportControle r, List<Releve> releves)
+        private void AjouterLignesFixes(ControleFabrication r, List<Releve> releves)
         {
             Caracteristique aspect = new Caracteristique();
             aspect.Numero = r.Caracteristiques.Count + 1;
@@ -682,7 +682,7 @@ namespace AskThem.Inspection
             r.Caracteristiques.Add(aspect);
         }
 
-        private void Avertir(RapportControle r, string message)
+        private void Avertir(ControleFabrication r, string message)
         {
             if (!r.Avertissements.Contains(message)) r.Avertissements.Add(message);
             Journal(message);

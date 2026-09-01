@@ -28,7 +28,7 @@ namespace AskThem.Models
     /// </summary>
     public sealed class Caracteristique
     {
-        /// <summary>Numéro d'ordre dans le rapport, séquentiel sur toutes les feuilles.</summary>
+        /// <summary>Numéro d'ordre dans le contrôle, séquentiel sur toutes les feuilles.</summary>
         public int Numero { get; set; }
 
         /// <summary>Case du quadrillage du cadre, par exemple B3. « — » si indéterminable.</summary>
@@ -66,10 +66,10 @@ namespace AskThem.Models
     }
 
     /// <summary>
-    /// Le rapport de contrôle d'un article : l'en-tête que le programme remplit, et
+    /// Le contrôle de fabrication d'un article : l'en-tête que le programme remplit, et
     /// la liste des caractéristiques que le fournisseur devra mesurer.
     /// </summary>
-    public sealed class RapportControle
+    public sealed class ControleFabrication
     {
         /// <summary>Numéro d'article, au format XYZ-AAAAA-BB.</summary>
         public string NumeroPlan { get; set; }
@@ -101,7 +101,7 @@ namespace AskThem.Models
         /// <summary>Horodatage porté sur le document.</summary>
         public DateTime DateGeneration { get; set; }
 
-        /// <summary>Chemin du .SLDDRW dont ce rapport est issu.</summary>
+        /// <summary>Chemin du .SLDDRW dont ce contrôle est issu.</summary>
         public string CheminSourcePlan { get; set; }
 
         /// <summary>Nombre de feuilles parcourues sur le plan.</summary>
@@ -117,7 +117,7 @@ namespace AskThem.Models
         public List<string> Avertissements { get; private set; }
 
         /// <summary>
-        /// Vrai quand le rapport est trop maigre pour être envoyé tel quel : signale
+        /// Vrai quand le contrôle est trop maigre pour être envoyé tel quel : signale
         /// presque toujours un plan dont les cotes sont du texte libre.
         /// </summary>
         public bool ExtractionPartielle
@@ -125,7 +125,7 @@ namespace AskThem.Models
             get { return Caracteristiques.Count < 3; }
         }
 
-        public RapportControle()
+        public ControleFabrication()
         {
             NumeroPlan = "";
             Revision = "";

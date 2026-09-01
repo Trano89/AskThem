@@ -1,6 +1,6 @@
-# Rapport de contrôle
+# Contrôle de fabrication
 
-> **Fonction en bêta.** Elle est utilisable, mais relisez le rapport avant de l'envoyer :
+> **Fonction en bêta.** Elle est utilisable, mais relisez le document avant de l'envoyer :
 > l'extraction dépend de la façon dont chaque plan est coté, et un plan dont les cotes sont
 > du texte libre ne livrera presque rien.
 
@@ -21,7 +21,7 @@ existante** — le document n'est jamais rouvert une seconde fois — et en tire
 Les **tolérances générales ne figurent pas** dans le rapport : elles sont portées sur le plan
 et ne font pas l'objet d'un contrôle à la réception.
 
-Le PDF est écrit dans `RapportsControle\` du dossier de la demande, sous le nom
+Le PDF est écrit dans `ControleFabrication\` du dossier de la demande, sous le nom
 `RC_{NumeroPlan}_rev{Revision}.pdf`, et **rejoint l'archive ZIP de l'article** — il part donc
 au fournisseur avec les STEP, PDF et DXF.
 
@@ -32,8 +32,8 @@ journalisé et le traitement continue.
 
 | Où | Quoi |
 |---|---|
-| Case **Générer le rapport de contrôle (PDF) — bêta** dans le bandeau d'options | Un rapport par article ayant un plan. Cochée d'office en mode Fabrication, décochée en mode Offre. |
-| Clic droit sur une ligne de la grille → **Rapport de contrôle… (bêta)** | Le rapport de ce seul article, écrit dans `<dossier de sortie>\RapportsControle\` et ouvert à la fin. Ne rejoint aucun ZIP. |
+| Case **Générer le contrôle de fabrication (PDF) — bêta** dans le bandeau d'options | Un rapport par article ayant un plan. Cochée d'office en mode Fabrication, décochée en mode Offre. |
+| Clic droit sur une ligne de la grille → **Contrôle de fabrication… (bêta)** | Le rapport de ce seul article, écrit dans `<dossier de sortie>\ControleFabrication\` et ouvert à la fin. Ne rejoint aucun ZIP. |
 
 ## Ajuster le filtre de sélection
 
@@ -101,7 +101,7 @@ Caractéristique, et un avertissement part au journal.
 
 ## Réglages
 
-`config\rapport-controle.json`, à côté de l'exécutable, recréé avec ses valeurs par défaut
+`config\controle-fabrication.json`, à côté de l'exécutable, recréé avec ses valeurs par défaut
 s'il manque. Aucun nom de propriété SolidWorks n'est écrit dans le code.
 
 | Clé | Rôle |
@@ -120,9 +120,9 @@ c'est `margeBordRepere` qui l'écarte, puisqu'elle se trouve à l'intérieur du 
 
 ## Journal
 
-`RapportsControle\extraction.log`, une entrée par article : cotes lues, cotes retenues,
+`ControleFabrication\extraction.log`, une entrée par article : cotes lues, cotes retenues,
 tolérances géométriques, états de surface, doublons fusionnés, et chaque avertissement.
-Les avertissements figurent aussi dans `RapportControle.Avertissements` et dans le journal
+Les avertissements figurent aussi dans `ControleFabrication.Avertissements` et dans le journal
 de la fenêtre.
 
 Un rapport de moins de trois caractéristiques porte en tête, en rouge :

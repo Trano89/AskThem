@@ -3,18 +3,31 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.5] — 2026-08-31
+
+### Modifié
+
+- **Le document s'appelle désormais « contrôle de fabrication », en abrégé CF.** Le terme
+  « rapport » disparaît de l'interface, du titre du document et des fichiers produits :
+  `CF_{NumeroPlan}_rev{Revision}.pdf` dans le dossier `ControleFabrication\`, modèle CF-01.
+  La case du bandeau devient *Générer le contrôle de fabrication (PDF) — bêta* et l'entrée
+  du menu contextuel *Contrôle de fabrication… (bêta)*.
+- Les réglages passent de `config\rapport-controle.json` à `config\controle-fabrication.json`.
+  Un poste mis à jour depuis une version antérieure relit l'ancien fichier une dernière fois
+  et le réenregistre sous le nouveau nom : aucun réglage personnalisé n'est perdu.
+
 ## [1.3.4] — 2026-08-31
 
 ### Modifié
 
 - **La société est désignée « ParkSystems / Lyncée Tec Division »** dans le bandeau du
-  rapport de contrôle et dans les propriétés de l'exécutable, à la place de « Lyncée Tec SA ».
+  contrôle de fabrication et dans les propriétés de l'exécutable, à la place de « Lyncée Tec SA ».
 
 ## [1.3.3] — 2026-08-31
 
 ### Corrigé
 
-- **Les ajustements ISO perdaient leur classe dans le rapport de contrôle.** Un `Ø10 G8`
+- **Les ajustements ISO perdaient leur classe dans le contrôle de fabrication.** Un `Ø10 G8`
   n'affichait que ses écarts. La classe était lue dans une chaîne valant « arbre,alésage » —
   un alésage `G8` s'y lit `,G8` — et le premier champ, vide, était retenu. Elle vient
   désormais de l'objet tolérance de la cote, alésage et arbre séparément : le rapport écrit
@@ -53,9 +66,9 @@ et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
 ### Ajouté
 
-- **Rapport de contrôle de fabrication (PDF) — en bêta**, un par plan, joint dans l'archive
+- **Contrôle de fabrication (PDF) — en bêta**, un par plan, joint dans l'archive
   ZIP de l'article. Le fournisseur le remplit à la main pendant la fabrication, le signe, et
-  nous le retourne avec la livraison. Deux entrées : la case *Générer le rapport de contrôle
+  nous le retourne avec la livraison. Deux entrées : la case *Générer le contrôle de fabrication
   (PDF) — bêta*, cochée d'office en mode Fabrication, et un clic droit sur une ligne de la
   grille pour le rapport d'un seul article, ouvert à la fin. La fonction étant en bêta,
   relisez le rapport avant de l'envoyer.
@@ -66,8 +79,8 @@ et les numéros de version [SemVer](https://semver.org/lang/fr/).
 - Le quadrillage n'est pas codé en dur : les repères du cadre sont relevés sur la feuille
   avec leurs coordonnées, et la grille en est déduite. Un A4 comme un A0 sont traités par
   la même mesure, quel que soit le sens des lettres.
-- Réglages dans `config\rapport-controle.json` : aucun nom de propriété SolidWorks n'est
-  écrit dans le code. Journal détaillé dans `RapportsControle\extraction.log`.
+- Réglages dans `config\controle-fabrication.json` : aucun nom de propriété SolidWorks n'est
+  écrit dans le code. Journal détaillé dans `ControleFabrication\extraction.log`.
 
 ### Corrigé
 

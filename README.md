@@ -115,12 +115,12 @@ dotnet publish -c Release -o "D:\chemin\de\votre\choix"
 | `Export2D` | booléen | État initial de la case « Exporter 2D (PDF + DXF) ». |
 | `ZipCompression` | texte | Niveau de compression des archives : `Aucune`, `Rapide`, `Optimal` ou `Maximale`. Réglable dans le bandeau d'options, le choix s'y enregistre. |
 
-### Rapport de contrôle (bêta)
+### Contrôle de fabrication (bêta)
 
-Un second fichier, `config\rapport-controle.json`, règle le module de rapport de contrôle :
+Un second fichier, `config\controle-fabrication.json`, règle le module de contrôle de fabrication :
 noms de propriétés à lire pour la matière, le traitement et la peinture, valeur écrite quand
 aucune n'est trouvée, exigence d'aspect et marge de détection des repères de cadre.
-Il est recréé avec ses valeurs d'origine s'il manque. Voir [docs/RapportControle.md](docs/RapportControle.md).
+Il est recréé avec ses valeurs d'origine s'il manque. Voir [docs/ControleFabrication.md](docs/ControleFabrication.md).
 
 Le journal d'exécution est écrit dans `%LOCALAPPDATA%\AskThem\logs\askthem_AAAAMMJJ.log`.
 

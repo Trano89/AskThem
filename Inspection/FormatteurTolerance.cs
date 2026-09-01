@@ -5,7 +5,7 @@ using SolidWorks.Interop.swconst;
 namespace AskThem.Inspection
 {
     /// <summary>
-    /// Met en forme la colonne Spécification du rapport : une cote, son préfixe et sa
+    /// Met en forme la colonne Spécification du contrôle : une cote, son préfixe et sa
     /// tolérance sur une seule ligne, telle que le fournisseur la lira sur le plan.
     ///
     /// Les valeurs arrivent en millimètres pour la cote (IDimension.GetValue3) et en
@@ -96,7 +96,7 @@ namespace AskThem.Inspection
         /// <summary>
         /// Vrai si cette cote engage le fournisseur : elle porte une tolérance explicite
         /// ou un ajustement. Les cotes libres sont couvertes par la tolérance générale et
-        /// n'ont pas leur place dans le rapport.
+        /// n'ont pas leur place dans le contrôle.
         /// </summary>
         public static bool EstTolerancee(int typeTolerance, double ecartMinM, double ecartMaxM)
         {
@@ -142,7 +142,7 @@ namespace AskThem.Inspection
 
         /// <summary>
         /// Normalise un texte lu sur le plan : SolidWorks rend les décimales avec la
-        /// virgule française (« 0,02 »), le rapport les écrit avec un point.
+        /// virgule française (« 0,02 »), le contrôle les écrit avec un point.
         /// </summary>
         public static string NormaliserDecimales(string texte)
         {
