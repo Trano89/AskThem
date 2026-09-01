@@ -3,6 +3,19 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.3] — 2026-08-31
+
+### Corrigé
+
+- **Les ajustements ISO perdaient leur classe dans le rapport de contrôle.** Un `Ø10 G8`
+  n'affichait que ses écarts. La classe était lue dans une chaîne valant « arbre,alésage » —
+  un alésage `G8` s'y lit `,G8` — et le premier champ, vide, était retenu. Elle vient
+  désormais de l'objet tolérance de la cote, alésage et arbre séparément : le rapport écrit
+  `Ø10 G8 (+0.027 / +0.005)`, et `H7/g6` pour une cote d'accouplement.
+- Un perçage répété, dont le préfixe porte une quantité comme `(2x)Ø4`, était étiqueté
+  « Cote » au lieu de « Diamètre ». La quantité est maintenant écartée avant de lire le signe
+  du préfixe, et reste dans la spécification.
+
 ## [1.3.2] — 2026-08-31
 
 ### Ajouté

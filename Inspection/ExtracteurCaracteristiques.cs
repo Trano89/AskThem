@@ -296,13 +296,7 @@ namespace AskThem.Inspection
             }
             catch (Exception) { }
 
-            string ajustement = "";
-            try
-            {
-                string brut = d.GetToleranceFitValues();
-                if (!string.IsNullOrWhiteSpace(brut)) ajustement = brut.Split(',')[0].Trim();
-            }
-            catch (Exception) { }
+            string ajustement = ClasseAjustement(d);
 
             if (!INCLURE_TOUTES_LES_COTES && !FormatteurTolerance.EstTolerancee(typeTol, min, max))
                 return;
@@ -325,6 +319,53 @@ namespace AskThem.Inspection
             sortie.Add(rel);
         }
 
+        /// <summary>
+        /// Classe d'ajustement ISO d'une cote : H7 pour un alésage, g6 pour un arbre.
+        ///
+        /// L'objet tolérance la donne sans ambiguïté par le trou et par l'arbre. La chaîne
+        /// de GetToleranceFitValues, elle, vaut « arbre,alésage » : un alésage G8 s'y lit
+        /// « ,G8 », et prendre le premier champ ne rend que du vide. Elle ne sert donc que
+        /// de repli.
+        /// </summary>
+        private static string ClasseAjustement(Dimension d)
+        {
+            string trou = "", arbre = "";
+            try
+            {
+                DimensionTolerance tol = d.Tolerance;
+                if (tol != null)
+                {
+                    try { trou = Propre(tol.GetHoleFitValue()); } catch (Exception) { }
+                    try { arbre = Propre(tol.GetShaftFitValue()); } catch (Exception) { }
+                }
+            }
+            catch (Exception) { }
+
+            if (trou == "" && arbre == "")
+            {
+                try
+                {
+                    string brut = d.GetToleranceFitValues();
+                    if (!string.IsNullOrWhiteSpace(brut))
+                    {
+                        string[] parts = brut.Split(',');
+                        if (parts.Length > 0) arbre = Propre(parts[0]);
+                        if (parts.Length > 1) trou = Propre(parts[1]);
+                    }
+                }
+                catch (Exception) { }
+            }
+
+            // Une cote d'accouplement porte les deux classes : H7/g6.
+            if (trou != "" && arbre != "") return trou + "/" + arbre;
+            return trou != "" ? trou : arbre;
+        }
+
+        private static string Propre(string s)
+        {
+            return string.IsNullOrWhiteSpace(s) ? "" : s.Trim();
+        }
+
         /// <summary>Nature de la cote, déduite de son type et de son préfixe.</summary>
         private static void Libelle(int type, string prefixe, out string fr, out string en)
         {
@@ -345,12 +386,22 @@ namespace AskThem.Inspection
                     fr = "Longueur d'arc"; en = "Arc length"; return;
             }
 
-            // Le type ne dit rien d'utile : le préfixe, lui, parle.
-            string p = prefixe == null ? "" : prefixe.Trim();
-            if (p.StartsWith("Ø")) { fr = "Diamètre"; en = "Diameter"; return; }
+            // Le type ne dit rien d'utile : le préfixe, lui, parle. Une cote répétée le
+            // fait précéder d'une quantité, « (2x)Ø4 » : on l'écarte avant de lire le signe.
+            string p = SansQuantite(prefixe);
+            if (p.StartsWith("Ø") || p.StartsWith("SØ")) { fr = "Diamètre"; en = "Diameter"; return; }
             if (p.StartsWith("R")) { fr = "Rayon"; en = "Radius"; return; }
             if (p.StartsWith("M")) { fr = "Filetage"; en = "Thread"; return; }
             fr = "Cote"; en = "Dimension";
+        }
+
+        /// <summary>« (2x)Ø » devient « Ø ». Le préfixe est rendu tel quel s'il n'en porte pas.</summary>
+        private static string SansQuantite(string prefixe)
+        {
+            string p = prefixe == null ? "" : prefixe.Trim();
+            if (!p.StartsWith("(")) return p;
+            int fin = p.IndexOf(')');
+            return fin < 0 ? p : p.Substring(fin + 1).Trim();
         }
 
         private static string Texte(DisplayDimension dd, swDimensionTextParts_e partie)

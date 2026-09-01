@@ -58,6 +58,21 @@ Deux relevés de même libellé, même spécification et distants de moins d'un 
 fusionnés (`ToleranceDoublonMm`). Deux callouts éloignés restent deux lignes : ce sont deux
 surfaces à contrôler.
 
+## Ajustements ISO
+
+Une cote à ajustement (`H7`, `g6`, `G8`…) porte sa classe **et** ses écarts :
+`Ø10 G8 (+0.027 / +0.005)`. La classe est lue sur l'objet tolérance de la cote, par
+`GetHoleFitValue` pour un alésage et `GetShaftFitValue` pour un arbre ; une cote
+d'accouplement qui porte les deux est rendue `H7/g6`.
+
+Ne pas utiliser `IDimension.GetToleranceFitValues` : sa chaîne vaut « arbre,alésage », donc
+un alésage `G8` s'y lit `,G8` et lire le premier champ ne rend que du vide. Elle ne sert plus
+que de repli quand l'objet tolérance ne répond pas.
+
+Une cote répétée voit son préfixe précédé d'une quantité, `(2x)Ø4`. Elle est conservée telle
+quelle dans la spécification, et écartée avant de déduire la nature de la cote — sans quoi un
+perçage répété serait étiqueté « Cote » au lieu de « Diamètre ».
+
 ## Corriger la table des symboles
 
 Les codes de tolérance géométrique viennent du fichier `gtol.sym` de l'installation
