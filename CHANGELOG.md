@@ -11,10 +11,12 @@ et les numéros de version [SemVer](https://semver.org/lang/fr/).
   toutes les lignes sont des X20, AskThem n'ouvre ni SolidWorks ni le coffre PDM : la
   désignation, l'ancienne référence et surtout la référence chez le fournisseur viennent de
   l'inventaire. Aucun fichier n'est joint, aucun contrôle de fabrication n'est produit.
-- **Le catalogue d'un fournisseur est consultable** (bouton *Son catalogue…*) : tout ce
-  qu'il vend d'après l'inventaire, avec désignation, votre référence chez lui, référence
-  fabricant, ancienne référence, prix unitaire et stock. On filtre, on coche, on ajoute à
-  la demande — le pendant du refus à la saisie.
+- **Recherche d'article filtrable** (bouton *Rechercher…*), sur les pièces à fabriquer
+  comme sur les articles de catalogue. Elle réunit le coffre — qui connaît les fichiers mais
+  pas les désignations — et l'inventaire — qui connaît désignations, fournisseurs et
+  références, y compris pour des articles sans aucun fichier. Quatre filtres combinables :
+  texte libre sur tous les champs, type d'article, articles vendus par le destinataire,
+  articles ayant un plan. On coche, on ajoute à la demande.
 - **Un article de catalogue est refusé dès sa saisie** s'il n'est pas vendu par le
   destinataire choisi. Le message nomme les fournisseurs qui le vendent réellement, pour
   qu'on puisse changer de destinataire ou retirer la ligne, plutôt que de découvrir le

@@ -119,13 +119,27 @@ Le contrôle ne s'applique qu'aux achats catalogue, et seulement quand un destin
 choisi et l'inventaire joignable. L'inventaire est chargé au démarrage pour que ce soit
 instantané.
 
-### Partir du catalogue du fournisseur
+### Rechercher un article, à fabriquer ou au catalogue
 
-Le pendant du refus : plutôt que de taper des numéros et de se voir opposer un refus, le
-bouton **Son catalogue…** montre tout ce que le destinataire vend d'après l'inventaire —
-numéro d'article, désignation, votre référence chez lui, référence fabricant, ancienne
-référence, prix unitaire et stock. On filtre, on coche, on ajoute à la demande. Les articles
-déjà présents dans la grille sont ignorés, et la première ligne vide est réutilisée.
+Le bouton **Rechercher…** cherche dans les deux sources à la fois, qui ne se recouvrent pas :
+le **coffre** connaît les pièces dessinées mais pas leur désignation, l'**inventaire** connaît
+désignations, fournisseurs et références, y compris pour des articles sans aucun fichier.
+Les réunir évite d'avoir à savoir d'avance dans lequel des deux chercher.
+
+Quatre filtres, combinables :
+
+| Filtre | Ce qu'il fait |
+|---|---|
+| Texte libre | numéro, désignation, ancienne référence, référence fournisseur ou fabricant, nom du fournisseur |
+| Type d'article | les types déclarés dans `config.json` — pièce de détail, article catalogue, assemblage… |
+| Vendus par le destinataire | ne garde que ce que le fournisseur choisi vend réellement |
+| Avec un plan dans le coffre | ne garde que les articles dessinés |
+
+Chaque ligne montre le type, la désignation, votre référence chez le destinataire, la
+référence fabricant, l'ancienne référence, les fournisseurs déclarés, ce que le coffre
+contient (3D, 2D ou les deux), le prix unitaire et le stock. On coche — ou on double-clique
+la ligne — et on ajoute à la demande. Les articles déjà présents dans la grille sont ignorés,
+et la première ligne vide est réutilisée.
 
 ### Comment le fournisseur est reconnu
 

@@ -96,7 +96,7 @@ namespace AskThem
         private Panel panelParams;
         private ComboBox cboSupplier;
         private Button btnSuppliers;
-        private Button btnCatalogue;
+        private Button btnRecherche;
         private ToolTip toolTip = new ToolTip();
         private TextBox txtProject;
         private DateTimePicker dtpDeadline;
@@ -886,15 +886,15 @@ namespace AskThem
             txtConditions.Size = new Size(520, 68);
             txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage...";
 
-            btnCatalogue = new Button();
-            btnCatalogue.Text = "Son catalogue…";
-            btnCatalogue.Size = new Size(AppFont.Width(btnCatalogue.Text, 34), 30);
-            btnCatalogue.Click += new EventHandler(BtnCatalogue_Click);
-            toolTip.SetToolTip(btnCatalogue,
-                "Les articles que ce fournisseur vend, d'après l'inventaire, à ajouter à la demande.");
+            btnRecherche = new Button();
+            btnRecherche.Text = "Rechercher…";
+            btnRecherche.Size = new Size(AppFont.Width(btnRecherche.Text, 34), 30);
+            btnRecherche.Click += new EventHandler(BtnRecherche_Click);
+            toolTip.SetToolTip(btnRecherche,
+                "Chercher un article dans le coffre et dans l'inventaire, à fabriquer ou au catalogue.");
 
             flow.Controls.Add(Groupe("Destinataire :", cboSupplier, btnSuppliers));
-            flow.Controls.Add(Groupe("", btnCatalogue, null));
+            flow.Controls.Add(Groupe("", btnRecherche, null));
             flow.Controls.Add(Groupe("Référence commande :", txtProject, null));
             flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
             flow.Controls.Add(Groupe("", chk3D, chk2D));
@@ -1973,30 +1973,37 @@ namespace AskThem
         }
 
         /// <summary>
-        /// Ouvre le catalogue du destinataire choisi : ce qu'il vend, d'après l'inventaire,
-        /// avec de quoi en cocher pour l'ajouter à la demande.
+        /// Cherche un article dans les deux sources à la fois : le coffre pour ce qui est
+        /// dessiné, l'inventaire pour les désignations, fournisseurs et références.
         /// </summary>
-        private void BtnCatalogue_Click(object sender, EventArgs e)
+        private void BtnRecherche_Click(object sender, EventArgs e)
         {
-            Supplier destinataire = SelectedSupplier;
-            if (destinataire == null || string.IsNullOrWhiteSpace(destinataire.Name))
+            // L'indexation du coffre coûte quelques dizaines de millisecondes : la refaire
+            // à l'ouverture garantit une liste à jour sans qu'on ait à s'en soucier.
+            Cursor = Cursors.WaitCursor;
+            try
             {
-                MessageBox.Show("Choisissez d'abord un destinataire.", "AskThem",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
-                return;
+                BuildPdmIndex();
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
             }
 
-            if (_inventaire == null || _inventaire.Count == 0)
+            if ((_inventaire == null || _inventaire.Count == 0)
+                && (_pdmIndex == null || _pdmIndex.Count == 0))
             {
                 MessageBox.Show(
-                    "L'inventaire n'est pas chargé." + Environment.NewLine + Environment.NewLine
-                    + "Le bouton « Inventaire… » permet de s'y connecter ; le catalogue se lit ensuite "
-                    + "au démarrage suivant.",
+                    "Ni le coffre ni l'inventaire ne sont accessibles : il n'y a rien à chercher."
+                    + Environment.NewLine + Environment.NewLine
+                    + "Vérifiez le chemin du coffre dans config.json, et la connexion par le bouton "
+                    + "« Inventaire… ».",
                     "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
 
-            using (CatalogueFournisseurDialog dlg = new CatalogueFournisseurDialog(destinataire, _inventaire))
+            using (RechercheArticleDialog dlg = new RechercheArticleDialog(
+                       _config, SelectedSupplier, _inventaire, _pdmIndex))
             {
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
                 AjouterArticles(dlg.Retenus);
