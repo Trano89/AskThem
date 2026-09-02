@@ -54,7 +54,7 @@ namespace AskThem.Services
             html = html.Replace("{{DELAI}}", WebUtility.HtmlEncode(deadlineText));
             html = html.Replace("{{TABLEAU}}", BuildTable(type, lines, catalogue));
             html = html.Replace("{{COMMENTAIRE}}", BuildCommentaire(conditions));
-            html = html.Replace("{{NOTES}}", BuildNotes(type, lines));
+            html = html.Replace("{{NOTES}}", BuildNotes(type, lines, catalogue));
             html = html.Replace("{{PO}}", BuildPo(type, poFileName));
             return html;
         }
@@ -119,9 +119,15 @@ namespace AskThem.Services
         /// <summary>
         /// Notes en couleur, regroupees en fin de message juste avant la signature :
         /// article recodifie, puis rappel sur la revision des plans en fabrication.
+        ///
+        /// Aucune des deux n'a de sens pour un achat catalogue : elles parlent de gamme et
+        /// de preparation de fabrication, alors que le fournisseur vend une reference sur
+        /// etagere et n'a jamais connu notre ancien code interne.
         /// </summary>
-        private static string BuildNotes(RequestType type, List<PartLine> lines)
+        private static string BuildNotes(RequestType type, List<PartLine> lines, bool catalogue)
         {
+            if (catalogue) return "";
+
             StringBuilder sb = new StringBuilder();
             sb.Append(BuildRecodification(lines));
             if (type == RequestType.Fabrication) sb.Append(NoteRevision);

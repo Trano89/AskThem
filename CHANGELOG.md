@@ -19,6 +19,10 @@ et les numéros de version [SemVer](https://semver.org/lang/fr/).
 - Le tableau de l'email en mode catalogue ne porte que ce qui a un sens : ni révision, ni
   date de réalisé, ni matière, ni finitions. La colonne *Réf. fabricant* n'apparaît que si
   au moins un article en porte une.
+- Le message lui-même change : il n'annonce plus d'archives jointes mais demande confirmation
+  des références, et **les notes de fin disparaissent**. Celle sur la recodification demandait
+  de « revoir la gamme » — un fournisseur de catalogue ne fabrique rien et n'a jamais connu
+  notre ancien code interne.
 
 ### Corrigé
 
