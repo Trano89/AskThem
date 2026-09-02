@@ -234,12 +234,13 @@ seul endroit.
 
 | | Ce qu'elle fait | Fichiers joints |
 |---|---|---|
-| **Demande d'offre** | Consulter sur le prix de pièces sur mesure, avec jusqu'à trois paliers de quantité. | 3D, plan, contrôle de fabrication |
+| **Demande d'offre** | Consulter sur le prix, avec jusqu'à trois paliers de quantité. Pièces sur mesure **ou** articles de catalogue. | 3D, plan, contrôle de fabrication — rien sur du catalogue |
 | **Demande de fabrication** | Confier la fabrication. Bon de commande PDF obligatoire. | 3D, plan, contrôle de fabrication |
 | **Commande catalogue** | Commander des articles de catalogue sur leur référence chez le fournisseur. | aucun |
 
-Une demande ne mélange jamais les deux mondes : les articles doivent tous correspondre à la
-nature choisie.
+Une demande ne mélange jamais les deux mondes. Une offre accepte l'un ou l'autre, mais pas
+les deux à la fois ; une fabrication ne porte que du sur mesure ; une commande catalogue que
+du catalogue.
 
 ## Dossier de sortie
 

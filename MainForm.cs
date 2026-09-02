@@ -1874,7 +1874,8 @@ namespace AskThem
 
             // Un achat catalogue ne touche ni SolidWorks ni le coffre : la question ne se pose
             // que pour les articles dont on livre des fichiers.
-            if (generate && !RequestTypes.EstCatalogue(CurrentType) && !ConfirmerSolidWorks()) return;
+            if (generate && !RequestTypes.EstCatalogue(CurrentType) && !ToutEnCatalogue()
+                && !ConfirmerSolidWorks()) return;
 
             // Les valeurs de l'interface sont lues ici, sur le thread interface.
             _generateMode = generate;
@@ -1887,7 +1888,7 @@ namespace AskThem
             _optSupplierCc = fournisseur == null ? "" : fournisseur.CcLine;
             _optSupplierName = fournisseur == null ? "" : fournisseur.Name;
             _optFournisseurInventaire = fournisseur == null ? 0 : fournisseur.InventoryId;
-            _optCatalogue = RequestTypes.EstCatalogue(_optType);
+            _optCatalogue = RequestTypes.EstCatalogue(_optType) || ToutEnCatalogue();
             _optProject = txtProject.Text.Trim();
             _optDeadline = dtpDeadline.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
             _optConditions = txtConditions.Text;
@@ -2218,40 +2219,83 @@ namespace AskThem
             return RuleFor(ligne.PartNumber).Catalogue;
         }
 
+        /// <summary>Vrai si toutes les lignes renseignées sont des achats catalogue.</summary>
+        private bool ToutEnCatalogue()
+        {
+            bool auMoinsUne = false;
+            foreach (PartLine l in _lines)
+            {
+                if (string.IsNullOrWhiteSpace(l.PartNumber)) continue;
+                auMoinsUne = true;
+                if (!EstCatalogue(l)) return false;
+            }
+            return auMoinsUne;
+        }
+
         /// <summary>
-        /// Les articles doivent tous être de la nature annoncée par le type de demande.
+        /// Ce que la demande peut porter.
         ///
-        /// Un achat catalogue et une pièce sur mesure n'appellent ni les mêmes fichiers ni la
-        /// même façon de choisir le fournisseur : les mélanger produirait un message faux.
+        /// Une demande d'offre se fait aussi bien sur des articles de catalogue que sur des
+        /// pièces sur mesure — dans le premier cas elle n'emporte simplement aucun fichier.
+        /// Ce qui est interdit, c'est de mêler les deux dans le même message : ils n'appellent
+        /// ni les mêmes pièces jointes, ni la même façon de choisir le fournisseur. Une
+        /// fabrication ne porte que du sur mesure, une commande catalogue que du catalogue.
         /// </summary>
         private bool VerifierHomogeneite()
         {
             RequestType type = CurrentType;
-            bool attenduCatalogue = RequestTypes.EstCatalogue(type);
+            List<string> catalogue = new List<string>();
+            List<string> surMesure = new List<string>();
 
-            List<string> intrus = new List<string>();
             foreach (PartLine l in _lines)
             {
                 if (string.IsNullOrWhiteSpace(l.PartNumber)) continue;
-                if (EstCatalogue(l) != attenduCatalogue) intrus.Add(l.PartNumber);
+                if (EstCatalogue(l)) catalogue.Add(l.PartNumber);
+                else surMesure.Add(l.PartNumber);
             }
-            if (intrus.Count == 0) return true;
 
-            string quoi = attenduCatalogue
-                ? "ne sont pas des articles de catalogue"
-                : "sont des articles de catalogue";
-            string remede = attenduCatalogue
-                ? "Retirez-les, ou choisissez « " + RequestTypes.Libelle(RequestType.Offre) + " »."
-                : "Retirez-les, ou choisissez « " + RequestTypes.Libelle(RequestType.CommandeCatalogue) + " ».";
+            if (catalogue.Count > 0 && surMesure.Count > 0)
+            {
+                MessageBox.Show(
+                    "Une demande ne peut pas mélanger articles de catalogue et pièces sur mesure."
+                    + Environment.NewLine + Environment.NewLine
+                    + "Catalogue (" + catalogue.Count + ") : " + Extrait(catalogue) + Environment.NewLine
+                    + "Sur mesure (" + surMesure.Count + ") : " + Extrait(surMesure) + Environment.NewLine
+                    + Environment.NewLine + "Faites-en deux demandes séparées.",
+                    "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                Log("Demande refusée : elle mélange " + catalogue.Count + " article(s) catalogue et "
+                  + surMesure.Count + " pièce(s) sur mesure.");
+                return false;
+            }
 
+            if (type == RequestType.CommandeCatalogue && surMesure.Count > 0)
+            {
+                Refuser(surMesure, "ne sont pas des articles de catalogue",
+                    "Choisissez « " + RequestTypes.Libelle(RequestType.Offre) + " » ou « "
+                    + RequestTypes.Libelle(RequestType.Fabrication) + " ».");
+                return false;
+            }
+
+            if (type == RequestType.Fabrication && catalogue.Count > 0)
+            {
+                Refuser(catalogue, "sont des articles de catalogue, qui ne se fabriquent pas",
+                    "Choisissez « " + RequestTypes.Libelle(RequestType.CommandeCatalogue) + " » ou « "
+                    + RequestTypes.Libelle(RequestType.Offre) + " ».");
+                return false;
+            }
+
+            return true;
+        }
+
+        private void Refuser(List<string> articles, string quoi, string remede)
+        {
             MessageBox.Show(
-                intrus.Count + " article(s) " + quoi + ", alors que la demande est une « "
-                + RequestTypes.Libelle(type) + " »." + Environment.NewLine + Environment.NewLine
-                + Extrait(intrus) + Environment.NewLine + Environment.NewLine + remede,
+                articles.Count + " article(s) " + quoi + ", alors que la demande est une « "
+                + RequestTypes.Libelle(CurrentType) + " »." + Environment.NewLine + Environment.NewLine
+                + Extrait(articles) + Environment.NewLine + Environment.NewLine + remede,
                 "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            Log("Demande refusée : " + intrus.Count + " article(s) " + quoi + " pour une « "
-              + RequestTypes.Libelle(type) + " ».");
-            return false;
+            Log("Demande refusée : " + articles.Count + " article(s) " + quoi + " pour une « "
+              + RequestTypes.Libelle(CurrentType) + " ».");
         }
 
         /// <summary>Quelques numéros d'article, pour un message lisible.</summary>
@@ -3010,17 +3054,26 @@ namespace AskThem
         // Accès à l'interface depuis le thread de traitement
         // ==================================================================
 
-        /// <summary>Exécute une action sur le thread de l'interface.</summary>
+        /// <summary>
+        /// Exécute une action sur le thread de l'interface.
+        ///
+        /// Une vérification de mise à jour ou un chargement d'inventaire peut se terminer
+        /// après la fermeture de la fenêtre : écrire alors dans un contrôle détruit lèverait
+        /// une exception sur un fil de fond, que personne n'attraperait.
+        /// </summary>
         private void UiInvoke(Action action)
         {
+            if (IsDisposed || Disposing) return;
+
             if (InvokeRequired)
             {
                 try { this.Invoke(action); }
-                catch (Exception) { } // la fenêtre a pu être fermée pendant le traitement
+                catch (Exception) { } // la fenêtre a pu être fermée entre-temps
             }
             else
             {
-                action();
+                try { action(); }
+                catch (ObjectDisposedException) { }
             }
         }
 

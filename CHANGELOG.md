@@ -3,6 +3,24 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.4.4] — 2026-09-02
+
+### Corrigé
+
+- **Une demande d'offre sur des articles de catalogue était refusée.** La règle avait été
+  posée trop large : ce qui est interdit, c'est de **mélanger** catalogue et sur mesure dans
+  un même message, pas de consulter un fournisseur sur des produits standard. Une offre
+  n'emportant que du catalogue n'ouvre ni le coffre ni SolidWorks, et ne joint aucun fichier.
+- **Fermer AskThem pendant une vérification de mise à jour ou un chargement d'inventaire**
+  pouvait faire remonter une exception depuis le fil de fond, en écrivant dans un contrôle
+  déjà détruit.
+
+### Modifié
+
+- Ce que chaque type accepte : une **offre** porte du catalogue ou du sur mesure, jamais les
+  deux ; une **fabrication** ne porte que du sur mesure ; une **commande catalogue** que du
+  catalogue. Le refus nomme les articles fautifs et le type qui conviendrait.
+
 ## [1.4.3] — 2026-09-02
 
 ### Corrigé

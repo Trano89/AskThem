@@ -41,8 +41,8 @@ namespace AskThem.Models
                     return "Commander des articles de catalogue sur leur référence chez le fournisseur. "
                          + "Aucun fichier n'est joint.";
                 default:
-                    return "Consulter un fournisseur sur le prix de pièces sur mesure, "
-                         + "avec plusieurs paliers de quantité.";
+                    return "Consulter un fournisseur sur le prix, avec plusieurs paliers de "
+                         + "quantité. Pièces sur mesure ou articles de catalogue.";
             }
         }
 

@@ -299,19 +299,54 @@ namespace AskThem
             return true;
         }
 
-        /// <summary>Un article dont la nature ne correspond pas au type choisi, s'il y en a.</summary>
+        /// <summary>
+        /// Ce qui empêche cette liste d'articles, s'il y a quelque chose.
+        ///
+        /// Une offre porte aussi bien du catalogue que du sur mesure ; c'est le mélange des
+        /// deux qui est refusé. Une fabrication ne porte que du sur mesure, une commande
+        /// catalogue que du catalogue.
+        /// </summary>
         private string ArticleDeMauvaisType()
         {
-            bool attenduCatalogue = RequestTypes.EstCatalogue(_demande.Type);
-            List<string> intrus = new List<string>();
+            List<string> catalogue = new List<string>();
+            List<string> surMesure = new List<string>();
             foreach (PartLine l in _demande.Lignes)
-                if (EstCatalogue(l.PartNumber) != attenduCatalogue) intrus.Add(l.PartNumber);
-            if (intrus.Count == 0) return null;
+            {
+                if (EstCatalogue(l.PartNumber)) catalogue.Add(l.PartNumber);
+                else surMesure.Add(l.PartNumber);
+            }
 
-            return intrus.Count + " article(s) ne correspondent pas à une « "
-                 + RequestTypes.Libelle(_demande.Type) + " » : "
-                 + string.Join(", ", intrus.GetRange(0, Math.Min(4, intrus.Count)))
-                 + (intrus.Count > 4 ? "…" : "");
+            if (catalogue.Count > 0 && surMesure.Count > 0)
+                return "Cette demande mélange " + catalogue.Count + " article(s) de catalogue et "
+                     + surMesure.Count + " pièce(s) sur mesure." + Environment.NewLine
+                     + "Faites-en deux demandes séparées.";
+
+            if (_demande.Type == RequestType.CommandeCatalogue && surMesure.Count > 0)
+                return Quelques(surMesure) + " ne sont pas des articles de catalogue.";
+
+            if (_demande.Type == RequestType.Fabrication && catalogue.Count > 0)
+                return Quelques(catalogue) + " sont des articles de catalogue, qui ne se fabriquent pas.";
+
+            return null;
+        }
+
+        private static string Quelques(List<string> articles)
+        {
+            return string.Join(", ", articles.GetRange(0, Math.Min(4, articles.Count)))
+                 + (articles.Count > 4 ? " et " + (articles.Count - 4) + " autre(s)" : "");
+        }
+
+        /// <summary>Vrai si tous les articles saisis sont des achats catalogue.</summary>
+        private bool ToutEnCatalogue()
+        {
+            bool auMoinsUn = false;
+            foreach (PartLine l in _lignes)
+            {
+                if (string.IsNullOrWhiteSpace(l.PartNumber)) continue;
+                auMoinsUn = true;
+                if (!EstCatalogue(l.PartNumber)) return false;
+            }
+            return auMoinsUn;
         }
 
         private bool EstCatalogue(string numero)
@@ -464,7 +499,9 @@ namespace AskThem
             lblTitre.Text = "Quels articles ?";
             lblSousTitre.Text = RequestTypes.EstCatalogue(_demande.Type)
                 ? "Articles de catalogue, achetés sur leur référence chez le fournisseur."
-                : "Pièces sur mesure, dont les plans et modèles seront joints.";
+                : (_demande.Type == RequestType.Fabrication
+                    ? "Pièces sur mesure, dont les plans et modèles seront joints."
+                    : "Pièces sur mesure ou articles de catalogue, mais pas les deux à la fois.");
 
             if (_lignes.Count == 0)
             {
@@ -736,7 +773,7 @@ namespace AskThem
             chkControle.Location = new Point(24, 64);
             chkControle.Checked = _demande.ControleFabrication;
 
-            bool catalogue = RequestTypes.EstCatalogue(_demande.Type);
+            bool catalogue = RequestTypes.EstCatalogue(_demande.Type) || ToutEnCatalogue();
             chk3D.Enabled = !catalogue;
             chk2D.Enabled = !catalogue;
             chkControle.Enabled = !catalogue;
