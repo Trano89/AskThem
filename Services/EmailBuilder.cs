@@ -194,6 +194,17 @@ namespace AskThem.Services
                 if (!string.IsNullOrWhiteSpace(l.OldRef)) showOldRef = true;
             }
 
+            // Un article de catalogue n'a pas de plan : révision, date de réalisé, matière et
+            // finitions n'ont rien à dire, même si une ligne en porte encore d'un traitement
+            // précédent.
+            if (catalogue)
+            {
+                showRev = false;
+                showDate = false;
+                showMaterial = false;
+                showTreatment = false;
+            }
+
             StringBuilder sb = new StringBuilder();
             sb.Append("<table style=\"border-collapse:collapse;\">");
 
@@ -288,8 +299,7 @@ namespace AskThem.Services
 + "<p>Nous vous passons commande des {{NB_ARTICLES}} article(s) de catalogue ci-dessous.</p>"
 + "<p>Référence commande : <b>{{COMMANDE}}</b><br/>Délai souhaité : <b>{{DELAI}}</b></p>"
 + "{{TABLEAU}}{{COMMENTAIRE}}{{PO}}"
-+ "<p>Ces articles sont référencés chez vous : <b>aucun plan ni modèle 3D n'accompagne "
-+ "cette commande</b>. Merci de nous <b>confirmer la réception de cette commande</b>, les prix et "
++ "<p>Merci de nous <b>confirmer la réception de cette commande</b>, les prix et "
 + "le délai de livraison.</p>"
 + "<p>Avec nos remerciements, nous vous adressons nos meilleures salutations.</p>"
 + "{{NOTES}}</div></body></html>";
@@ -304,8 +314,7 @@ namespace AskThem.Services
 + "<b>délai de livraison</b> correspondant.</p>"
 + "<p>Référence commande : <b>{{COMMANDE}}</b><br/>Délai souhaité : <b>{{DELAI}}</b></p>"
 + "{{TABLEAU}}{{COMMENTAIRE}}{{PO}}"
-+ "<p>Ces articles sont référencés chez vous : <b>aucun plan ni modèle 3D n'accompagne "
-+ "cette demande</b>. Merci de nous confirmer que les références ci-dessus correspondent bien "
++ "<p>Merci de nous confirmer que les références ci-dessus correspondent bien "
 + "aux articles souhaités.</p>"
 + "<p>Dans l'attente de votre retour, nous vous adressons nos meilleures salutations.</p>"
 + "{{NOTES}}</div></body></html>";

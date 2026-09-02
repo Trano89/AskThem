@@ -1130,7 +1130,9 @@ namespace AskThem
         /// </summary>
         private void OuvrirAssistant()
         {
-            using (AssistantForm assistant = new AssistantForm(_config, _suppliers, _inventaire, _pdmIndex))
+            using (AssistantForm assistant = new AssistantForm(_config, _suppliers,
+                       delegate { return _inventaire; },
+                       delegate { BuildPdmIndex(); return _pdmIndex; }))
             {
                 if (assistant.ShowDialog(this) != DialogResult.OK) return;
                 AppliquerDemande(assistant.Demande);
@@ -2042,6 +2044,17 @@ namespace AskThem
             ligne.ExportedFiles.Clear();
             ligne.ZipPath = null;
             ligne.TypeCode = PartNumberFormat.TypeCode(ligne.PartNumber);
+
+            // Le coffre n'est pas consulté : ce qui en venait lors d'un traitement précédent
+            // n'a plus cours et ne doit pas se glisser dans le message.
+            ligne.DrawingRevision = "";
+            ligne.Revision = "";
+            ligne.RealizedDate = "";
+            ligne.Material = "";
+            ligne.Treatment = "";
+            ligne.State = "";
+            ligne.Model3DPath = null;
+            ligne.DrawingPath = null;
 
             InventoryService.Entry inv = InventoryService.Lookup(_inventaire, ligne.PartNumber);
             if (inv == null)

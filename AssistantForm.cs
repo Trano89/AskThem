@@ -41,8 +41,8 @@ namespace AskThem
 
         private readonly AppConfig _config;
         private readonly List<Supplier> _fournisseurs;
-        private readonly Dictionary<string, InventoryService.Entry> _inventaire;
-        private readonly Dictionary<string, string> _pdm;
+        private readonly Func<Dictionary<string, InventoryService.Entry>> _inventaire;
+        private readonly Func<Dictionary<string, string>> _pdm;
 
         private int _etape;
         private readonly DemandeEnCours _demande = new DemandeEnCours();
@@ -83,9 +83,15 @@ namespace AskThem
         /// <summary>Vrai si l'utilisateur a demandé à passer à la fenêtre complète.</summary>
         public bool VueComplete { get; private set; }
 
+        /// <summary>
+        /// Les deux sources d'articles sont demandées au moment de s'en servir, et non
+        /// retenues à la construction : au lancement, l'inventaire se charge encore en
+        /// arrière-plan et le coffre n'est pas indexé. Les figer ici donnerait une
+        /// recherche vide.
+        /// </summary>
         public AssistantForm(AppConfig config, List<Supplier> fournisseurs,
-                             Dictionary<string, InventoryService.Entry> inventaire,
-                             Dictionary<string, string> pdm)
+                             Func<Dictionary<string, InventoryService.Entry>> inventaire,
+                             Func<Dictionary<string, string>> pdm)
         {
             _config = config != null ? config : new AppConfig();
             _fournisseurs = fournisseurs != null ? fournisseurs : new List<Supplier>();
@@ -564,8 +570,32 @@ namespace AskThem
 
         private void Recherche_Click(object sender, EventArgs e)
         {
+            Dictionary<string, InventoryService.Entry> inventaire = null;
+            Dictionary<string, string> pdm = null;
+
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                if (_inventaire != null) inventaire = _inventaire();
+                if (_pdm != null) pdm = _pdm();
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
+            }
+
+            bool riens = (inventaire == null || inventaire.Count == 0)
+                      && (pdm == null || pdm.Count == 0);
+            if (riens)
+            {
+                Prevenir("Ni le coffre ni l'inventaire ne répondent : il n'y a rien à chercher."
+                    + Environment.NewLine + Environment.NewLine
+                    + "Vérifiez le chemin du coffre, et la connexion à l'inventaire depuis la vue complète.");
+                return;
+            }
+
             using (RechercheArticleDialog dlg = new RechercheArticleDialog(
-                       _config, _demande.Destinataire, _inventaire, _pdm))
+                       _config, _demande.Destinataire, inventaire, pdm))
             {
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
                 foreach (string numero in dlg.Retenus) AjouterLigne(numero);

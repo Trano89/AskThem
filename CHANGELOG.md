@@ -3,6 +3,21 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.4.1] — 2026-09-02
+
+### Corrigé
+
+- **La recherche d'article restait vide quand on l'ouvrait depuis l'assistant.** Celui-ci
+  retenait l'inventaire et l'index du coffre au moment de sa construction — or au lancement
+  l'inventaire se charge encore en arrière-plan et le coffre n'est pas indexé. Les deux
+  sources sont désormais demandées à l'ouverture de la recherche.
+- **Une commande d'article de catalogue ne montre plus ni révision de plan, ni date de
+  réalisé, ni matière, ni finitions**, même quand la ligne en porte encore d'un traitement
+  précédent. Ces valeurs sont aussi effacées de la ligne, puisque le coffre n'est pas
+  consulté dans ce mode.
+- La phrase « Ces articles sont référencés chez vous : aucun plan ni modèle 3D n'accompagne
+  cette commande » est retirée du message.
+
 ## [1.4.0] — 2026-09-02
 
 ### Ajouté
