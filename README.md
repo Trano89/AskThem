@@ -204,62 +204,42 @@ Le journal d'exécution est écrit dans `%LOCALAPPDATA%\AskThem\logs\askthem_AAA
 
 ---
 
-## Mode d'emploi en 5 étapes
+## L'assistant pas à pas
 
-1. **Choisir le type de demande** avec l'interrupteur en haut de la fenêtre : *Demande d'offre*
-   (jusqu'à 3 paliers de quantité) ou *Demande de fabrication* (une seule quantité,
-   avec l'avertissement sur la révision des plans dans l'email).
-2. **Saisir les articles** : bouton *Ajouter ligne*, *Coller Excel* (ou `Ctrl+V`
-   directement dans la grille), ou *Importer liste* — qui accepte aussi bien un
-   fichier **CSV** qu'un classeur **Excel `.xlsx`**, dont la première feuille est lue.
+AskThem s'ouvre sur un assistant. Une question par écran, de grands boutons, et rien ne part
+sans passer par le récapitulatif.
 
-   Les colonnes sont reconnues par leur **intitulé**, pas par leur position : un export de
-   nomenclature dont le code article est en colonne B, sous un titre, est lu correctement.
-   Les articles cités plusieurs fois sont **regroupés en une ligne, quantités additionnées**. Un simple clic suffit pour modifier
-   une cellule. La grille ne contient que ce que vous remplissez vous-même : le
-   **numéro d'article**, les **quantités** et une **remarque**. Désignation, révision
-   du plan, date de réalisé, matière et finitions sont lues dans le coffre et
-   s'affichent dans le **volet de droite** pour la ligne sélectionnée.
+| Étape | Ce qu'on y fait |
+|---|---|
+| 1. Que voulez-vous faire ? | **Demande d'offre**, **Demande de fabrication** ou **Commande catalogue**. Tout le reste s'y adapte. |
+| 2. À qui l'envoyez-vous ? | Le destinataire, et l'état de son lien avec l'inventaire. Les fournisseurs se gèrent depuis là. |
+| 3. Quels articles ? | Saisie directe, collage depuis Excel, ou recherche filtrée dans le coffre et l'inventaire. |
+| 4. Détails | Référence commande, délai, document joint, commentaire. Les options de fichiers sont repliées sous *Options avancées*. |
+| 5. Vérifiez avant d'envoyer | Le récapitulatif complet, puis **Générer la demande**. |
 
-   Les **tirets du numéro d'article sont ajoutés automatiquement** : tapez `A210000001`,
-   vous obtenez `A21-00000-01`. Un numéro qui ne respecte aucun format de
-   `PartNumberPatterns` est refusé — à la saisie pour une cellule, par un message unique
-   récapitulant les refus pour un collage ou un import.
-3. **Cliquer sur *Vérifier*** pour contrôler la présence des fichiers dans le coffre.
-   Vert = 3D et 2D trouvés, orange = un des deux manque, rouge = introuvable.
-4. **Renseigner les paramètres** en bas : **fournisseur** choisi dans la liste, référence de commande, délai souhaité,
-   exports souhaités, et éventuellement des **conditions générales** — ce texte libre est
-   ajouté en fin d'email, après le tableau des articles.
+L'assistant refuse d'avancer tant qu'il manque quelque chose, et dit quoi : pas de
+destinataire, pas d'article, un article dont la nature ne correspond pas au type choisi, ou
+un bon de commande absent sur une fabrication.
 
-   Un **document PDF** peut accompagner la demande : le **bon de commande** en fabrication,
-   où il est **obligatoire** — la génération est refusée tant qu'il n'est pas joint — ou une
-   **demande de PO** en offre, où il est facultatif. Il est archivé avec la demande et joint
-   à l'email à part, hors des archives par article.
+### Vue complète
 
-   Le destinataire ne se tape pas : il se choisit. Le bouton **Fournisseurs…** ouvre la
-   gestion de la liste — création, modification, suppression, avec **plusieurs adresses
-   par fournisseur** et des **adresses en copie**. Le bouton *Importer une liste…* reprend
-   un tableau CSV ou Excel, les colonnes étant reconnues par leur intitulé. La liste vit sur le réseau, elle est
-   donc partagée par tous les postes et relue à chaque démarrage.
-5. **Cliquer sur *Générer la demande***. SolidWorks s'ouvre en arrière-plan, les fichiers
-   sont exportés dans un dossier horodaté, puis Outlook affiche l'email pré-rempli.
-   **Relisez-le, puis envoyez-le vous-même.**
+Le bouton **Vue complète** bascule sur l'écran unique, où tous les réglages tiennent sur une
+page — plus dense, plus rapide quand on enchaîne les demandes. Ce que l'assistant a déjà
+recueilli y est repris. Le bouton **Assistant pas à pas…** y ramène.
 
-> **Un seul avertissement, jamais un par pièce.** Avant de préparer l'email, un message
-> unique récapitule les articles **sans plan 2D** et ceux qui ne sont **pas libérés** dans
-> le PDM (état différent de `ReleasedStates`). Le détail complet va dans le journal et dans
-> le journal, en bas de la fenêtre. Le contrôle d'état ne s'applique que si la variable d'état figure
-> dans les propriétés des fichiers ; sinon il est signalé comme inapplicable dans le journal.
+Les deux écrans ne font que remplir les mêmes champs : le traitement, lui, n'existe qu'à un
+seul endroit.
 
-> **Si SolidWorks est déjà ouvert**, un avertissement demande confirmation avant de
-> démarrer : le traitement se déroulera dans votre session, où des documents seront
-> ouverts et refermés. Enregistrez votre travail avant de confirmer. Votre session
-> n'est jamais masquée ni fermée par AskThem.
+### Les trois natures de demande
 
-Le bouton *Annuler* interrompt le traitement en cours ; les fichiers déjà exportés
-sont conservés et SolidWorks est refermé proprement.
+| | Ce qu'elle fait | Fichiers joints |
+|---|---|---|
+| **Demande d'offre** | Consulter sur le prix de pièces sur mesure, avec jusqu'à trois paliers de quantité. | 3D, plan, contrôle de fabrication |
+| **Demande de fabrication** | Confier la fabrication. Bon de commande PDF obligatoire. | 3D, plan, contrôle de fabrication |
+| **Commande catalogue** | Commander des articles de catalogue sur leur référence chez le fournisseur. | aucun |
 
----
+Une demande ne mélange jamais les deux mondes : les articles doivent tous correspondre à la
+nature choisie.
 
 ## Dossier de sortie
 

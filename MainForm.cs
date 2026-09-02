@@ -7,7 +7,6 @@ using System.IO.Compression;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
-using AskThem.Controls;
 using AskThem.Config;
 using AskThem.Inspection;
 using AskThem.Models;
@@ -60,7 +59,7 @@ namespace AskThem
         // Contrôles
         // ------------------------------------------------------------------
         private Panel panelTop;
-        private ModeSwitch modeSwitch;
+        private ComboBox cboType;
         private Label lblInfo;
 
         private Panel panelTools;
@@ -97,6 +96,7 @@ namespace AskThem
         private ComboBox cboSupplier;
         private Button btnSuppliers;
         private Button btnRecherche;
+        private Button btnAssistant;
         private ToolTip toolTip = new ToolTip();
         private TextBox txtProject;
         private DateTimePicker dtpDeadline;
@@ -166,6 +166,7 @@ namespace AskThem
             StartUpdateCheck();
             LancerVerificationInventaire();
             Log("Dossier des exports : " + _config.OutputRoot);
+            _ouvrirAssistantAuDemarrage = true;
         }
 
         // ==================================================================
@@ -177,27 +178,47 @@ namespace AskThem
             panelTop = new Panel();
             panelTop.Dock = DockStyle.Top;
 
-            // Interrupteur : gauche = offre, droite = fabrication.
-            modeSwitch = new ModeSwitch();
-            modeSwitch.Font = AppFont.Get();
-            modeSwitch.LeftText = "Demande d'offre";
-            modeSwitch.RightText = "Demande de fabrication";
-            modeSwitch.Location = new Point(12, 13);
-            modeSwitch.Height = 30;
-            modeSwitch.Width = modeSwitch.PreferredWidth;
-            modeSwitch.IsRight = false;
-            modeSwitch.ModeChanged += new EventHandler(ModeSwitch_ModeChanged);
+            // Trois natures de demande : un interrupteur ne pouvait plus les exprimer.
+            Label lblType = new Label();
+            lblType.Font = AppFont.Get();
+            lblType.Text = "Type de demande :";
+            lblType.Location = new Point(12, 20);
+            lblType.AutoSize = true;
+
+            cboType = new ComboBox();
+            cboType.Font = AppFont.Get();
+            cboType.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboType.Location = new Point(lblType.Right + 10, 16);
+            cboType.Width = AppFont.Width(RequestTypes.Libelle(RequestType.Fabrication), 60);
+            foreach (RequestType t in new RequestType[] {
+                         RequestType.Offre, RequestType.Fabrication, RequestType.CommandeCatalogue })
+                cboType.Items.Add(new ChoixTypeDemande(t));
+            cboType.SelectedIndex = 0;
+            cboType.SelectedIndexChanged += new EventHandler(TypeDemande_Change);
 
             lblInfo = new Label();
             lblInfo.Font = AppFont.Get();
             lblInfo.Text = "Saisissez ou collez (Ctrl+V depuis Excel) vos numéros d'article.";
             lblInfo.ForeColor = Color.Gray;
-            lblInfo.Location = new Point(modeSwitch.Right + 32, 20);
+            lblInfo.Location = new Point(cboType.Right + 32, 20);
             lblInfo.AutoSize = true;
 
-            panelTop.Controls.Add(modeSwitch);
-            panelTop.Height = Math.Max(modeSwitch.Height, lblInfo.PreferredHeight) + 30;
+            btnAssistant = new Button();
+            btnAssistant.Font = AppFont.Get();
+            btnAssistant.Text = "Assistant pas à pas…";
+            btnAssistant.Size = new Size(AppFont.Width(btnAssistant.Text, 34), 30);
+            btnAssistant.Click += new EventHandler(BtnAssistant_Click);
+
+            panelTop.Controls.Add(lblType);
+            panelTop.Controls.Add(cboType);
+            panelTop.Controls.Add(btnAssistant);
+            panelTop.Height = Math.Max(cboType.Height, lblInfo.PreferredHeight) + 34;
             panelTop.Controls.Add(lblInfo);
+            panelTop.Resize += new EventHandler(delegate (object s, EventArgs e)
+            {
+                btnAssistant.Location = new Point(
+                    Math.Max(cboType.Right + 20, panelTop.Width - btnAssistant.Width - 16), 16);
+            });
         }
 
         private void BuildToolsPanel()
@@ -1099,11 +1120,76 @@ namespace AskThem
         /// complet : avant cela les conteneurs n'ont pas leur taille définitive, et toutes
         /// les distances calculées seraient rabotées.
         /// </summary>
+        private bool _ouvrirAssistantAuDemarrage;
+
+        /// <summary>
+        /// Ouvre l'assistant, et applique ce qu'il a recueilli.
+        ///
+        /// Il ne traite rien lui-même : il remplit cette fenêtre, qui reste seule à porter
+        /// le pipeline. Deux chemins d'interface, un seul chemin de traitement.
+        /// </summary>
+        private void OuvrirAssistant()
+        {
+            using (AssistantForm assistant = new AssistantForm(_config, _suppliers, _inventaire, _pdmIndex))
+            {
+                if (assistant.ShowDialog(this) != DialogResult.OK) return;
+                AppliquerDemande(assistant.Demande);
+                if (assistant.Demande.Generer) StartProcess(true);
+            }
+        }
+
+        private void BtnAssistant_Click(object sender, EventArgs e)
+        {
+            OuvrirAssistant();
+        }
+
+        /// <summary>Reporte dans les contrôles ce que l'assistant a recueilli.</summary>
+        private void AppliquerDemande(DemandeEnCours d)
+        {
+            if (d == null) return;
+
+            ChoisirType(d.Type);
+
+            if (d.Destinataire != null)
+            {
+                for (int i = 0; i < cboSupplier.Items.Count; i++)
+                {
+                    Supplier s = cboSupplier.Items[i] as Supplier;
+                    if (s != null && ReferenceEquals(s, d.Destinataire)) { cboSupplier.SelectedIndex = i; break; }
+                    if (s != null && string.Equals(s.Name, d.Destinataire.Name, StringComparison.OrdinalIgnoreCase))
+                    { cboSupplier.SelectedIndex = i; break; }
+                }
+            }
+
+            _lines.Clear();
+            foreach (PartLine l in d.Lignes) _lines.Add(l);
+            if (_lines.Count == 0) _lines.Add(new PartLine());
+
+            txtProject.Text = d.ReferenceCommande;
+            dtpDeadline.Checked = d.Delai.HasValue;
+            if (d.Delai.HasValue) dtpDeadline.Value = d.Delai.Value;
+            txtPo.Text = d.CheminPo;
+            txtConditions.Text = d.Commentaire;
+            chk3D.Checked = d.Export3D;
+            chk2D.Checked = d.Export2D;
+            chkControleFabrication.Checked = d.ControleFabrication;
+
+            RefreshGrid();
+        }
+
         protected override void OnShown(EventArgs e)
         {
             base.OnShown(e);
             PerformLayout();
             AppliquerSeparateurs();
+
+            // L'assistant s'ouvre au lancement : c'est le chemin normal. La vue complète
+            // reste derrière, pour qui préfère tout voir d'un coup.
+            if (_ouvrirAssistantAuDemarrage)
+            {
+                _ouvrirAssistantAuDemarrage = false;
+                BeginInvoke(new MethodInvoker(OuvrirAssistant));
+            }
         }
 
         /// <summary>Réapplique la répartition tant que l'utilisateur n'a rien déplacé.</summary>
@@ -1170,13 +1256,35 @@ namespace AskThem
             }
         }
 
+        /// <summary>Une entrée de la liste des types de demande.</summary>
+        private sealed class ChoixTypeDemande
+        {
+            public readonly RequestType Type;
+            public ChoixTypeDemande(RequestType type) { Type = type; }
+            public override string ToString() { return RequestTypes.Libelle(Type); }
+        }
+
         /// <summary>Type de demande actuellement sélectionné.</summary>
         private RequestType CurrentType
         {
-            get { return modeSwitch.IsRight ? RequestType.Fabrication : RequestType.Offre; }
+            get
+            {
+                ChoixTypeDemande c = cboType == null ? null : cboType.SelectedItem as ChoixTypeDemande;
+                return c == null ? RequestType.Offre : c.Type;
+            }
         }
 
-        private void ModeSwitch_ModeChanged(object sender, EventArgs e)
+        /// <summary>Impose le type de demande, depuis l'assistant.</summary>
+        public void ChoisirType(RequestType type)
+        {
+            for (int i = 0; i < cboType.Items.Count; i++)
+            {
+                ChoixTypeDemande c = cboType.Items[i] as ChoixTypeDemande;
+                if (c != null && c.Type == type) { cboType.SelectedIndex = i; return; }
+            }
+        }
+
+        private void TypeDemande_Change(object sender, EventArgs e)
         {
             ApplyMode();
         }
@@ -1184,9 +1292,18 @@ namespace AskThem
         /// <summary>Affiche ou masque les quantités 2 et 3 selon le mode.</summary>
         private void ApplyMode()
         {
-            bool offre = !modeSwitch.IsRight;
+            RequestType type = CurrentType;
+            bool offre = type == RequestType.Offre;
+            bool catalogue = RequestTypes.EstCatalogue(type);
             colQty2.Visible = offre;
             colQty3.Visible = offre;
+
+            // Un achat catalogue ne livre aucun fichier : ces réglages n'ont rien à régler.
+            chk3D.Enabled = !catalogue;
+            chk2D.Enabled = !catalogue;
+            chkControleFabrication.Enabled = !catalogue;
+            if (catalogue) chkControleFabrication.Checked = false;
+            lblInfo.Text = RequestTypes.Description(type);
 
             // Le controle accompagne une fabrication ; sur une demande d'offre il ne se
             // justifie pas, la piece n'est pas encore commandee.
@@ -1725,7 +1842,7 @@ namespace AskThem
 
             // Un achat catalogue ne touche ni SolidWorks ni le coffre : la question ne se pose
             // que pour les articles dont on livre des fichiers.
-            if (generate && !ToutEnCatalogue(_lines) && !ConfirmerSolidWorks()) return;
+            if (generate && !RequestTypes.EstCatalogue(CurrentType) && !ConfirmerSolidWorks()) return;
 
             // Les valeurs de l'interface sont lues ici, sur le thread interface.
             _generateMode = generate;
@@ -1738,7 +1855,7 @@ namespace AskThem
             _optSupplierCc = fournisseur == null ? "" : fournisseur.CcLine;
             _optSupplierName = fournisseur == null ? "" : fournisseur.Name;
             _optFournisseurInventaire = fournisseur == null ? 0 : fournisseur.InventoryId;
-            _optCatalogue = ToutEnCatalogue(_lines);
+            _optCatalogue = RequestTypes.EstCatalogue(_optType);
             _optProject = txtProject.Text.Trim();
             _optDeadline = dtpDeadline.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
             _optConditions = txtConditions.Text;
@@ -2058,44 +2175,39 @@ namespace AskThem
             return RuleFor(ligne.PartNumber).Catalogue;
         }
 
-        /// <summary>Vrai si toutes les lignes renseignées sont des achats catalogue.</summary>
-        private bool ToutEnCatalogue(IEnumerable<PartLine> lignes)
-        {
-            bool auMoinsUne = false;
-            foreach (PartLine l in lignes)
-            {
-                if (string.IsNullOrWhiteSpace(l.PartNumber)) continue;
-                auMoinsUne = true;
-                if (!EstCatalogue(l)) return false;
-            }
-            return auMoinsUne;
-        }
-
         /// <summary>
-        /// Une demande ne mélange pas les achats catalogue et les pièces sur mesure : les
-        /// deux n'appellent ni les mêmes fichiers, ni la même façon de choisir le fournisseur.
+        /// Les articles doivent tous être de la nature annoncée par le type de demande.
+        ///
+        /// Un achat catalogue et une pièce sur mesure n'appellent ni les mêmes fichiers ni la
+        /// même façon de choisir le fournisseur : les mélanger produirait un message faux.
         /// </summary>
         private bool VerifierHomogeneite()
         {
-            List<string> catalogue = new List<string>();
-            List<string> surMesure = new List<string>();
+            RequestType type = CurrentType;
+            bool attenduCatalogue = RequestTypes.EstCatalogue(type);
+
+            List<string> intrus = new List<string>();
             foreach (PartLine l in _lines)
             {
                 if (string.IsNullOrWhiteSpace(l.PartNumber)) continue;
-                if (EstCatalogue(l)) catalogue.Add(l.PartNumber);
-                else surMesure.Add(l.PartNumber);
+                if (EstCatalogue(l) != attenduCatalogue) intrus.Add(l.PartNumber);
             }
-            if (catalogue.Count == 0 || surMesure.Count == 0) return true;
+            if (intrus.Count == 0) return true;
+
+            string quoi = attenduCatalogue
+                ? "ne sont pas des articles de catalogue"
+                : "sont des articles de catalogue";
+            string remede = attenduCatalogue
+                ? "Retirez-les, ou choisissez « " + RequestTypes.Libelle(RequestType.Offre) + " »."
+                : "Retirez-les, ou choisissez « " + RequestTypes.Libelle(RequestType.CommandeCatalogue) + " ».";
 
             MessageBox.Show(
-                "Une demande ne peut pas mélanger des articles catalogue et des pièces sur mesure."
-                + Environment.NewLine + Environment.NewLine
-                + "Catalogue (" + catalogue.Count + ") : " + Extrait(catalogue) + Environment.NewLine
-                + "Sur mesure (" + surMesure.Count + ") : " + Extrait(surMesure) + Environment.NewLine + Environment.NewLine
-                + "Faites-en deux demandes séparées.",
+                intrus.Count + " article(s) " + quoi + ", alors que la demande est une « "
+                + RequestTypes.Libelle(type) + " »." + Environment.NewLine + Environment.NewLine
+                + Extrait(intrus) + Environment.NewLine + Environment.NewLine + remede,
                 "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            Log("Demande refusée : elle mélange " + catalogue.Count + " article(s) catalogue et "
-              + surMesure.Count + " pièce(s) sur mesure.");
+            Log("Demande refusée : " + intrus.Count + " article(s) " + quoi + " pour une « "
+              + RequestTypes.Libelle(type) + " ».");
             return false;
         }
 
@@ -2143,7 +2255,7 @@ namespace AskThem
             int total = _work.Count;
 
             // --- Étape 1 : dossier de la demande, directement dans l'archive réseau ---
-            string tag = _optType == RequestType.Offre ? "OFFRE" : "FAB";
+            string tag = RequestTypes.Tag(_optType);
             string identifiant = string.IsNullOrWhiteSpace(_optSupplierName) ? _optSupplier : _optSupplierName;
             string folderName = DateTime.Now.ToString("yyyy-MM-dd") + "_" + SafeName(identifiant) + "_" + tag;
             string outputFolder = DossierUnique(Path.Combine(RacineDeSortie(), folderName));
@@ -2897,7 +3009,7 @@ namespace AskThem
                 panelDetail.Enabled = !busy;
                 btnVerify.Enabled = !busy;
                 btnGenerate.Enabled = !busy;
-                modeSwitch.Enabled = !busy;
+                cboType.Enabled = !busy;
                 btnSuppliers.Enabled = !busy;
                 btnInventaire.Enabled = !busy;
                 btnCancel.Enabled = busy;

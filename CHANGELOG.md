@@ -3,6 +3,33 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.4.0] — 2026-09-02
+
+### Ajouté
+
+- **Assistant pas à pas**, ouvert au lancement. Cinq étapes, de grands boutons, une question
+  par écran : nature de la demande, destinataire, articles, détails, récapitulatif. L'écran
+  unique était devenu trop dense ; il reste accessible par *Vue complète*, et l'assistant y
+  reporte tout ce qu'il a recueilli. Un seul chemin de traitement, deux façons d'y entrer.
+- **Commande catalogue**, troisième nature de demande à côté de la demande d'offre et de la
+  demande de fabrication. Le message passe commande au lieu de consulter, et demande
+  confirmation de la réception, des prix et du délai.
+- L'assistant refuse de passer à l'étape suivante tant qu'il manque quelque chose, en le
+  disant : sans destinataire, sans article, avec un article dont la nature ne correspond pas
+  au type choisi, ou sans bon de commande sur une fabrication.
+
+### Modifié
+
+- **Le type de demande se choisit dans une liste à trois entrées**, dans la vue complète.
+  L'interrupteur à deux positions ne pouvait plus les exprimer ; le contrôle `ModeSwitch`,
+  devenu sans appelant, est retiré.
+- **La nature des articles est contrôlée contre le type choisi** au lieu d'être devinée à
+  partir des numéros saisis. Un article de catalogue dans une demande d'offre, ou l'inverse,
+  est refusé en nommant les fautifs.
+- Les options de fichiers (3D, plan, contrôle de fabrication) passent dans un volet
+  *Options avancées* replié, et sont désactivées sur une commande catalogue, qui ne joint
+  rien.
+
 ## [1.3.6] — 2026-08-31
 
 ### Ajouté

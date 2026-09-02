@@ -20,8 +20,7 @@ namespace AskThem.Services
         /// <summary>Objet du message.</summary>
         public static string BuildSubject(RequestType type, string project, int count)
         {
-            string prefix = "Demande de fabrication";
-            if (type == RequestType.Offre) prefix = "Demande d'offre";
+            string prefix = RequestTypes.Libelle(type);
 
             // Sans référence projet, on retire le segment et son tiret.
             if (string.IsNullOrWhiteSpace(project))
@@ -87,8 +86,9 @@ namespace AskThem.Services
         }
 
         /// <summary>
-        /// Mention du document joint : bon de commande en fabrication, demande de PO
-        /// en offre. Vide si aucun document n'accompagne la demande.
+        /// Mention du document joint : demande de PO sur une offre, bon de commande sur
+        /// une fabrication comme sur une commande catalogue. Vide si aucun document
+        /// n'accompagne la demande.
         /// </summary>
         private static string BuildPo(RequestType type, string poFileName)
         {
@@ -147,8 +147,11 @@ namespace AskThem.Services
         /// <summary>Charge le modèle HTML ; si le fichier est absent, utilise le modèle intégré.</summary>
         private static string LoadTemplate(RequestType type, bool catalogue)
         {
-            string fileName = catalogue ? "template_offre_catalogue.html"
-                            : (type == RequestType.Offre ? "template_offre.html" : "template_fabrication.html");
+            string fileName;
+            if (type == RequestType.CommandeCatalogue) fileName = "template_commande_catalogue.html";
+            else if (catalogue) fileName = "template_offre_catalogue.html";
+            else if (type == RequestType.Offre) fileName = "template_offre.html";
+            else fileName = "template_fabrication.html";
             string path = Path.Combine(AppContext.BaseDirectory, "templates", fileName);
             try
             {
@@ -158,6 +161,7 @@ namespace AskThem.Services
             {
                 LogService.Write("Modèle " + fileName + " illisible, modèle intégré utilisé : " + ex.Message);
             }
+            if (type == RequestType.CommandeCatalogue) return TemplateCommandeCatalogue;
             if (catalogue) return TemplateOffreCatalogue;
             return type == RequestType.Offre ? TemplateOffre : TemplateFabrication;
         }
@@ -178,7 +182,7 @@ namespace AskThem.Services
             {
                 if (!string.IsNullOrWhiteSpace(l.ManufacturerRef)) showFab = true;
                 if (!string.IsNullOrWhiteSpace(l.EffectiveRevision)) showRev = true;
-                if (type == RequestType.Offre)
+                if (RequestTypes.PlusieursQuantites(type))
                 {
                     if (l.Qty2 > 0) showQty2 = true;
                     if (l.Qty3 > 0) showQty3 = true;
@@ -204,7 +208,7 @@ namespace AskThem.Services
             if (showDate) sb.Append("<th" + HeadStyle + ">Date de réalisé</th>");
             if (showMaterial) sb.Append("<th" + HeadStyle + ">Matière</th>");
             if (showTreatment) sb.Append("<th" + HeadStyle + ">Finitions</th>");
-            if (type == RequestType.Offre)
+            if (RequestTypes.PlusieursQuantites(type))
             {
                 sb.Append("<th" + HeadStyle + ">Qté 1</th>");
                 if (showQty2) sb.Append("<th" + HeadStyle + ">Qté 2</th>");
@@ -240,7 +244,7 @@ namespace AskThem.Services
                 if (showMaterial) sb.Append("<td" + CellStyle + ">" + Dash(l.Material) + "</td>");
                 if (showTreatment) sb.Append("<td" + CellStyle + ">" + Dash(l.Treatment) + "</td>");
 
-                if (type == RequestType.Offre)
+                if (RequestTypes.PlusieursQuantites(type))
                 {
                     sb.Append("<td" + CellStyle + ">" + l.Qty1 + "</td>");
                     if (showQty2) sb.Append("<td" + CellStyle + ">" + (l.Qty2 > 0 ? l.Qty2.ToString() : "") + "</td>");
@@ -276,6 +280,19 @@ namespace AskThem.Services
         // Modèles intégrés : utilisés si le dossier templates est absent,
         // afin que le programme fonctionne toujours.
         // ------------------------------------------------------------------
+
+        /// <summary>Modèle intégré de la commande catalogue, si le fichier manque.</summary>
+        private const string TemplateCommandeCatalogue =
+"<html><body><div style=\"font-family:Aptos, 'Segoe UI', Calibri, Arial, sans-serif; font-size:12pt; color:#222222;\">"
++ "<p>Bonjour,</p>"
++ "<p>Nous vous passons commande des {{NB_ARTICLES}} article(s) de catalogue ci-dessous.</p>"
++ "<p>Référence commande : <b>{{COMMANDE}}</b><br/>Délai souhaité : <b>{{DELAI}}</b></p>"
++ "{{TABLEAU}}{{COMMENTAIRE}}{{PO}}"
++ "<p>Ces articles sont référencés chez vous : <b>aucun plan ni modèle 3D n'accompagne "
++ "cette commande</b>. Merci de nous <b>confirmer la réception de cette commande</b>, les prix et "
++ "le délai de livraison.</p>"
++ "<p>Avec nos remerciements, nous vous adressons nos meilleures salutations.</p>"
++ "{{NOTES}}</div></body></html>";
 
         /// <summary>Modèle intégré du mode catalogue, si le fichier manque.</summary>
         private const string TemplateOffreCatalogue =
