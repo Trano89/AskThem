@@ -146,6 +146,16 @@ namespace AskThem.Services
             }
         }
 
+        /// <summary>Nombre d'une propriété, ou zéro si elle manque ou n'en est pas un.</summary>
+        private static double Nombre(JsonElement objet, string nom)
+        {
+            JsonElement v;
+            if (!objet.TryGetProperty(nom, out v)) return 0;
+            if (v.ValueKind != JsonValueKind.Number) return 0;
+            double d;
+            return v.TryGetDouble(out d) ? d : 0;
+        }
+
         /// <summary>Entier d'une propriété, ou zéro si elle manque ou n'en est pas un.</summary>
         private static int Entier(JsonElement objet, string nom)
         {
@@ -187,6 +197,10 @@ namespace AskThem.Services
                         e.InternalRef = Texte(article, "internal_ref");
                         if (e.InternalRef == "") continue;
                         e.OldRef = Texte(article, "old_ref");
+                        e.Designation = Texte(article, "name");
+                        e.PrixUnitaire = Nombre(article, "unit_price");
+                        e.Monnaie = Texte(article, "currency");
+                        e.Stock = Nombre(article, "current_qty");
                         LireFournisseurs(article, e);
                         if (e.OldRef != "") avecAncienne++;
                         table[e.InternalRef] = e;

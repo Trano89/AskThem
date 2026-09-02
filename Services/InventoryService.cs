@@ -32,6 +32,17 @@ namespace AskThem.Services
             public string InternalRef = "";
             public string OldRef = "";
 
+            /// <summary>Désignation de l'article. En achat catalogue, c'est la seule source.</summary>
+            public string Designation = "";
+
+            /// <summary>Prix unitaire du dernier achat, dans la monnaie ci-dessous.</summary>
+            public double PrixUnitaire = 0;
+
+            public string Monnaie = "";
+
+            /// <summary>Quantité actuellement en stock.</summary>
+            public double Stock = 0;
+
             /// <summary>
             /// Tous les fournisseurs déclarés pour cet article. L'inventaire en accepte
             /// plusieurs, contrairement au PDM qui n'en porte qu'un.

@@ -96,6 +96,7 @@ namespace AskThem
         private Panel panelParams;
         private ComboBox cboSupplier;
         private Button btnSuppliers;
+        private Button btnCatalogue;
         private ToolTip toolTip = new ToolTip();
         private TextBox txtProject;
         private DateTimePicker dtpDeadline;
@@ -885,7 +886,15 @@ namespace AskThem
             txtConditions.Size = new Size(520, 68);
             txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage...";
 
+            btnCatalogue = new Button();
+            btnCatalogue.Text = "Son catalogue…";
+            btnCatalogue.Size = new Size(AppFont.Width(btnCatalogue.Text, 34), 30);
+            btnCatalogue.Click += new EventHandler(BtnCatalogue_Click);
+            toolTip.SetToolTip(btnCatalogue,
+                "Les articles que ce fournisseur vend, d'après l'inventaire, à ajouter à la demande.");
+
             flow.Controls.Add(Groupe("Destinataire :", cboSupplier, btnSuppliers));
+            flow.Controls.Add(Groupe("", btnCatalogue, null));
             flow.Controls.Add(Groupe("Référence commande :", txtProject, null));
             flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
             flow.Controls.Add(Groupe("", chk3D, chk2D));
@@ -1927,6 +1936,10 @@ namespace AskThem
 
             ligne.OldRef = inv.OldRef;
 
+            // Le coffre n'est pas consulté en achat catalogue : la désignation ne peut
+            // venir que de l'inventaire.
+            if (inv.Designation != "") ligne.Description = inv.Designation;
+
             if (inv.Fournisseurs.Count == 0)
             {
                 ligne.Status = "Sans fournisseur";
@@ -1957,6 +1970,79 @@ namespace AskThem
             foreach (InventoryService.Fournisseur f in inv.Fournisseurs)
                 if (f.Nom != "") noms.Add(f.Nom);
             return noms.Count == 0 ? "aucun" : string.Join(", ", noms);
+        }
+
+        /// <summary>
+        /// Ouvre le catalogue du destinataire choisi : ce qu'il vend, d'après l'inventaire,
+        /// avec de quoi en cocher pour l'ajouter à la demande.
+        /// </summary>
+        private void BtnCatalogue_Click(object sender, EventArgs e)
+        {
+            Supplier destinataire = SelectedSupplier;
+            if (destinataire == null || string.IsNullOrWhiteSpace(destinataire.Name))
+            {
+                MessageBox.Show("Choisissez d'abord un destinataire.", "AskThem",
+                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            if (_inventaire == null || _inventaire.Count == 0)
+            {
+                MessageBox.Show(
+                    "L'inventaire n'est pas chargé." + Environment.NewLine + Environment.NewLine
+                    + "Le bouton « Inventaire… » permet de s'y connecter ; le catalogue se lit ensuite "
+                    + "au démarrage suivant.",
+                    "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
+
+            using (CatalogueFournisseurDialog dlg = new CatalogueFournisseurDialog(destinataire, _inventaire))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                AjouterArticles(dlg.Retenus);
+            }
+        }
+
+        /// <summary>
+        /// Ajoute des articles à la grille, en ignorant ceux qui s'y trouvent déjà et en
+        /// réutilisant la première ligne si elle est restée vide.
+        /// </summary>
+        private void AjouterArticles(List<string> numeros)
+        {
+            if (numeros == null || numeros.Count == 0) return;
+
+            int ajoutes = 0;
+            int deja = 0;
+            foreach (string numero in numeros)
+            {
+                bool present = false;
+                foreach (PartLine l in _lines)
+                {
+                    if (string.Equals(l.PartNumber, numero, StringComparison.OrdinalIgnoreCase))
+                    {
+                        present = true;
+                        break;
+                    }
+                }
+                if (present) { deja++; continue; }
+
+                PartLine vide = null;
+                foreach (PartLine l in _lines)
+                    if (string.IsNullOrWhiteSpace(l.PartNumber)) { vide = l; break; }
+
+                if (vide != null) vide.PartNumber = numero;
+                else
+                {
+                    PartLine nouvelle = new PartLine();
+                    nouvelle.PartNumber = numero;
+                    _lines.Add(nouvelle);
+                }
+                ajoutes++;
+            }
+
+            RefreshGrid();
+            Log(ajoutes + " article(s) ajouté(s) depuis le catalogue du fournisseur"
+              + (deja > 0 ? ", " + deja + " déjà présent(s)" : "") + ".");
         }
 
         /// <summary>Vrai si cet article s'achète au catalogue, sans plan ni modèle.</summary>

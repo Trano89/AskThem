@@ -119,6 +119,14 @@ Le contrôle ne s'applique qu'aux achats catalogue, et seulement quand un destin
 choisi et l'inventaire joignable. L'inventaire est chargé au démarrage pour que ce soit
 instantané.
 
+### Partir du catalogue du fournisseur
+
+Le pendant du refus : plutôt que de taper des numéros et de se voir opposer un refus, le
+bouton **Son catalogue…** montre tout ce que le destinataire vend d'après l'inventaire —
+numéro d'article, désignation, votre référence chez lui, référence fabricant, ancienne
+référence, prix unitaire et stock. On filtre, on coche, on ajoute à la demande. Les articles
+déjà présents dans la grille sont ignorés, et la première ligne vide est réutilisée.
+
 ### Comment le fournisseur est reconnu
 
 Par son nom, et de façon indulgente : casse, accents, ponctuation et formes juridiques

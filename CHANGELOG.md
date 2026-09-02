@@ -11,6 +11,10 @@ et les numéros de version [SemVer](https://semver.org/lang/fr/).
   toutes les lignes sont des X20, AskThem n'ouvre ni SolidWorks ni le coffre PDM : la
   désignation, l'ancienne référence et surtout la référence chez le fournisseur viennent de
   l'inventaire. Aucun fichier n'est joint, aucun contrôle de fabrication n'est produit.
+- **Le catalogue d'un fournisseur est consultable** (bouton *Son catalogue…*) : tout ce
+  qu'il vend d'après l'inventaire, avec désignation, votre référence chez lui, référence
+  fabricant, ancienne référence, prix unitaire et stock. On filtre, on coche, on ajoute à
+  la demande — le pendant du refus à la saisie.
 - **Un article de catalogue est refusé dès sa saisie** s'il n'est pas vendu par le
   destinataire choisi. Le message nomme les fournisseurs qui le vendent réellement, pour
   qu'on puisse changer de destinataire ou retirer la ligne, plutôt que de découvrir le
@@ -36,6 +40,8 @@ et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
 ### Corrigé
 
+- **La désignation manquait sur une demande de catalogue.** Le coffre n'étant plus consulté
+  dans ce mode, elle ne pouvait venir que de l'inventaire, qui n'était pas lu pour cela.
 - **Les fournisseurs de l'inventaire n'étaient jamais lus.** `LoadAll` cherchait
   `supplier`, `supplier_ref` et `manufacturer_ref` à la racine de l'article, où ces champs
   n'existent pas : ils sont dans un tableau `suppliers`. La référence fournisseur venue de
