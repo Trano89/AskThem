@@ -26,7 +26,11 @@ namespace AskThem
         // ------------------------------------------------------------------
         private BindingList<PartLine> _lines = new BindingList<PartLine>();
         private AppConfig _config;
-        private List<Supplier> _suppliers = new List<Supplier>();
+        /// <summary>
+        /// La liste des fournisseurs, toujours la même instance : le mode guidé la partage,
+        /// et la remplacer le laisserait sur une liste vide.
+        /// </summary>
+        private readonly List<Supplier> _suppliers = new List<Supplier>();
         private Dictionary<string, string> _pdmIndex;
         private Dictionary<string, InventoryService.Entry> _inventaire;
         private List<PartLine> _work;
@@ -1112,6 +1116,7 @@ namespace AskThem
                 delegate { return _inventaire; },
                 delegate { BuildPdmIndex(); return _pdmIndex; });
             panelAssistant.Generer += new EventHandler(Assistant_Generer);
+            panelAssistant.FournisseursChanges += new EventHandler(Assistant_FournisseursChanges);
 
             selecteurMode = new SelecteurMode();
             selecteurMode.Font = AppFont.Get();
@@ -1154,6 +1159,13 @@ namespace AskThem
                 AppliquerDemande(panelAssistant.Demande);
             }
             AppliquerMode();
+        }
+
+        private void Assistant_FournisseursChanges(object sender, EventArgs e)
+        {
+            Supplier avant = SelectedSupplier;
+            FillSupplierBox(avant == null ? null : avant.Name);
+            Log(_suppliers.Count + " fournisseur(s) enregistré(s) sur le réseau.");
         }
 
         private void Assistant_Generer(object sender, EventArgs e)
@@ -1408,7 +1420,9 @@ namespace AskThem
         private void LoadSuppliers()
         {
             string message;
-            _suppliers = SupplierService.Load(_config, out message);
+            List<Supplier> lus = SupplierService.Load(_config, out message);
+            _suppliers.Clear();
+            _suppliers.AddRange(lus);
             Log(message);
             FillSupplierBox(null);
         }
@@ -1457,7 +1471,8 @@ namespace AskThem
             using (SupplierDialog dlg = new SupplierDialog(_config, _suppliers))
             {
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
-                _suppliers = dlg.Suppliers;
+                _suppliers.Clear();
+                _suppliers.AddRange(dlg.Suppliers);
                 Log(_suppliers.Count + " fournisseur(s) enregistré(s) sur le réseau.");
             }
             FillSupplierBox(nom);

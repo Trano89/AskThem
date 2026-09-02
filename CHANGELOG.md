@@ -3,6 +3,19 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.4.3] — 2026-09-02
+
+### Corrigé
+
+- **Le mode guidé ne proposait aucun fournisseur.** La liste était remplacée par une nouvelle
+  instance à chaque lecture du réseau, alors que le panneau guidé gardait une référence sur
+  l'ancienne, restée vide. La liste est désormais une instance stable que l'on vide et
+  remplit, partagée par les deux vues.
+- Créer ou modifier un fournisseur depuis le mode guidé met à jour la liste déroulante de la
+  vue complète, et l'inverse.
+- Le mode guidé le dit quand aucun fournisseur n'est enregistré, au lieu d'afficher une liste
+  vide sans explication.
+
 ## [1.4.2] — 2026-09-02
 
 ### Modifié

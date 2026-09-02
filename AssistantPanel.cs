@@ -83,6 +83,9 @@ namespace AskThem
         /// <summary>Appelé quand l'utilisateur veut lancer la demande qu'il vient de composer.</summary>
         public event EventHandler Generer;
 
+        /// <summary>Appelé quand la liste des fournisseurs a été modifiée depuis ce panneau.</summary>
+        public event EventHandler FournisseursChanges;
+
         /// <summary>Recommence une demande vierge.</summary>
         public void Reinitialiser()
         {
@@ -394,6 +397,16 @@ namespace AskThem
             lblLien.Height = 34;
             lblLien.ForeColor = Color.FromArgb(90, 97, 105);
 
+            if (_fournisseurs.Count == 0)
+            {
+                Label vide = new Label();
+                vide.Dock = DockStyle.Top;
+                vide.Height = 60;
+                vide.Text = "Aucun fournisseur enregistré." + Environment.NewLine
+                          + "Utilisez « Gérer les fournisseurs… » pour en créer un.";
+                corps.Controls.Add(vide);
+            }
+
             lstFournisseurs = new ListBox();
             lstFournisseurs.Dock = DockStyle.Fill;
             lstFournisseurs.Font = new Font(AppFont.Family, 12F);
@@ -438,6 +451,7 @@ namespace AskThem
                 _fournisseurs.Clear();
                 _fournisseurs.AddRange(dlg.Suppliers);
             }
+            if (FournisseursChanges != null) FournisseursChanges(this, EventArgs.Empty);
             AllerA(1);
         }
 
