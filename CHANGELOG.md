@@ -3,6 +3,17 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.4.2] — 2026-09-02
+
+### Modifié
+
+- **Le mode guidé et la vue complète sont deux vues d'une même fenêtre**, commandées par une
+  bascule en haut à gauche. L'assistant n'est plus une fenêtre posée au-dessus de la fenêtre
+  principale. Ce qui est saisi d'un côté se retrouve de l'autre.
+- **Les cartes du premier écran sont dessinées.** Elles étaient des boutons portant des
+  étiquettes, lesquelles peignaient leur propre fond par-dessus et ne recevaient pas le
+  survol : d'où les rectangles blancs et le comportement erratique au passage de la souris.
+
 ## [1.4.1] — 2026-09-02
 
 ### Corrigé

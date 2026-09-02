@@ -223,9 +223,9 @@ un bon de commande absent sur une fabrication.
 
 ### Vue complète
 
-Le bouton **Vue complète** bascule sur l'écran unique, où tous les réglages tiennent sur une
-page — plus dense, plus rapide quand on enchaîne les demandes. Ce que l'assistant a déjà
-recueilli y est repris. Le bouton **Assistant pas à pas…** y ramène.
+Une **bascule en haut à gauche** passe du mode guidé à la vue complète, où tous les réglages
+tiennent sur une page — plus dense, plus rapide quand on enchaîne les demandes. Ce sont deux
+vues de la même fenêtre, pas deux fenêtres : ce qui est saisi d'un côté se retrouve de l'autre.
 
 Les deux écrans ne font que remplir les mêmes champs : le traitement, lui, n'existe qu'à un
 seul endroit.

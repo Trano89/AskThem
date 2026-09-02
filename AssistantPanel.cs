@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
+using AskThem.Controls;
 using AskThem.Models;
 using AskThem.Services;
 
@@ -35,7 +36,7 @@ namespace AskThem
     /// ne décide de rien, elle guide. Tout ce qu'elle recueille est repassé à la fenêtre
     /// principale, qui reste seule à porter le traitement.
     /// </summary>
-    public class AssistantForm : Form
+    public class AssistantPanel : Panel
     {
         private const int NbEtapes = 5;
 
@@ -54,7 +55,6 @@ namespace AskThem
         private Panel corps;
         private Button btnPrecedent;
         private Button btnSuivant;
-        private Button btnVueComplete;
 
         // Étape 2
         private ListBox lstFournisseurs;
@@ -77,11 +77,20 @@ namespace AskThem
         // Étape 5
         private Label lblRecap;
 
-        /// <summary>Ce que l'utilisateur a construit, une fois la fenêtre fermée.</summary>
+        /// <summary>Ce que l'utilisateur a construit.</summary>
         public DemandeEnCours Demande { get { return _demande; } }
 
-        /// <summary>Vrai si l'utilisateur a demandé à passer à la fenêtre complète.</summary>
-        public bool VueComplete { get; private set; }
+        /// <summary>Appelé quand l'utilisateur veut lancer la demande qu'il vient de composer.</summary>
+        public event EventHandler Generer;
+
+        /// <summary>Recommence une demande vierge.</summary>
+        public void Reinitialiser()
+        {
+            _demande.Destinataire = null;
+            _demande.Lignes.Clear();
+            _lignes.Clear();
+            AllerA(0);
+        }
 
         /// <summary>
         /// Les deux sources d'articles sont demandées au moment de s'en servir, et non
@@ -89,7 +98,7 @@ namespace AskThem
         /// arrière-plan et le coffre n'est pas indexé. Les figer ici donnerait une
         /// recherche vide.
         /// </summary>
-        public AssistantForm(AppConfig config, List<Supplier> fournisseurs,
+        public AssistantPanel(AppConfig config, List<Supplier> fournisseurs,
                              Func<Dictionary<string, InventoryService.Entry>> inventaire,
                              Func<Dictionary<string, string>> pdm)
         {
@@ -98,14 +107,9 @@ namespace AskThem
             _inventaire = inventaire;
             _pdm = pdm;
 
-            Text = "AskThem — nouvelle demande";
             Font = AppFont.Get();
-            Icon = AppIcon.Get();
-            StartPosition = FormStartPosition.CenterScreen;
-            AutoScaleMode = AutoScaleMode.Dpi;
-            ClientSize = new Size(940, 620);
-            MinimumSize = new Size(760, 520);
-            MaximizeBox = false;
+            Dock = DockStyle.Fill;
+            BackColor = Color.FromArgb(250, 251, 252);
 
             Construire();
             AllerA(0);
@@ -155,14 +159,6 @@ namespace AskThem
             btnSuivant.FlatAppearance.BorderSize = 0;
             btnSuivant.Click += new EventHandler(Suivant_Click);
 
-            btnVueComplete = new Button();
-            btnVueComplete.Text = "Vue complète";
-            btnVueComplete.Width = AppFont.Width(btnVueComplete.Text, 34);
-            btnVueComplete.Height = 34;
-            btnVueComplete.Click += new EventHandler(VueComplete_Click);
-            toolTipVue.SetToolTip(btnVueComplete,
-                "L'écran complet, tous les réglages sur une seule page. Ce que vous avez déjà saisi y est repris.");
-
             FlowLayoutPanel droite = new FlowLayoutPanel();
             droite.Dock = DockStyle.Right;
             droite.FlowDirection = FlowDirection.RightToLeft;
@@ -175,14 +171,11 @@ namespace AskThem
             bas.Height = 66;
             bas.Padding = new Padding(28, 14, 28, 14);
             bas.Controls.Add(droite);
-            bas.Controls.Add(btnVueComplete);
 
             Controls.Add(corps);
             Controls.Add(bas);
             Controls.Add(entete);
         }
-
-        private readonly ToolTip toolTipVue = new ToolTip();
 
         private Button GrandBouton(string texte, int largeur)
         {
@@ -234,19 +227,16 @@ namespace AskThem
             if (_etape == NbEtapes - 1)
             {
                 _demande.Generer = true;
-                DialogResult = DialogResult.OK;
-                Close();
+                if (Generer != null) Generer(this, EventArgs.Empty);
                 return;
             }
             AllerA(_etape + 1);
         }
 
-        private void VueComplete_Click(object sender, EventArgs e)
+        /// <summary>Reprend ce qui est affiché, pour que la vue complète le retrouve.</summary>
+        public void Synchroniser()
         {
             Recolter();
-            VueComplete = true;
-            DialogResult = DialogResult.OK;
-            Close();
         }
 
         /// <summary>Reprend dans la demande ce que l'étape affichée contient.</summary>
@@ -359,47 +349,22 @@ namespace AskThem
         }
 
         /// <summary>Un grand bouton par nature de demande, avec ce qu'elle implique.</summary>
-        private Panel Carte(RequestType type)
+        private Control Carte(RequestType type)
         {
-            Button b = new Button();
+            CarteBouton b = new CarteBouton();
             b.Tag = type;
+            b.Titre = RequestTypes.Libelle(type);
+            b.Explication = RequestTypes.Description(type);
             b.Width = 820;
             b.Height = 92;
-            b.TextAlign = ContentAlignment.MiddleLeft;
-            b.FlatStyle = FlatStyle.Flat;
-            b.FlatAppearance.BorderColor = Color.FromArgb(170, 176, 183);
-            b.FlatAppearance.BorderSize = 1;
-            b.BackColor = Color.White;
-            b.Text = "";
+            b.Margin = new Padding(0, 0, 0, 12);
             b.Click += new EventHandler(Carte_Click);
-
-            Label titre = new Label();
-            titre.Text = RequestTypes.Libelle(type);
-            titre.Font = new Font(AppFont.Family, 13F, FontStyle.Bold);
-            titre.Location = new Point(22, 16);
-            titre.AutoSize = true;
-            titre.Click += new EventHandler(delegate (object s, EventArgs e) { Choisir(type); });
-
-            Label detail = new Label();
-            detail.Text = RequestTypes.Description(type);
-            detail.ForeColor = Color.FromArgb(90, 97, 105);
-            detail.Location = new Point(24, 46);
-            detail.Size = new Size(760, 36);
-            detail.Click += new EventHandler(delegate (object s, EventArgs e) { Choisir(type); });
-
-            b.Controls.Add(titre);
-            b.Controls.Add(detail);
-
-            Panel p = new Panel();
-            p.Width = 830;
-            p.Height = 104;
-            p.Controls.Add(b);
-            return p;
+            return b;
         }
 
         private void Carte_Click(object sender, EventArgs e)
         {
-            Button b = sender as Button;
+            Control b = sender as Control;
             if (b == null || !(b.Tag is RequestType)) return;
             Choisir((RequestType)b.Tag);
         }
@@ -469,7 +434,7 @@ namespace AskThem
         {
             using (SupplierDialog dlg = new SupplierDialog(_config, _fournisseurs))
             {
-                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
                 _fournisseurs.Clear();
                 _fournisseurs.AddRange(dlg.Suppliers);
             }
@@ -597,7 +562,7 @@ namespace AskThem
             using (RechercheArticleDialog dlg = new RechercheArticleDialog(
                        _config, _demande.Destinataire, inventaire, pdm))
             {
-                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                if (dlg.ShowDialog(FindForm()) != DialogResult.OK) return;
                 foreach (string numero in dlg.Retenus) AjouterLigne(numero);
             }
         }
@@ -799,7 +764,7 @@ namespace AskThem
                 dlg.Filter = "Document PDF (*.pdf)|*.pdf";
                 dlg.Title = _demande.Type == RequestType.Offre
                     ? "Choisir la demande de PO" : "Choisir le bon de commande";
-                if (dlg.ShowDialog(this) == DialogResult.OK) txtPo.Text = dlg.FileName;
+                if (dlg.ShowDialog(FindForm()) == DialogResult.OK) txtPo.Text = dlg.FileName;
             }
         }
 

@@ -8,6 +8,7 @@ using System.Text;
 using System.Threading;
 using System.Windows.Forms;
 using AskThem.Config;
+using AskThem.Controls;
 using AskThem.Inspection;
 using AskThem.Models;
 using AskThem.Pdf;
@@ -96,7 +97,9 @@ namespace AskThem
         private ComboBox cboSupplier;
         private Button btnSuppliers;
         private Button btnRecherche;
-        private Button btnAssistant;
+        private AssistantPanel panelAssistant;
+        private Panel panelComplet;
+        private SelecteurMode selecteurMode;
         private ToolTip toolTip = new ToolTip();
         private TextBox txtProject;
         private DateTimePicker dtpDeadline;
@@ -166,7 +169,6 @@ namespace AskThem
             StartUpdateCheck();
             LancerVerificationInventaire();
             Log("Dossier des exports : " + _config.OutputRoot);
-            _ouvrirAssistantAuDemarrage = true;
         }
 
         // ==================================================================
@@ -203,22 +205,10 @@ namespace AskThem
             lblInfo.Location = new Point(cboType.Right + 32, 20);
             lblInfo.AutoSize = true;
 
-            btnAssistant = new Button();
-            btnAssistant.Font = AppFont.Get();
-            btnAssistant.Text = "Assistant pas à pas…";
-            btnAssistant.Size = new Size(AppFont.Width(btnAssistant.Text, 34), 30);
-            btnAssistant.Click += new EventHandler(BtnAssistant_Click);
-
             panelTop.Controls.Add(lblType);
             panelTop.Controls.Add(cboType);
-            panelTop.Controls.Add(btnAssistant);
             panelTop.Height = Math.Max(cboType.Height, lblInfo.PreferredHeight) + 34;
             panelTop.Controls.Add(lblInfo);
-            panelTop.Resize += new EventHandler(delegate (object s, EventArgs e)
-            {
-                btnAssistant.Location = new Point(
-                    Math.Max(cboType.Right + 20, panelTop.Width - btnAssistant.Width - 16), 16);
-            });
         }
 
         private void BuildToolsPanel()
@@ -1110,9 +1100,66 @@ namespace AskThem
             splitPrincipal.Panel1.Controls.Add(splitCentre);
             splitPrincipal.Panel2.Controls.Add(splitBas);
 
-            Controls.Add(splitPrincipal);
-            Controls.Add(panelTools);
-            Controls.Add(panelTop);
+            // La vue complète est rassemblée dans son propre panneau : le mode guidé prend
+            // exactement la même place, et l'on passe de l'un à l'autre sans fenêtre par-dessus.
+            panelComplet = new Panel();
+            panelComplet.Dock = DockStyle.Fill;
+            panelComplet.Controls.Add(splitPrincipal);
+            panelComplet.Controls.Add(panelTools);
+            panelComplet.Controls.Add(panelTop);
+
+            panelAssistant = new AssistantPanel(_config, _suppliers,
+                delegate { return _inventaire; },
+                delegate { BuildPdmIndex(); return _pdmIndex; });
+            panelAssistant.Generer += new EventHandler(Assistant_Generer);
+
+            selecteurMode = new SelecteurMode();
+            selecteurMode.Font = AppFont.Get();
+            selecteurMode.TexteGauche = "Guidé";
+            selecteurMode.TexteDroite = "Vue complète";
+            selecteurMode.Width = selecteurMode.LargeurUtile;
+            selecteurMode.Height = 32;
+            selecteurMode.Location = new Point(14, 9);
+            selecteurMode.ModeChange += new EventHandler(Mode_Change);
+
+            panelModes = new Panel();
+            panelModes.Dock = DockStyle.Top;
+            panelModes.Height = 50;
+            panelModes.Controls.Add(selecteurMode);
+
+            Controls.Add(panelComplet);
+            Controls.Add(panelAssistant);
+            Controls.Add(panelModes);
+
+            AppliquerMode();
+        }
+
+        private Panel panelModes;
+
+        /// <summary>Montre la vue choisie. Les deux remplissent les mêmes champs.</summary>
+        private void AppliquerMode()
+        {
+            bool complet = selecteurMode.Complet;
+            panelComplet.Visible = complet;
+            panelAssistant.Visible = !complet;
+            if (complet) panelComplet.BringToFront(); else panelAssistant.BringToFront();
+        }
+
+        private void Mode_Change(object sender, EventArgs e)
+        {
+            // Ce qui a été saisi d'un côté se retrouve de l'autre.
+            if (selecteurMode.Complet)
+            {
+                panelAssistant.Synchroniser();
+                AppliquerDemande(panelAssistant.Demande);
+            }
+            AppliquerMode();
+        }
+
+        private void Assistant_Generer(object sender, EventArgs e)
+        {
+            AppliquerDemande(panelAssistant.Demande);
+            StartProcess(true);
         }
 
         /// <summary>
@@ -1120,31 +1167,6 @@ namespace AskThem
         /// complet : avant cela les conteneurs n'ont pas leur taille définitive, et toutes
         /// les distances calculées seraient rabotées.
         /// </summary>
-        private bool _ouvrirAssistantAuDemarrage;
-
-        /// <summary>
-        /// Ouvre l'assistant, et applique ce qu'il a recueilli.
-        ///
-        /// Il ne traite rien lui-même : il remplit cette fenêtre, qui reste seule à porter
-        /// le pipeline. Deux chemins d'interface, un seul chemin de traitement.
-        /// </summary>
-        private void OuvrirAssistant()
-        {
-            using (AssistantForm assistant = new AssistantForm(_config, _suppliers,
-                       delegate { return _inventaire; },
-                       delegate { BuildPdmIndex(); return _pdmIndex; }))
-            {
-                if (assistant.ShowDialog(this) != DialogResult.OK) return;
-                AppliquerDemande(assistant.Demande);
-                if (assistant.Demande.Generer) StartProcess(true);
-            }
-        }
-
-        private void BtnAssistant_Click(object sender, EventArgs e)
-        {
-            OuvrirAssistant();
-        }
-
         /// <summary>Reporte dans les contrôles ce que l'assistant a recueilli.</summary>
         private void AppliquerDemande(DemandeEnCours d)
         {
@@ -1185,13 +1207,6 @@ namespace AskThem
             PerformLayout();
             AppliquerSeparateurs();
 
-            // L'assistant s'ouvre au lancement : c'est le chemin normal. La vue complète
-            // reste derrière, pour qui préfère tout voir d'un coup.
-            if (_ouvrirAssistantAuDemarrage)
-            {
-                _ouvrirAssistantAuDemarrage = false;
-                BeginInvoke(new MethodInvoker(OuvrirAssistant));
-            }
         }
 
         /// <summary>Réapplique la répartition tant que l'utilisateur n'a rien déplacé.</summary>
@@ -3023,6 +3038,7 @@ namespace AskThem
                 btnVerify.Enabled = !busy;
                 btnGenerate.Enabled = !busy;
                 cboType.Enabled = !busy;
+                selecteurMode.Enabled = !busy;
                 btnSuppliers.Enabled = !busy;
                 btnInventaire.Enabled = !busy;
                 btnCancel.Enabled = busy;
