@@ -8,10 +8,10 @@ namespace AskThem.Services
     /// <summary>
     /// Rapproche un nom de fournisseur saisi dans AskThem d'une fiche de l'inventaire.
     ///
-    /// Ce rapprochement ne sert qu'une fois, au moment de lier les deux : ensuite, c'est
-    /// l'identifiant numérique de l'inventaire qui fait foi. Comparer des noms à chaque
-    /// demande serait fragile ; les comparer une fois, sous le contrôle de l'utilisateur,
-    /// ne l'est pas.
+    /// Deux usages. Le premier, sous le contrôle de l'utilisateur, propose la fiche à lier :
+    /// une fois le lien fait, c'est l'identifiant numérique qui fait foi. Le second compare
+    /// les noms directement, tant que ce lien n'existe pas — sans quoi AskThem ne saurait
+    /// rien dire d'un fournisseur fraîchement créé, ce qui est le cas courant.
     /// </summary>
     public static class NomFournisseur
     {
@@ -56,6 +56,23 @@ namespace AskThem.Services
             foreach (string s in Suffixes)
                 if (s == mot) return true;
             return false;
+        }
+
+        /// <summary>
+        /// Vrai si ces deux noms désignent le même fournisseur.
+        ///
+        /// La comparaison est celle des clés : casse, accents, ponctuation et formes
+        /// juridiques finales sont ignorés, et un nom abrégé reconnaît son nom complet —
+        /// « Thorlabs » et « Thorlabs GmbH », « Mitutoyo » et « Mitutoyo (Schweiz) AG ».
+        /// </summary>
+        public static bool Correspond(string a, string b)
+        {
+            string ca = Cle(a);
+            string cb = Cle(b);
+            if (ca == "" || cb == "") return false;
+            if (ca == cb) return true;
+            return ca.StartsWith(cb + " ", StringComparison.Ordinal)
+                || cb.StartsWith(ca + " ", StringComparison.Ordinal);
         }
 
         /// <summary>

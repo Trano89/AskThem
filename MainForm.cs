@@ -575,6 +575,14 @@ namespace AskThem
                         Environment.NewLine + "Saisissez les pièces qui le composent.",
                         "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     e.Cancel = true;
+                    return;
+                }
+
+                string refus;
+                if (!FournisseurVendCetArticle(normalise, regle, e.RowIndex, out refus))
+                {
+                    MessageBox.Show(refus, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    e.Cancel = true;
                 }
                 return;
             }
@@ -585,6 +593,46 @@ namespace AskThem
                 "Les tirets sont ajoutés automatiquement : vous pouvez taper le numéro sans séparateur.",
                 "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
             e.Cancel = true;
+        }
+
+        /// <summary>
+        /// Vrai si le destinataire choisi vend cet article de catalogue.
+        ///
+        /// Le contrôle a lieu à la saisie plutôt qu'à l'envoi : mieux vaut refuser une
+        /// ligne tout de suite, en disant qui vend l'article, que laisser constituer une
+        /// demande impossible. Il ne s'applique qu'aux achats catalogue, et seulement
+        /// quand l'inventaire est chargé et un destinataire choisi — sans quoi il n'y a
+        /// rien à comparer, et la ligne passe.
+        /// </summary>
+        private bool FournisseurVendCetArticle(string numero, ArticleTypeRule regle,
+                                               int ligneSaisie, out string refus)
+        {
+            refus = "";
+            if (!regle.Catalogue) return true;
+            if (_inventaire == null || _inventaire.Count == 0) return true;
+
+            Supplier destinataire = SelectedSupplier;
+            if (destinataire == null || string.IsNullOrWhiteSpace(destinataire.Name)) return true;
+
+            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, numero);
+            if (inv == null || inv.Fournisseurs.Count == 0) return true;   // signalé plus tard
+
+            if (inv.Chez(destinataire.InventoryId, destinataire.Name) != null) return true;
+
+            // Une ligne déjà saisie qu'on ne fait que reformater ne doit pas se voir refusée
+            // deux fois : seul le contenu qui change est contrôlé.
+            if (ligneSaisie >= 0 && ligneSaisie < _lines.Count
+                && string.Equals(_lines[ligneSaisie].PartNumber, numero, StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            refus = numero + " n'est pas vendu par « " + destinataire.Name + " »."
+                  + Environment.NewLine + Environment.NewLine
+                  + "Dans l'inventaire, cet article est déclaré chez : " + NomsFournisseurs(inv) + "."
+                  + Environment.NewLine + Environment.NewLine
+                  + "Choisissez ce destinataire, ou retirez cet article de la demande.";
+            Log("Refusé à la saisie : " + numero + " n'est pas vendu par « " + destinataire.Name
+              + " » mais par " + NomsFournisseurs(inv) + ".");
+            return false;
         }
 
         /// <summary>Insère les tirets après la saisie, selon le format principal.</summary>
@@ -1334,6 +1382,12 @@ namespace AskThem
                 bool ok = api.Connect(_config.InventoryApiUrl, _config.InventoryUser, mdp, out message);
                 AfficherEtatInventaire(ok, message);
                 Log(message);
+                if (!ok) return;
+
+                // Chargé dès le démarrage : c'est ce qui permet de refuser un article dès
+                // sa saisie, sans attendre la génération.
+                _inventaire = api.LoadAll(out message);
+                Log(message);
             }
         }
 
@@ -1880,8 +1934,7 @@ namespace AskThem
                 return;
             }
 
-            InventoryService.Fournisseur chez = _optFournisseurInventaire == 0
-                ? null : inv.Chez(_optFournisseurInventaire);
+            InventoryService.Fournisseur chez = inv.Chez(_optFournisseurInventaire, _optSupplierName);
 
             if (chez == null)
             {

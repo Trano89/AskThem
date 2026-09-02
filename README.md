@@ -108,16 +108,28 @@ Une demande ne mélange jamais catalogue et sur mesure : les deux n'appellent ni
 fichiers ni la même façon de choisir le fournisseur. Un panier mixte est refusé, en nommant
 les articles des deux camps.
 
-### Lier un fournisseur à sa fiche d'inventaire
+### Un article est refusé s'il n'est pas vendu par le destinataire
 
 L'inventaire déclare **plusieurs fournisseurs par article**, chacun avec sa propre référence.
-Pour savoir laquelle envoyer, AskThem doit connaître la fiche d'inventaire du destinataire :
-bouton **Fournisseurs…**, ligne *Inventaire*, bouton **Lier…**.
+Dès qu'un article de catalogue est saisi dans la grille, AskThem vérifie que le destinataire
+choisi le vend. Sinon, **la ligne est refusée sur-le-champ**, avec le nom des fournisseurs
+qui le vendent réellement — plutôt que de laisser constituer une demande impossible.
 
-Le rapprochement des noms propose, il ne décide pas. Il ignore la casse, les accents, la
-ponctuation et les formes juridiques finales — `Thorlabs` retrouve `Thorlabs GmbH`, `Oritage`
-retrouve `ORITAGE Sàrl`. Quand deux fiches se confondent, les deux sont proposées : c'est à
-vous de trancher. Une fois le lien fait, c'est **l'identifiant** qui sert, plus jamais le nom.
+Le contrôle ne s'applique qu'aux achats catalogue, et seulement quand un destinataire est
+choisi et l'inventaire joignable. L'inventaire est chargé au démarrage pour que ce soit
+instantané.
+
+### Comment le fournisseur est reconnu
+
+Par son nom, et de façon indulgente : casse, accents, ponctuation et formes juridiques
+finales sont ignorés, et un nom abrégé reconnaît son nom complet. `Thorlabs` vaut
+`Thorlabs GmbH`, `Oritage` vaut `ORITAGE Sàrl`, `Mitutoyo` vaut `Mitutoyo (Schweiz) AG`.
+
+Pour lever toute ambiguïté, un fournisseur peut être **lié à sa fiche d'inventaire** :
+bouton **Fournisseurs…**, ligne *Inventaire*, bouton **Lier…**. La fenêtre propose les
+fiches dont le nom correspond, et les présente toutes quand elles se confondent — l'inventaire
+contient de vrais doublons, comme `Idex Health & Science` et `Idex Health & Science, LLC`.
+Une fois le lien fait, c'est **l'identifiant** qui sert et le nom n'a plus d'importance.
 
 Les fiches d'inventaire ne portent pas d'adresse email : les destinataires restent saisis
 dans AskThem.

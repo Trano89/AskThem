@@ -11,11 +11,21 @@ et les numéros de version [SemVer](https://semver.org/lang/fr/).
   toutes les lignes sont des X20, AskThem n'ouvre ni SolidWorks ni le coffre PDM : la
   désignation, l'ancienne référence et surtout la référence chez le fournisseur viennent de
   l'inventaire. Aucun fichier n'est joint, aucun contrôle de fabrication n'est produit.
-- **Un fournisseur d'AskThem se lie à sa fiche d'inventaire** (Fournisseurs… → Lier…).
-  L'inventaire déclarant plusieurs fournisseurs par article, ce lien décide de la référence
-  à envoyer. Le rapprochement des noms ignore casse, accents, ponctuation et formes
-  juridiques finales, et propose plusieurs fiches quand elles se confondent — il ne choisit
-  jamais seul. Une fois lié, c'est l'identifiant qui sert, plus le nom.
+- **Un article de catalogue est refusé dès sa saisie** s'il n'est pas vendu par le
+  destinataire choisi. Le message nomme les fournisseurs qui le vendent réellement, pour
+  qu'on puisse changer de destinataire ou retirer la ligne, plutôt que de découvrir le
+  problème au moment d'envoyer. L'inventaire est chargé au démarrage pour que ce contrôle
+  soit immédiat.
+- **Le fournisseur est reconnu par son nom autant que par son identifiant.** L'identifiant
+  d'inventaire reste prioritaire, mais tant que le lien n'est pas fait, la comparaison des
+  noms prend le relais : casse, accents, ponctuation et formes juridiques finales sont
+  ignorés, et un nom abrégé reconnaît son nom complet — « Thorlabs » vaut « Thorlabs GmbH »,
+  « Oritage » vaut « ORITAGE Sàrl ». Sans cela, un fournisseur fraîchement créé n'aurait
+  servi à rien.
+- **Un fournisseur d'AskThem peut être lié à sa fiche d'inventaire** (Fournisseurs… →
+  Lier…), ce qui rend le rapprochement exact et définitif. La fenêtre propose les fiches
+  dont le nom correspond, et les présente toutes quand elles se confondent — elle ne
+  choisit jamais seule.
 - Le tableau de l'email en mode catalogue ne porte que ce qui a un sens : ni révision, ni
   date de réalisé, ni matière, ni finitions. La colonne *Réf. fabricant* n'apparaît que si
   au moins un article en porte une.

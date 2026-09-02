@@ -54,7 +54,26 @@ namespace AskThem.Services
             public Fournisseur Chez(int idFournisseur)
             {
                 foreach (Fournisseur f in Fournisseurs)
-                    if (f.Id == idFournisseur) return f;
+                    if (idFournisseur != 0 && f.Id == idFournisseur) return f;
+                return null;
+            }
+
+            /// <summary>
+            /// Le fournisseur, retrouvé par son identifiant d'inventaire s'il est connu,
+            /// sinon par son nom.
+            ///
+            /// L'identifiant est sûr et vient en premier. Le nom prend le relais tant que
+            /// le lien n'a pas été fait — sans quoi AskThem ne saurait rien dire d'un
+            /// fournisseur fraîchement créé, ce qui est justement le cas courant.
+            /// </summary>
+            public Fournisseur Chez(int idFournisseur, string nom)
+            {
+                Fournisseur parId = Chez(idFournisseur);
+                if (parId != null) return parId;
+                if (string.IsNullOrWhiteSpace(nom)) return null;
+
+                foreach (Fournisseur f in Fournisseurs)
+                    if (NomFournisseur.Correspond(f.Nom, nom)) return f;
                 return null;
             }
         }
