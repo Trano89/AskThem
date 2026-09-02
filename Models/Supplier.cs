@@ -17,12 +17,24 @@ namespace AskThem.Models
         /// <summary>Note libre (contact, spécialité, délai habituel...).</summary>
         public string Note { get; set; }
 
+        /// <summary>
+        /// Identifiant de la fiche correspondante dans l'inventaire, ou zéro si le lien
+        /// n'a pas été fait.
+        ///
+        /// C'est lui, et non le nom, qui décide si un fournisseur vend un article donné :
+        /// les noms varient d'une base à l'autre — « Thorlabs » ici, « Thorlabs GmbH » là —
+        /// alors que l'identifiant ne bouge pas. Le rapprochement des noms ne sert qu'à
+        /// établir ce lien une fois, sous le contrôle de l'utilisateur.
+        /// </summary>
+        public int InventoryId { get; set; }
+
         public Supplier()
         {
             Name = "";
             Emails = new List<string>();
             CcEmails = new List<string>();
             Note = "";
+            InventoryId = 0;
         }
 
         /// <summary>Adresses principales séparées par des points-virgules, pour Outlook.</summary>

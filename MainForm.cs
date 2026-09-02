@@ -38,6 +38,8 @@ namespace AskThem
         private bool _opt3D;
         private bool _opt2D;
         private bool _optControle;
+        private bool _optCatalogue;
+        private int _optFournisseurInventaire;
         private CompressionLevel _optCompression = CompressionLevel.Optimal;
         private ControleFabricationConfig _controleCfg;
         private IGenerateurPdf _generateurPdf;
@@ -1656,7 +1658,11 @@ namespace AskThem
                 }
             }
 
-            if (generate && !ConfirmerSolidWorks()) return;
+            if (!VerifierHomogeneite()) return;
+
+            // Un achat catalogue ne touche ni SolidWorks ni le coffre : la question ne se pose
+            // que pour les articles dont on livre des fichiers.
+            if (generate && !ToutEnCatalogue(_lines) && !ConfirmerSolidWorks()) return;
 
             // Les valeurs de l'interface sont lues ici, sur le thread interface.
             _generateMode = generate;
@@ -1668,6 +1674,8 @@ namespace AskThem
             _optSupplier = fournisseur == null ? "" : fournisseur.ToLine;
             _optSupplierCc = fournisseur == null ? "" : fournisseur.CcLine;
             _optSupplierName = fournisseur == null ? "" : fournisseur.Name;
+            _optFournisseurInventaire = fournisseur == null ? 0 : fournisseur.InventoryId;
+            _optCatalogue = ToutEnCatalogue(_lines);
             _optProject = txtProject.Text.Trim();
             _optDeadline = dtpDeadline.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
             _optConditions = txtConditions.Text;
@@ -1716,9 +1724,25 @@ namespace AskThem
         /// <summary>Mode vérification : aucune ouverture de SolidWorks.</summary>
         private void RunVerify()
         {
-            BuildPdmIndex();
+            if (!_optCatalogue) BuildPdmIndex();
 
             LoadInventory();
+
+            if (_optCatalogue)
+            {
+                int nb = 0;
+                foreach (PartLine ligne in _work)
+                {
+                    if (_cancelRequested) { Log("Vérification annulée."); break; }
+                    TraiterArticleCatalogue(ligne);
+                    if (ligne.Status == "OK") nb++;
+                }
+                RefreshGrid();
+                Log("Vérification catalogue : " + nb + " article(s) sur " + _work.Count
+                  + " avec une référence chez « " + _optSupplierName + " ».");
+                AvertirCatalogue();
+                return;
+            }
 
             int total = _work.Count;
             int ok = 0;
@@ -1827,6 +1851,117 @@ namespace AskThem
         }
 
         /// <summary>
+        /// Renseigne un article catalogue depuis l'inventaire : ancienne référence,
+        /// désignation, et surtout la référence chez le fournisseur retenu.
+        ///
+        /// Le statut dit ce qui manque, sans rien bloquer : c'est l'avertissement groupé,
+        /// avant l'envoi, qui met l'utilisateur devant le choix.
+        /// </summary>
+        private void TraiterArticleCatalogue(PartLine ligne)
+        {
+            ligne.ExportedFiles.Clear();
+            ligne.ZipPath = null;
+            ligne.TypeCode = PartNumberFormat.TypeCode(ligne.PartNumber);
+
+            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, ligne.PartNumber);
+            if (inv == null)
+            {
+                ligne.Status = "Hors inventaire";
+                Log("Inconnu de l'inventaire : " + ligne.PartNumber);
+                return;
+            }
+
+            ligne.OldRef = inv.OldRef;
+
+            if (inv.Fournisseurs.Count == 0)
+            {
+                ligne.Status = "Sans fournisseur";
+                Log("Aucun fournisseur déclaré dans l'inventaire pour " + ligne.PartNumber + ".");
+                return;
+            }
+
+            InventoryService.Fournisseur chez = _optFournisseurInventaire == 0
+                ? null : inv.Chez(_optFournisseurInventaire);
+
+            if (chez == null)
+            {
+                ligne.PdmSupplier = inv.Supplier;
+                ligne.Status = "Autre fournisseur";
+                Log(ligne.PartNumber + " n'est pas vendu par le destinataire choisi. Déclaré chez : "
+                  + NomsFournisseurs(inv) + ".");
+                return;
+            }
+
+            ligne.PdmSupplier = chez.Nom;
+            ligne.SupplierRef = chez.Reference;
+            ligne.ManufacturerRef = chez.ReferenceFabricant;
+            ligne.Status = chez.Reference == "" ? "Sans référence" : "OK";
+        }
+
+        private static string NomsFournisseurs(InventoryService.Entry inv)
+        {
+            List<string> noms = new List<string>();
+            foreach (InventoryService.Fournisseur f in inv.Fournisseurs)
+                if (f.Nom != "") noms.Add(f.Nom);
+            return noms.Count == 0 ? "aucun" : string.Join(", ", noms);
+        }
+
+        /// <summary>Vrai si cet article s'achète au catalogue, sans plan ni modèle.</summary>
+        private bool EstCatalogue(PartLine ligne)
+        {
+            return RuleFor(ligne.PartNumber).Catalogue;
+        }
+
+        /// <summary>Vrai si toutes les lignes renseignées sont des achats catalogue.</summary>
+        private bool ToutEnCatalogue(IEnumerable<PartLine> lignes)
+        {
+            bool auMoinsUne = false;
+            foreach (PartLine l in lignes)
+            {
+                if (string.IsNullOrWhiteSpace(l.PartNumber)) continue;
+                auMoinsUne = true;
+                if (!EstCatalogue(l)) return false;
+            }
+            return auMoinsUne;
+        }
+
+        /// <summary>
+        /// Une demande ne mélange pas les achats catalogue et les pièces sur mesure : les
+        /// deux n'appellent ni les mêmes fichiers, ni la même façon de choisir le fournisseur.
+        /// </summary>
+        private bool VerifierHomogeneite()
+        {
+            List<string> catalogue = new List<string>();
+            List<string> surMesure = new List<string>();
+            foreach (PartLine l in _lines)
+            {
+                if (string.IsNullOrWhiteSpace(l.PartNumber)) continue;
+                if (EstCatalogue(l)) catalogue.Add(l.PartNumber);
+                else surMesure.Add(l.PartNumber);
+            }
+            if (catalogue.Count == 0 || surMesure.Count == 0) return true;
+
+            MessageBox.Show(
+                "Une demande ne peut pas mélanger des articles catalogue et des pièces sur mesure."
+                + Environment.NewLine + Environment.NewLine
+                + "Catalogue (" + catalogue.Count + ") : " + Extrait(catalogue) + Environment.NewLine
+                + "Sur mesure (" + surMesure.Count + ") : " + Extrait(surMesure) + Environment.NewLine + Environment.NewLine
+                + "Faites-en deux demandes séparées.",
+                "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Log("Demande refusée : elle mélange " + catalogue.Count + " article(s) catalogue et "
+              + surMesure.Count + " pièce(s) sur mesure.");
+            return false;
+        }
+
+        /// <summary>Quelques numéros d'article, pour un message lisible.</summary>
+        private static string Extrait(List<string> numeros)
+        {
+            int max = 5;
+            if (numeros.Count <= max) return string.Join(", ", numeros);
+            return string.Join(", ", numeros.GetRange(0, max)) + " … et " + (numeros.Count - max) + " autre(s)";
+        }
+
+        /// <summary>
         /// Une session SolidWorks deja ouverte appartient a l'utilisateur : on previent
         /// avant d'y ouvrir et refermer des documents. Vrai si l'on peut poursuivre.
         /// </summary>
@@ -1902,13 +2037,30 @@ namespace AskThem
                 _journalControles = Path.Combine(folderControles, "extraction.log");
             }
 
-            BuildPdmIndex();
+            if (!_optCatalogue) BuildPdmIndex();
 
             LoadInventory();
 
             SetProgress(0, "Préparation...");
 
+            // Un achat catalogue ne se cherche pas dans le coffre : tout ce qu'il faut est
+            // dans l'inventaire. Ni SolidWorks, ni index PDM, ni contrôle de fabrication.
+            if (_optCatalogue)
+            {
+                for (int i = 0; i < total; i++)
+                {
+                    if (_cancelRequested) { Log("Annulation demandée."); break; }
+                    PartLine ligne = _work[i];
+                    SetProgress(i, "Article " + (i + 1) + "/" + total + " : " + ligne.PartNumber);
+                    TraiterArticleCatalogue(ligne);
+                    SetProgress(i + 1, "Article " + (i + 1) + "/" + total + " : " + ligne.PartNumber);
+                }
+                RefreshGrid();
+            }
+            else
+
             // --- Étape 2 : connexion à SolidWorks ---
+            {
             SolidWorksExporter exporter = new SolidWorksExporter(_config.Properties);
             bool connected = false;
             try
@@ -1960,6 +2112,7 @@ namespace AskThem
                 exporter.Dispose();
                 if (connected) Log("SolidWorks fermé.");
             }
+            }
 
             // --- Étape 6 : répartition des archives sur un ou plusieurs messages ---
             List<LotEnvoi> lots = RepartitionEnvois.Repartir(
@@ -2007,7 +2160,7 @@ namespace AskThem
                         string subject = EmailBuilder.BuildSubject(_optType, _optProject, lot.Lignes.Count)
                                        + Numerotation(i + 1, lots.Count);
                         string body = EmailBuilder.BuildBody(_optType, lot.Lignes, _optProject, _optDeadline,
-                                                             _optConditions, i == 0 ? nomPo : "");
+                                                             _optConditions, i == 0 ? nomPo : "", _optCatalogue);
 
                         List<string> pieces = new List<string>(lot.PiecesJointes);
                         if (poJoignable && i == 0) pieces.Add(cheminPo);
@@ -2226,6 +2379,8 @@ namespace AskThem
             int etatsLus = 0;
             int referencesLues = 0;
 
+            if (_optCatalogue) { AvertirCatalogue(); return; }
+
             foreach (PartLine l in _work)
             {
                 if (string.IsNullOrWhiteSpace(l.Status)) continue;   // non traité
@@ -2300,6 +2455,84 @@ namespace AskThem
             }
             sb.AppendLine();
             sb.Append("Le détail complet figure dans le journal, en bas de la fenêtre.");
+
+            string message = sb.ToString();
+            UiInvoke(delegate
+            {
+                MessageBox.Show(message, "AskThem — points à vérifier",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            });
+        }
+
+        /// <summary>
+        /// Points à vérifier sur une demande d'achat catalogue. Rien n'est bloqué : chaque
+        /// cas est nommé, avec les fournisseurs qui vendent réellement l'article, et
+        /// l'utilisateur décide.
+        /// </summary>
+        private void AvertirCatalogue()
+        {
+            List<string> horsInventaire = new List<string>();
+            List<string> sansFournisseur = new List<string>();
+            List<string> autreFournisseur = new List<string>();
+            List<string> sansReference = new List<string>();
+
+            foreach (PartLine l in _work)
+            {
+                switch (l.Status)
+                {
+                    case "Hors inventaire": horsInventaire.Add(l.PartNumber); break;
+                    case "Sans fournisseur": sansFournisseur.Add(l.PartNumber); break;
+                    case "Autre fournisseur": autreFournisseur.Add(l.PartNumber); break;
+                    case "Sans référence": sansReference.Add(l.PartNumber); break;
+                }
+            }
+
+            if (_optFournisseurInventaire == 0)
+            {
+                string nom = _optSupplierName == "" ? "Le destinataire choisi" : "« " + _optSupplierName + " »";
+                Log(nom + " n'est lié à aucune fiche de l'inventaire : aucune référence "
+                  + "fournisseur ne peut être renseignée.");
+                UiInvoke(delegate
+                {
+                    MessageBox.Show(
+                        nom + " n'est lié à aucune fiche de l'inventaire." + Environment.NewLine + Environment.NewLine
+                        + "Sans ce lien, AskThem ne sait pas quelle référence l'article porte chez lui, "
+                        + "et la demande partira sans aucune référence." + Environment.NewLine + Environment.NewLine
+                        + "Le bouton « Fournisseurs… » permet de faire le lien.",
+                        "AskThem — points à vérifier", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                });
+            }
+
+            if (horsInventaire.Count == 0 && sansFournisseur.Count == 0
+                && autreFournisseur.Count == 0 && sansReference.Count == 0) return;
+
+            StringBuilder sb = new StringBuilder();
+            if (autreFournisseur.Count > 0)
+            {
+                sb.AppendLine("Non vendus par ce fournisseur — " + autreFournisseur.Count + " article(s) :");
+                sb.AppendLine(Summarize(autreFournisseur));
+                sb.AppendLine("Le journal indique, pour chacun, qui les vend.");
+                sb.AppendLine();
+            }
+            if (sansFournisseur.Count > 0)
+            {
+                sb.AppendLine("Aucun fournisseur dans l'inventaire — " + sansFournisseur.Count + " article(s) :");
+                sb.AppendLine(Summarize(sansFournisseur));
+                sb.AppendLine();
+            }
+            if (horsInventaire.Count > 0)
+            {
+                sb.AppendLine("Inconnus de l'inventaire — " + horsInventaire.Count + " article(s) :");
+                sb.AppendLine(Summarize(horsInventaire));
+                sb.AppendLine();
+            }
+            if (sansReference.Count > 0)
+            {
+                sb.AppendLine("Sans référence chez ce fournisseur — " + sansReference.Count + " article(s) :");
+                sb.AppendLine(Summarize(sansReference));
+                sb.AppendLine();
+            }
+            sb.Append("Ces articles partiront sans référence. Le détail figure dans le journal.");
 
             string message = sb.ToString();
             UiInvoke(delegate

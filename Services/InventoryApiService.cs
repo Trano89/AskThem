@@ -75,6 +75,87 @@ namespace AskThem.Services
         }
 
         /// <summary>
+        /// <summary>
+        /// Toutes les fiches fournisseur de l'inventaire, par identifiant. Sert à lier une
+        /// fois pour toutes un fournisseur d'AskThem à sa fiche. Les adresses email n'y
+        /// figurent pas : elles restent saisies dans AskThem.
+        /// </summary>
+        public Dictionary<int, string> LoadSuppliers(out string message)
+        {
+            Dictionary<int, string> fiches = new Dictionary<int, string>();
+            message = "";
+            if (!Connected) { message = "Pas de session ouverte sur l'inventaire."; return fiches; }
+
+            try
+            {
+                HttpResponseMessage rep = Get("/suppliers");
+                if (!rep.IsSuccessStatusCode)
+                {
+                    message = "Lecture des fournisseurs refusée (" + (int)rep.StatusCode + ").";
+                    return fiches;
+                }
+                string json = rep.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+                using (JsonDocument doc = JsonDocument.Parse(json))
+                {
+                    foreach (JsonElement f in Articles(doc.RootElement))
+                    {
+                        if (f.ValueKind != JsonValueKind.Object) continue;
+                        int id = Entier(f, "id");
+                        string nom = Texte(f, "name");
+                        if (id != 0 && nom != "") fiches[id] = nom;
+                    }
+                }
+                message = fiches.Count + " fournisseur(s) lus dans l'inventaire.";
+            }
+            catch (Exception ex)
+            {
+                message = "Lecture des fournisseurs impossible : " + ex.Message;
+            }
+            return fiches;
+        }
+
+        /// <summary>
+        /// Reprend les fournisseurs déclarés sur l'article.
+        ///
+        /// Ils ne sont pas au niveau de l'article mais dans un tableau « suppliers », chaque
+        /// entrée portant l'identifiant de la fiche, la référence de l'article chez ce
+        /// fournisseur, et parfois la référence du fabricant.
+        /// </summary>
+        private static void LireFournisseurs(JsonElement article, InventoryService.Entry e)
+        {
+            JsonElement tableau;
+            if (!article.TryGetProperty("suppliers", out tableau)) return;
+            if (tableau.ValueKind != JsonValueKind.Array) return;
+
+            foreach (JsonElement lien in tableau.EnumerateArray())
+            {
+                if (lien.ValueKind != JsonValueKind.Object) continue;
+
+                InventoryService.Fournisseur f = new InventoryService.Fournisseur();
+                f.Id = Entier(lien, "supplier_id");
+                f.Reference = Texte(lien, "supplier_ref");
+                f.ReferenceFabricant = Texte(lien, "manufacturer_ref");
+
+                JsonElement fiche;
+                if (lien.TryGetProperty("supplier", out fiche) && fiche.ValueKind == JsonValueKind.Object)
+                {
+                    f.Nom = Texte(fiche, "name");
+                    if (f.Id == 0) f.Id = Entier(fiche, "id");
+                }
+                if (f.Id != 0 || f.Nom != "") e.Fournisseurs.Add(f);
+            }
+        }
+
+        /// <summary>Entier d'une propriété, ou zéro si elle manque ou n'en est pas un.</summary>
+        private static int Entier(JsonElement objet, string nom)
+        {
+            JsonElement v;
+            if (!objet.TryGetProperty(nom, out v)) return 0;
+            if (v.ValueKind != JsonValueKind.Number) return 0;
+            int i;
+            return v.TryGetInt32(out i) ? i : 0;
+        }
+
         /// Charge tous les articles en une requête et les indexe par référence interne.
         /// Une seule requête vaut mieux qu'un appel par article : une nomenclature en
         /// compte plusieurs centaines.
@@ -106,10 +187,7 @@ namespace AskThem.Services
                         e.InternalRef = Texte(article, "internal_ref");
                         if (e.InternalRef == "") continue;
                         e.OldRef = Texte(article, "old_ref");
-                        e.SupplierRef = Texte(article, "supplier_ref");
-                        if (e.SupplierRef == "") e.SupplierRef = Texte(article, "manufacturer_ref");
-                        e.Supplier = Texte(article, "supplier");
-                        if (e.Supplier == "") e.Supplier = Texte(article, "supplier_name");
+                        LireFournisseurs(article, e);
                         if (e.OldRef != "") avecAncienne++;
                         table[e.InternalRef] = e;
                     }

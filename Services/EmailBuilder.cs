@@ -33,14 +33,26 @@ namespace AskThem.Services
         public static string BuildBody(RequestType type, List<PartLine> lines, string project,
                                       string deadline, string conditions, string poFileName)
         {
-            string html = LoadTemplate(type);
+            return BuildBody(type, lines, project, deadline, conditions, poFileName, false);
+        }
+
+        /// <summary>
+        /// Corps HTML du message. En mode catalogue, le tableau ne porte que ce qui a un
+        /// sens pour un article acheté sur référence : ni révision, ni matière, ni finitions,
+        /// et le modèle annonce qu'aucun fichier n'accompagne la demande.
+        /// </summary>
+        public static string BuildBody(RequestType type, List<PartLine> lines, string project,
+                                      string deadline, string conditions, string poFileName,
+                                      bool catalogue)
+        {
+            string html = LoadTemplate(type, catalogue);
             string projectText = string.IsNullOrWhiteSpace(project) ? "-" : project.Trim();
             string deadlineText = string.IsNullOrWhiteSpace(deadline) ? "non précisé" : deadline.Trim();
 
             html = html.Replace("{{NB_ARTICLES}}", lines.Count.ToString());
             html = html.Replace("{{COMMANDE}}", WebUtility.HtmlEncode(projectText));
             html = html.Replace("{{DELAI}}", WebUtility.HtmlEncode(deadlineText));
-            html = html.Replace("{{TABLEAU}}", BuildTable(type, lines));
+            html = html.Replace("{{TABLEAU}}", BuildTable(type, lines, catalogue));
             html = html.Replace("{{COMMENTAIRE}}", BuildCommentaire(conditions));
             html = html.Replace("{{NOTES}}", BuildNotes(type, lines));
             html = html.Replace("{{PO}}", BuildPo(type, poFileName));
@@ -127,9 +139,10 @@ namespace AskThem.Services
             + "afin de garantir que les dernières mises à jour sont bien prises en compte.</div>";
 
         /// <summary>Charge le modèle HTML ; si le fichier est absent, utilise le modèle intégré.</summary>
-        private static string LoadTemplate(RequestType type)
+        private static string LoadTemplate(RequestType type, bool catalogue)
         {
-            string fileName = type == RequestType.Offre ? "template_offre.html" : "template_fabrication.html";
+            string fileName = catalogue ? "template_offre_catalogue.html"
+                            : (type == RequestType.Offre ? "template_offre.html" : "template_fabrication.html");
             string path = Path.Combine(AppContext.BaseDirectory, "templates", fileName);
             try
             {
@@ -139,11 +152,12 @@ namespace AskThem.Services
             {
                 LogService.Write("Modèle " + fileName + " illisible, modèle intégré utilisé : " + ex.Message);
             }
+            if (catalogue) return TemplateOffreCatalogue;
             return type == RequestType.Offre ? TemplateOffre : TemplateFabrication;
         }
 
         /// <summary>Tableau HTML des articles. Une colonne vide pour tous les articles est omise.</summary>
-        private static string BuildTable(RequestType type, List<PartLine> lines)
+        private static string BuildTable(RequestType type, List<PartLine> lines, bool catalogue)
         {
             bool showQty2 = false;
             bool showQty3 = false;
@@ -152,8 +166,12 @@ namespace AskThem.Services
             bool showTreatment = false;
             bool showRef = false;
             bool showOldRef = false;
+            bool showFab = false;
+            bool showRev = false;
             foreach (PartLine l in lines)
             {
+                if (!string.IsNullOrWhiteSpace(l.ManufacturerRef)) showFab = true;
+                if (!string.IsNullOrWhiteSpace(l.EffectiveRevision)) showRev = true;
                 if (type == RequestType.Offre)
                 {
                     if (l.Qty2 > 0) showQty2 = true;
@@ -174,7 +192,9 @@ namespace AskThem.Services
             if (showOldRef) sb.Append("<th" + HeadStyle + ">Ancienne réf.</th>");
             sb.Append("<th" + HeadStyle + ">Désignation</th>");
             if (showRef) sb.Append("<th" + HeadStyle + ">Votre référence</th>");
-            sb.Append("<th" + HeadStyle + ">Rév. plan</th>");
+            if (showFab) sb.Append("<th" + HeadStyle + ">Réf. fabricant</th>");
+            // Un article de catalogue n'a pas de plan : la colonne n'a rien à porter.
+            if (!catalogue && showRev) sb.Append("<th" + HeadStyle + ">Rév. plan</th>");
             if (showDate) sb.Append("<th" + HeadStyle + ">Date de réalisé</th>");
             if (showMaterial) sb.Append("<th" + HeadStyle + ">Matière</th>");
             if (showTreatment) sb.Append("<th" + HeadStyle + ">Finitions</th>");
@@ -198,13 +218,17 @@ namespace AskThem.Services
                 if (showOldRef) sb.Append("<td" + CellStyle + ">" + Dash(l.OldRef) + "</td>");
                 sb.Append("<td" + CellStyle + ">" + Dash(l.Description) + "</td>");
                 if (showRef) sb.Append("<td" + CellStyle + ">" + Dash(l.SupplierRef) + "</td>");
+                if (showFab) sb.Append("<td" + CellStyle + ">" + Dash(l.ManufacturerRef) + "</td>");
 
                 // La révision du plan est mise en évidence en fabrication.
-                string rev = Dash(l.EffectiveRevision);
-                if (type == RequestType.Fabrication)
-                    sb.Append("<td" + CellStyle + "><b>" + rev + "</b></td>");
-                else
-                    sb.Append("<td" + CellStyle + ">" + rev + "</td>");
+                if (!catalogue && showRev)
+                {
+                    string rev = Dash(l.EffectiveRevision);
+                    if (type == RequestType.Fabrication)
+                        sb.Append("<td" + CellStyle + "><b>" + rev + "</b></td>");
+                    else
+                        sb.Append("<td" + CellStyle + ">" + rev + "</td>");
+                }
 
                 if (showDate) sb.Append("<td" + CellStyle + ">" + Dash(l.RealizedDate) + "</td>");
                 if (showMaterial) sb.Append("<td" + CellStyle + ">" + Dash(l.Material) + "</td>");
@@ -246,6 +270,22 @@ namespace AskThem.Services
         // Modèles intégrés : utilisés si le dossier templates est absent,
         // afin que le programme fonctionne toujours.
         // ------------------------------------------------------------------
+
+        /// <summary>Modèle intégré du mode catalogue, si le fichier manque.</summary>
+        private const string TemplateOffreCatalogue =
+"<html><body><div style=\"font-family:Aptos, 'Segoe UI', Calibri, Arial, sans-serif; font-size:12pt; color:#222222;\">"
++ "<p>Bonjour,</p>"
++ "<p>Nous vous prions de bien vouloir nous faire parvenir votre meilleure offre pour les "
++ "{{NB_ARTICLES}} article(s) de catalogue ci-dessous.</p>"
++ "<p>Merci d'indiquer un <b>prix unitaire pour chaque palier de quantité</b>, ainsi que le "
++ "<b>délai de livraison</b> correspondant.</p>"
++ "<p>Référence commande : <b>{{COMMANDE}}</b><br/>Délai souhaité : <b>{{DELAI}}</b></p>"
++ "{{TABLEAU}}{{COMMENTAIRE}}{{PO}}"
++ "<p>Ces articles sont référencés chez vous : <b>aucun plan ni modèle 3D n'accompagne "
++ "cette demande</b>. Merci de nous confirmer que les références ci-dessus correspondent bien "
++ "aux articles souhaités.</p>"
++ "<p>Dans l'attente de votre retour, nous vous adressons nos meilleures salutations.</p>"
++ "{{NOTES}}</div></body></html>";
 
         private const string TemplateOffre =
 @"<html>

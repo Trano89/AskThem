@@ -20,6 +20,11 @@ namespace AskThem
         private TextBox txtCc;
         private TextBox txtNote;
         private Label lblChemin;
+        private Label lblInventaire;
+        private Button btnLier;
+
+        /// <summary>Fiches de l'inventaire, chargées à la demande.</summary>
+        private Dictionary<int, string> _fiches;
 
         /// <summary>Liste telle qu'elle a été enregistrée. À relire après un OK.</summary>
         public List<Supplier> Suppliers { get { return _suppliers; } }
@@ -106,10 +111,30 @@ namespace AskThem
             txtNote.TextChanged += new EventHandler(Field_Changed);
             txtNote.Leave += new EventHandler(Field_Leave);
 
+            // Le lien vers l'inventaire : sans lui, aucune référence fournisseur ne peut
+            // être renseignée sur une demande d'article catalogue.
+            lblInventaire = new Label();
+            lblInventaire.AutoSize = false;
+            lblInventaire.Dock = DockStyle.Fill;
+            lblInventaire.TextAlign = ContentAlignment.MiddleLeft;
+
+            btnLier = new Button();
+            btnLier.Text = "Lier…";
+            btnLier.Width = AppFont.Width(btnLier.Text, 34);
+            btnLier.Height = 26;
+            btnLier.Dock = DockStyle.Right;
+            btnLier.Click += new EventHandler(Lier_Click);
+
+            Panel ligneInv = new Panel();
+            ligneInv.Dock = DockStyle.Fill;
+            ligneInv.Controls.Add(lblInventaire);
+            ligneInv.Controls.Add(btnLier);
+
             AddRow(t, "Nom", txtName, 28);
             AddRow(t, "Destinataires", txtEmails, 104);
             AddRow(t, "Copie (Cc)", txtCc, 74);
             AddRow(t, "Note", txtNote, 28);
+            AddRow(t, "Inventaire", ligneInv, 30);
 
             Panel droite = new Panel();
             droite.Dock = DockStyle.Fill;
@@ -251,6 +276,8 @@ namespace AskThem
                 txtEmails.Enabled = actif;
                 txtCc.Enabled = actif;
                 txtNote.Enabled = actif;
+                btnLier.Enabled = actif;
+                lblInventaire.Text = actif ? Libelle(s) : "";
 
                 txtName.Text = actif ? s.Name : "";
                 txtEmails.Text = actif ? string.Join(Environment.NewLine, s.Emails) : "";
@@ -260,6 +287,85 @@ namespace AskThem
             finally
             {
                 _chargement = false;
+            }
+        }
+
+        /// <summary>Ce que la fenêtre affiche du lien avec l'inventaire.</summary>
+        private string Libelle(Supplier s)
+        {
+            if (s.InventoryId == 0) return "non lié — aucune référence fournisseur ne sera renseignée";
+            string nom;
+            if (_fiches != null && _fiches.TryGetValue(s.InventoryId, out nom))
+                return nom + "   (fiche n° " + s.InventoryId + ")";
+            return "fiche n° " + s.InventoryId;
+        }
+
+        /// <summary>
+        /// Lie ce fournisseur à sa fiche d'inventaire. Le rapprochement des noms propose,
+        /// il ne décide pas : deux fiches peuvent porter presque le même nom.
+        /// </summary>
+        private void Lier_Click(object sender, EventArgs e)
+        {
+            Supplier s = Current;
+            if (s == null) return;
+
+            if (_fiches == null || _fiches.Count == 0)
+            {
+                _fiches = ChargerFiches();
+                if (_fiches.Count == 0) return;
+            }
+
+            List<KeyValuePair<int, string>> candidats = NomFournisseur.Candidats(s.Name, _fiches);
+            List<KeyValuePair<int, string>> toutes = new List<KeyValuePair<int, string>>(_fiches);
+            toutes.Sort(delegate (KeyValuePair<int, string> a, KeyValuePair<int, string> b)
+            {
+                return string.Compare(a.Value, b.Value, StringComparison.OrdinalIgnoreCase);
+            });
+
+            using (LiaisonInventaireDialog dlg = new LiaisonInventaireDialog(s.Name, candidats, toutes, s.InventoryId))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                s.InventoryId = dlg.IdChoisi;
+                lblInventaire.Text = Libelle(s);
+            }
+        }
+
+        /// <summary>Ouvre une session le temps de lire les fiches, puis la referme.</summary>
+        private Dictionary<int, string> ChargerFiches()
+        {
+            Dictionary<int, string> vide = new Dictionary<int, string>();
+            string mdp = SecretStore.Load(InventoryApiService.SecretName);
+            if (string.IsNullOrWhiteSpace(_config.InventoryApiUrl)
+                || string.IsNullOrWhiteSpace(_config.InventoryUser)
+                || string.IsNullOrWhiteSpace(mdp))
+            {
+                MessageBox.Show(
+                    "Aucun identifiant d'inventaire enregistré sur ce poste." + Environment.NewLine
+                    + Environment.NewLine + "Le bouton « Inventaire… » de la fenêtre principale permet de s'y connecter.",
+                    "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return vide;
+            }
+
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                using (InventoryApiService api = new InventoryApiService())
+                {
+                    string message;
+                    if (!api.Connect(_config.InventoryApiUrl, _config.InventoryUser, mdp, out message))
+                    {
+                        MessageBox.Show(message, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return vide;
+                    }
+                    Dictionary<int, string> fiches = api.LoadSuppliers(out message);
+                    if (fiches.Count == 0)
+                        MessageBox.Show(message, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return fiches;
+                }
+            }
+            finally
+            {
+                Cursor = Cursors.Default;
             }
         }
 

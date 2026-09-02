@@ -3,6 +3,37 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.3.6] — 2026-08-31
+
+### Ajouté
+
+- **Demande d'offre sur des articles de catalogue (X20), sans plan ni modèle 3D.** Quand
+  toutes les lignes sont des X20, AskThem n'ouvre ni SolidWorks ni le coffre PDM : la
+  désignation, l'ancienne référence et surtout la référence chez le fournisseur viennent de
+  l'inventaire. Aucun fichier n'est joint, aucun contrôle de fabrication n'est produit.
+- **Un fournisseur d'AskThem se lie à sa fiche d'inventaire** (Fournisseurs… → Lier…).
+  L'inventaire déclarant plusieurs fournisseurs par article, ce lien décide de la référence
+  à envoyer. Le rapprochement des noms ignore casse, accents, ponctuation et formes
+  juridiques finales, et propose plusieurs fiches quand elles se confondent — il ne choisit
+  jamais seul. Une fois lié, c'est l'identifiant qui sert, plus le nom.
+- Le tableau de l'email en mode catalogue ne porte que ce qui a un sens : ni révision, ni
+  date de réalisé, ni matière, ni finitions. La colonne *Réf. fabricant* n'apparaît que si
+  au moins un article en porte une.
+
+### Corrigé
+
+- **Les fournisseurs de l'inventaire n'étaient jamais lus.** `LoadAll` cherchait
+  `supplier`, `supplier_ref` et `manufacturer_ref` à la racine de l'article, où ces champs
+  n'existent pas : ils sont dans un tableau `suppliers`. La référence fournisseur venue de
+  l'inventaire était donc vide depuis toujours. Sur le coffre actuel, 788 articles sur 902
+  en ont désormais une.
+
+### Modifié
+
+- **Une demande ne peut plus mélanger articles de catalogue et pièces sur mesure.** Les deux
+  n'appellent ni les mêmes fichiers ni la même façon de choisir le fournisseur ; un panier
+  mixte est refusé en nommant les articles de chaque camp.
+
 ## [1.3.5] — 2026-08-31
 
 ### Modifié

@@ -97,6 +97,50 @@ dotnet publish -c Release -o "D:\chemin\de\votre\choix"
 
 ---
 
+## Demande d'offre sur des articles de catalogue (X20)
+
+Un article dont le type est `X20` s'achète au catalogue : il n'a ni plan, ni modèle 3D, ni
+contrôle de fabrication. Quand **toutes** les lignes sont des X20, AskThem bascule seul en
+mode catalogue et **n'ouvre ni SolidWorks ni le coffre PDM** — tout ce qu'il faut est dans
+l'inventaire. Le traitement est immédiat.
+
+Une demande ne mélange jamais catalogue et sur mesure : les deux n'appellent ni les mêmes
+fichiers ni la même façon de choisir le fournisseur. Un panier mixte est refusé, en nommant
+les articles des deux camps.
+
+### Lier un fournisseur à sa fiche d'inventaire
+
+L'inventaire déclare **plusieurs fournisseurs par article**, chacun avec sa propre référence.
+Pour savoir laquelle envoyer, AskThem doit connaître la fiche d'inventaire du destinataire :
+bouton **Fournisseurs…**, ligne *Inventaire*, bouton **Lier…**.
+
+Le rapprochement des noms propose, il ne décide pas. Il ignore la casse, les accents, la
+ponctuation et les formes juridiques finales — `Thorlabs` retrouve `Thorlabs GmbH`, `Oritage`
+retrouve `ORITAGE Sàrl`. Quand deux fiches se confondent, les deux sont proposées : c'est à
+vous de trancher. Une fois le lien fait, c'est **l'identifiant** qui sert, plus jamais le nom.
+
+Les fiches d'inventaire ne portent pas d'adresse email : les destinataires restent saisis
+dans AskThem.
+
+### Ce qui est signalé avant l'envoi
+
+Rien n'est bloqué, tout est nommé :
+
+| Statut | Ce qu'il veut dire |
+|---|---|
+| `OK` | l'article est vendu par ce fournisseur, sa référence est reprise |
+| `Autre fournisseur` | il est vendu, mais pas par le destinataire choisi — le journal dit par qui |
+| `Sans fournisseur` | aucun fournisseur déclaré dans l'inventaire |
+| `Sans référence` | le fournisseur le vend, mais sans référence enregistrée |
+| `Hors inventaire` | l'article n'existe pas dans l'inventaire |
+
+Le tableau de l'email est réduit à ce qui a un sens : n° d'article, ancienne référence,
+désignation, votre référence, référence fabricant, quantités, remarque. Ni révision, ni date
+de réalisé, ni matière, ni finitions. La colonne *Réf. fabricant* n'apparaît que si au moins
+un article en porte une — elle n'est renseignée que sur une minorité d'entre eux.
+
+---
+
 ## config.json
 
 | Clé | Type | Rôle |

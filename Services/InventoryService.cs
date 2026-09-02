@@ -15,13 +15,48 @@ namespace AskThem.Services
     /// </summary>
     public static class InventoryService
     {
+        /// <summary>Un fournisseur de l'inventaire, et la référence de l'article chez lui.</summary>
+        public class Fournisseur
+        {
+            /// <summary>Identifiant de la fiche dans l'inventaire. C'est lui qui fait foi.</summary>
+            public int Id = 0;
+
+            public string Nom = "";
+            public string Reference = "";
+            public string ReferenceFabricant = "";
+        }
+
         /// <summary>Ce que l'inventaire sait d'un article.</summary>
         public class Entry
         {
             public string InternalRef = "";
             public string OldRef = "";
-            public string Supplier = "";
-            public string SupplierRef = "";
+
+            /// <summary>
+            /// Tous les fournisseurs déclarés pour cet article. L'inventaire en accepte
+            /// plusieurs, contrairement au PDM qui n'en porte qu'un.
+            /// </summary>
+            public List<Fournisseur> Fournisseurs = new List<Fournisseur>();
+
+            /// <summary>Premier fournisseur, pour les usages qui n'en attendent qu'un.</summary>
+            public string Supplier
+            {
+                get { return Fournisseurs.Count > 0 ? Fournisseurs[0].Nom : ""; }
+            }
+
+            /// <summary>Référence chez le premier fournisseur.</summary>
+            public string SupplierRef
+            {
+                get { return Fournisseurs.Count > 0 ? Fournisseurs[0].Reference : ""; }
+            }
+
+            /// <summary>Le fournisseur d'identifiant donné, ou null s'il ne vend pas cet article.</summary>
+            public Fournisseur Chez(int idFournisseur)
+            {
+                foreach (Fournisseur f in Fournisseurs)
+                    if (f.Id == idFournisseur) return f;
+                return null;
+            }
         }
 
         // Intitulés reconnus, accents et casse indifférents.
@@ -91,8 +126,17 @@ namespace AskThem.Services
                     Entry e = new Entry();
                     e.InternalRef = reference;
                     e.OldRef = Valeur(rows[i], colOld);
-                    e.Supplier = Valeur(rows[i], colSup);
-                    e.SupplierRef = Valeur(rows[i], colSupRef);
+                    // L'export ne porte qu'un fournisseur par ligne, sans identifiant :
+                    // il alimente la liste comme un fournisseur unique et anonyme.
+                    string nomFournisseur = Valeur(rows[i], colSup);
+                    string refFournisseur = Valeur(rows[i], colSupRef);
+                    if (nomFournisseur != "" || refFournisseur != "")
+                    {
+                        Fournisseur f = new Fournisseur();
+                        f.Nom = nomFournisseur;
+                        f.Reference = refFournisseur;
+                        e.Fournisseurs.Add(f);
+                    }
                     if (e.OldRef != "") avecAncienne++;
                     table[reference] = e;
                 }

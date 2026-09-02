@@ -28,6 +28,19 @@ namespace AskThem.Models
         /// </summary>
         public bool SupplierImposed { get; set; }
 
+        /// <summary>
+        /// Vrai pour un article qu'on peut demander mais dont on ne livre aucun fichier :
+        /// il s'achète au catalogue, sur sa seule référence chez le fournisseur.
+        ///
+        /// Déduit des autres règles plutôt que déclaré : un type sans fabrication, sans 3D
+        /// et sans plan ne peut être qu'un achat catalogue. Cela évite d'ajouter un réglage
+        /// aux config.json déjà déployés, où il serait absent donc faux.
+        /// </summary>
+        public bool Catalogue
+        {
+            get { return Allowed && !AllowFabrication && !Export3D && !Export2D; }
+        }
+
         public ArticleTypeRule()
         {
             Label = "";

@@ -52,6 +52,13 @@ namespace AskThem.Models
         public string SupplierRef { get; set; }
 
         /// <summary>
+        /// Référence du fabricant, quand l'inventaire la connaît. Elle n'est renseignée que
+        /// sur une minorité d'articles : la colonne disparaît de l'email si aucune ligne
+        /// n'en porte.
+        /// </summary>
+        public string ManufacturerRef { get; set; }
+
+        /// <summary>
         /// Ancienne référence de l'article, lue dans l'inventaire. Sa présence signale
         /// que l'article a été recodifié et que la gamme mérite d'être revue.
         /// </summary>
@@ -101,6 +108,7 @@ namespace AskThem.Models
             State = "";
             PdmSupplier = "";
             SupplierRef = "";
+            ManufacturerRef = "";
             OldRef = "";
             TypeCode = "";
             Status = "";
