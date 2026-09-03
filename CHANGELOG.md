@@ -3,6 +3,22 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.4.5] — 2026-09-02
+
+### Corrigé
+
+- **Les liaisons des fournisseurs à l'inventaire étaient perdues.** Elles sont bien écrites
+  dans `fournisseurs.json` sur le réseau, mais la copie de travail de la fenêtre des
+  fournisseurs ne reprenait pas l'identifiant : ouvrir cette fenêtre et enregistrer effaçait
+  tous les liens déjà faits, sans rien dire.
+
+### Ajouté
+
+- **Une fenêtre annonce clairement une nouvelle version** : version actuelle, version
+  publiée, ce qui va se passer, et un lien vers les nouveautés. Le petit bouton du bandeau
+  demeure, mais il n'existe pas en mode guidé — la fenêtre, elle, s'affiche dans les deux
+  modes. Elle ne se propose qu'une fois par session et ne coupe jamais un traitement en cours.
+
 ## [1.4.4] — 2026-09-02
 
 ### Corrigé

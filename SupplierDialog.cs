@@ -55,6 +55,12 @@ namespace AskThem
             else LoadFields(null);
         }
 
+        /// <summary>
+        /// Copie de travail : la fenêtre modifie la copie, et l'annulation ne coûte rien.
+        ///
+        /// Tout champ oublié ici est perdu à l'enregistrement, silencieusement. Le lien avec
+        /// l'inventaire en fait partie : il en manquait un.
+        /// </summary>
         private static List<Supplier> Copy(List<Supplier> source)
         {
             List<Supplier> copie = new List<Supplier>();
@@ -64,6 +70,7 @@ namespace AskThem
                 Supplier c = new Supplier();
                 c.Name = s.Name;
                 c.Note = s.Note;
+                c.InventoryId = s.InventoryId;
                 c.Emails = new List<string>(s.Emails);
                 c.CcEmails = new List<string>(s.CcEmails);
                 copie.Add(c);

@@ -1379,23 +1379,54 @@ namespace AskThem
             _update = info;
             Log(info.Message);
             if (!info.Available) return;
+
             UiInvoke(delegate
             {
                 btnUpdate.Text = "Mettre à jour → " + info.LatestVersion;
                 btnUpdate.Visible = true;
+
+                // Le bouton du bandeau n'existe pas en mode guidé, et se remarque peu même
+                // en vue complète : la nouvelle version s'annonce donc d'elle-même.
+                AnnoncerMiseAJour();
             });
         }
+
+        /// <summary>
+        /// Propose la mise à jour, une seule fois par session : la refuser ne doit pas
+        /// ramener la question à chaque vérification.
+        /// </summary>
+        private void AnnoncerMiseAJour()
+        {
+            if (_miseAJourAnnoncee) return;
+            _miseAJourAnnoncee = true;
+            if (_busy) return;   // une demande est en cours : on ne coupe pas la parole
+
+            using (MiseAJourDialog dlg = new MiseAJourDialog(_update))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK || !dlg.Installer) return;
+            }
+            LancerMiseAJour();
+        }
+
+        private bool _miseAJourAnnoncee;
 
         private void BtnUpdate_Click(object sender, EventArgs e)
         {
             UpdateService.UpdateInfo info = _update;
             if (info == null || !info.Available) return;
 
-            if (MessageBox.Show(
-                    info.Message + Environment.NewLine + Environment.NewLine +
-                    "AskThem va télécharger la nouvelle version, se fermer et redémarrer." +
-                    Environment.NewLine + "Enregistrez votre saisie avant de continuer.",
-                    "Mise à jour", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            using (MiseAJourDialog dlg = new MiseAJourDialog(info))
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK || !dlg.Installer) return;
+            }
+            LancerMiseAJour();
+        }
+
+        /// <summary>Télécharge et redémarre. Un échec laisse l'application en place.</summary>
+        private void LancerMiseAJour()
+        {
+            UpdateService.UpdateInfo info = _update;
+            if (info == null || !info.Available) return;
 
             try
             {
