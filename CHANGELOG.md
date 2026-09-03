@@ -3,6 +3,17 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.5.1] — 2026-09-02
+
+### Modifié
+
+- **La liste des fournisseurs est rangée par nom**, partout : liste déroulante de la vue
+  complète, étape 2 du mode guidé, et fenêtre des fournisseurs. Le tri est fait à la lecture
+  comme à l'écriture du fichier réseau, donc toutes les listes en héritent. Il ignore la casse
+  et suit la culture du poste : « Éclair » se range près de « Eclair », et non à la fin.
+- Dans la fenêtre des fournisseurs, la sélection est retrouvée par identité et non par
+  position — le tri déplace les entrées, un index conservé aurait désigné quelqu'un d'autre.
+
 ## [1.5.0] — 2026-09-02
 
 Corrections issues d'un audit du programme.

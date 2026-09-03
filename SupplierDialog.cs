@@ -252,14 +252,28 @@ namespace AskThem
         // Comportements
         // ------------------------------------------------------------------
 
+        /// <summary>
+        /// Reconstruit la liste, rangée par nom.
+        ///
+        /// La sélection est retrouvée par identité et non par position : le tri déplace les
+        /// entrées, et un index conservé désignerait quelqu'un d'autre.
+        /// </summary>
         private void RefreshList()
         {
-            int index = lstSuppliers.SelectedIndex;
+            Supplier choisi = lstSuppliers.SelectedItem as Supplier;
+            SupplierService.Trier(_suppliers);
+
             lstSuppliers.BeginUpdate();
             lstSuppliers.Items.Clear();
             foreach (Supplier s in _suppliers) lstSuppliers.Items.Add(s);
             lstSuppliers.EndUpdate();
-            if (index >= 0 && index < lstSuppliers.Items.Count) lstSuppliers.SelectedIndex = index;
+
+            if (choisi != null)
+            {
+                int i = _suppliers.IndexOf(choisi);
+                if (i >= 0) { lstSuppliers.SelectedIndex = i; return; }
+            }
+            if (lstSuppliers.Items.Count > 0) lstSuppliers.SelectedIndex = 0;
         }
 
         private Supplier Current
@@ -413,7 +427,7 @@ namespace AskThem
             s.Name = "Nouveau fournisseur";
             _suppliers.Add(s);
             RefreshList();
-            lstSuppliers.SelectedIndex = _suppliers.Count - 1;
+            lstSuppliers.SelectedItem = s;   // le tri l'a placé ailleurs qu'en fin de liste
             txtName.Focus();
             txtName.SelectAll();
         }

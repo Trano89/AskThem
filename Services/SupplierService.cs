@@ -109,6 +109,26 @@ namespace AskThem.Services
                 s.Emails = Clean(s.Emails);
                 s.CcEmails = Clean(s.CcEmails);
             }
+            Trier(suppliers);
+        }
+
+        /// <summary>
+        /// Range la liste par nom.
+        ///
+        /// Appelé à la lecture comme à l'écriture : toutes les listes de l'application en
+        /// descendent, elles héritent donc du tri sans avoir à le refaire chacune. La
+        /// comparaison suit la culture du poste, pour que les accents se rangent où on les
+        /// cherche — « Éclair » près de « Eclair », et non à la fin.
+        /// </summary>
+        public static void Trier(List<Supplier> suppliers)
+        {
+            if (suppliers == null) return;
+            suppliers.Sort(delegate (Supplier a, Supplier b)
+            {
+                string na = a == null || a.Name == null ? "" : a.Name;
+                string nb = b == null || b.Name == null ? "" : b.Name;
+                return string.Compare(na, nb, StringComparison.CurrentCultureIgnoreCase);
+            });
         }
 
         private static List<string> Clean(List<string> adresses)
