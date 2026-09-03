@@ -3,6 +3,38 @@
 Le format suit [Keep a Changelog](https://keepachangelog.com/fr/1.1.0/)
 et les numéros de version [SemVer](https://semver.org/lang/fr/).
 
+## [1.5.0] — 2026-09-02
+
+Corrections issues d'un audit du programme.
+
+### Corrigé
+
+- **Le mode guidé ne montrait rien pendant une génération et n'offrait aucun moyen de
+  l'arrêter.** La barre de progression, le journal et le bouton *Annuler* n'existaient que
+  dans la vue complète. Le mode guidé a désormais sa propre bande d'état, avec avancement et
+  annulation — une demande de vingt articles ouvre SolidWorks plusieurs minutes.
+- **Le mode guidé n'appliquait aucun contrôle à la saisie.** Ni insertion des tirets, ni
+  format, ni type autorisé, ni fournisseur. Il acceptait un assemblage ou un type non déclaré
+  que la vue complète refusait. Les deux vues appellent maintenant le même service.
+- **La bascule entre les deux vues ne recopiait que dans un sens.** Saisir en vue complète
+  puis revenir au guidé perdait tout, et générer envoyait l'ancien contenu.
+- **Un mot de passe présent mais indéchiffrable** — profil Windows changé, fichier abîmé —
+  se faisait passer pour un mot de passe absent. La raison est maintenant journalisée.
+
+### Ajouté
+
+- **Vérifier sans envoyer** depuis le récapitulatif du mode guidé, comme dans la vue complète.
+- **Les deux seuils qui décident du découpage en plusieurs emails** — poids et nombre de
+  pièces jointes — se règlent dans le bandeau d'options et se conservent.
+- Les journaux de plus de soixante jours sont effacés, au plus une fois par jour.
+
+### Modifié
+
+- La règle « quel type est cet article » était écrite en trois exemplaires, dont deux sans le
+  refus des types non déclarés. Elle est maintenant dans `Services\ValidationArticle.cs`, seule.
+- `_inventaire` est déclaré `volatile` : il est écrit sur un fil de fond et lu sur le fil
+  interface, et rien ne le disait.
+
 ## [1.4.5] — 2026-09-02
 
 ### Corrigé

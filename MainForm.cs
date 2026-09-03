@@ -32,7 +32,12 @@ namespace AskThem
         /// </summary>
         private readonly List<Supplier> _suppliers = new List<Supplier>();
         private Dictionary<string, string> _pdmIndex;
-        private Dictionary<string, InventoryService.Entry> _inventaire;
+        /// <summary>
+        /// Ce que l'inventaire sait, chargé sur un fil de fond et lu sur le fil interface.
+        /// Le dictionnaire est construit entièrement avant d'être publié ici ; volatile rend
+        /// cette publication explicite plutôt que dépendante du modèle mémoire du processeur.
+        /// </summary>
+        private volatile Dictionary<string, InventoryService.Entry> _inventaire;
         private List<PartLine> _work;
         private volatile bool _cancelRequested;
         private bool _busy;
@@ -111,6 +116,8 @@ namespace AskThem
         private CheckBox chk2D;
         private CheckBox chkControleFabrication;
         private ComboBox cboCompression;
+        private NumericUpDown numTailleMax;
+        private NumericUpDown numPiecesMax;
         private ContextMenuStrip menuGrille;
         private ToolStripMenuItem mnuControleFabrication;
         private TextBox txtConditions;
@@ -580,75 +587,18 @@ namespace AskThem
             if (string.IsNullOrWhiteSpace(brut)) return;   // une ligne vide reste permise
 
             string normalise = PartNumberFormat.Normalize(brut, _config.PartNumberPatterns);
-            if (PartNumberFormat.IsValid(normalise, _config.PartNumberPatterns))
-            {
-                ArticleTypeRule regle = RuleFor(normalise);
-                if (!regle.Allowed)
-                {
-                    MessageBox.Show(
-                        normalise + " est un " + regle.Label.ToLowerInvariant() + "." + Environment.NewLine +
-                        "Aucune demande d'offre ni de fabrication n'est possible sur ce type d'article." +
-                        Environment.NewLine + "Saisissez les pièces qui le composent.",
-                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    e.Cancel = true;
-                    return;
-                }
 
-                string refus;
-                if (!FournisseurVendCetArticle(normalise, regle, e.RowIndex, out refus))
-                {
-                    MessageBox.Show(refus, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    e.Cancel = true;
-                }
+            // Une ligne qu'on ne fait que reformater ne se voit pas refuser deux fois.
+            if (e.RowIndex >= 0 && e.RowIndex < _lines.Count
+                && string.Equals(_lines[e.RowIndex].PartNumber, normalise, StringComparison.OrdinalIgnoreCase))
                 return;
-            }
 
-            MessageBox.Show(
-                "Numéro d'article refusé : " + normalise + Environment.NewLine + Environment.NewLine +
-                "Formats acceptés : " + PartNumberFormat.Describe(_config.PartNumberPatterns) + Environment.NewLine +
-                "Les tirets sont ajoutés automatiquement : vous pouvez taper le numéro sans séparateur.",
-                "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            string refus = ValidationArticle.Verifier(_config, normalise, SelectedSupplier, _inventaire);
+            if (refus == null) return;
+
+            MessageBox.Show(refus, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            Log("Refusé à la saisie : " + normalise);
             e.Cancel = true;
-        }
-
-        /// <summary>
-        /// Vrai si le destinataire choisi vend cet article de catalogue.
-        ///
-        /// Le contrôle a lieu à la saisie plutôt qu'à l'envoi : mieux vaut refuser une
-        /// ligne tout de suite, en disant qui vend l'article, que laisser constituer une
-        /// demande impossible. Il ne s'applique qu'aux achats catalogue, et seulement
-        /// quand l'inventaire est chargé et un destinataire choisi — sans quoi il n'y a
-        /// rien à comparer, et la ligne passe.
-        /// </summary>
-        private bool FournisseurVendCetArticle(string numero, ArticleTypeRule regle,
-                                               int ligneSaisie, out string refus)
-        {
-            refus = "";
-            if (!regle.Catalogue) return true;
-            if (_inventaire == null || _inventaire.Count == 0) return true;
-
-            Supplier destinataire = SelectedSupplier;
-            if (destinataire == null || string.IsNullOrWhiteSpace(destinataire.Name)) return true;
-
-            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, numero);
-            if (inv == null || inv.Fournisseurs.Count == 0) return true;   // signalé plus tard
-
-            if (inv.Chez(destinataire.InventoryId, destinataire.Name) != null) return true;
-
-            // Une ligne déjà saisie qu'on ne fait que reformater ne doit pas se voir refusée
-            // deux fois : seul le contenu qui change est contrôlé.
-            if (ligneSaisie >= 0 && ligneSaisie < _lines.Count
-                && string.Equals(_lines[ligneSaisie].PartNumber, numero, StringComparison.OrdinalIgnoreCase))
-                return true;
-
-            refus = numero + " n'est pas vendu par « " + destinataire.Name + " »."
-                  + Environment.NewLine + Environment.NewLine
-                  + "Dans l'inventaire, cet article est déclaré chez : " + NomsFournisseurs(inv) + "."
-                  + Environment.NewLine + Environment.NewLine
-                  + "Choisissez ce destinataire, ou retirez cet article de la demande.";
-            Log("Refusé à la saisie : " + numero + " n'est pas vendu par « " + destinataire.Name
-              + " » mais par " + NomsFournisseurs(inv) + ".");
-            return false;
         }
 
         /// <summary>Insère les tirets après la saisie, selon le format principal.</summary>
@@ -881,6 +831,27 @@ namespace AskThem
                 "Compression des archives jointes. Sur les exports du coffre, « Maximale » ne gagne "
                 + "que trois pour cent de plus qu'« Optimal » pour quatre fois le temps.");
 
+            // Ces deux seuils décident du découpage en plusieurs emails : les laisser
+            // dans config.json seul rendait le comportement inexplicable depuis l'interface.
+            numTailleMax = new NumericUpDown();
+            numTailleMax.Minimum = 1;
+            numTailleMax.Maximum = 200;
+            numTailleMax.Width = 70;
+            numTailleMax.Value = Math.Max(1, Math.Min(200, _config.ZipThresholdMb));
+            numTailleMax.ValueChanged += new EventHandler(Seuils_Changes);
+            toolTip.SetToolTip(numTailleMax,
+                "Poids maximal des pièces jointes d'un message. Au-delà, la demande part en plusieurs emails. "
+                + "Votre serveur de messagerie peut être plus strict que cette valeur.");
+
+            numPiecesMax = new NumericUpDown();
+            numPiecesMax.Minimum = 1;
+            numPiecesMax.Maximum = 200;
+            numPiecesMax.Width = 70;
+            numPiecesMax.Value = Math.Max(1, Math.Min(200, _config.MaxAttachments));
+            numPiecesMax.ValueChanged += new EventHandler(Seuils_Changes);
+            toolTip.SetToolTip(numPiecesMax,
+                "Nombre maximal de pièces jointes d'un message. Au-delà, la demande part en plusieurs emails.");
+
             lblPo = new Label();
             lblPo.Text = LibellePo(true);
             lblPo.AutoSize = true;
@@ -915,6 +886,7 @@ namespace AskThem
             flow.Controls.Add(Groupe("", chk3D, chk2D));
             flow.Controls.Add(Groupe("", chkControleFabrication, null));
             flow.Controls.Add(Groupe("Compression des archives :", cboCompression, null));
+            flow.Controls.Add(Groupe("Par email, au plus (Mo / pièces) :", numTailleMax, numPiecesMax));
             groupePo = Groupe(lblPo.Text, txtPo, btnPo);
             flow.Controls.Add(groupePo);
             flow.Controls.Add(Groupe("Commentaire général (bas de l'email) :", txtConditions, null));
@@ -1117,6 +1089,8 @@ namespace AskThem
                 delegate { BuildPdmIndex(); return _pdmIndex; });
             panelAssistant.Generer += new EventHandler(Assistant_Generer);
             panelAssistant.FournisseursChanges += new EventHandler(Assistant_FournisseursChanges);
+            panelAssistant.Verifier += new EventHandler(Assistant_Verifier);
+            panelAssistant.Annuler += new EventHandler(BtnCancel_Click);
 
             selecteurMode = new SelecteurMode();
             selecteurMode.Font = AppFont.Get();
@@ -1152,13 +1126,42 @@ namespace AskThem
 
         private void Mode_Change(object sender, EventArgs e)
         {
-            // Ce qui a été saisi d'un côté se retrouve de l'autre.
+            // Ce qui a été saisi d'un côté se retrouve de l'autre, dans les deux sens.
             if (selecteurMode.Complet)
             {
                 panelAssistant.Synchroniser();
                 AppliquerDemande(panelAssistant.Demande);
             }
+            else
+            {
+                panelAssistant.Charger(DemandeCourante());
+            }
             AppliquerMode();
+        }
+
+        /// <summary>Ce que la vue complète contient, sous la forme que l'assistant attend.</summary>
+        private DemandeEnCours DemandeCourante()
+        {
+            DemandeEnCours d = new DemandeEnCours();
+            d.Type = CurrentType;
+            d.Destinataire = SelectedSupplier;
+            d.ReferenceCommande = txtProject.Text.Trim();
+            d.Delai = dtpDeadline.Checked ? (DateTime?)dtpDeadline.Value : null;
+            d.CheminPo = txtPo.Text.Trim();
+            d.Commentaire = txtConditions.Text;
+            d.Export3D = chk3D.Checked;
+            d.Export2D = chk2D.Checked;
+            d.ControleFabrication = chkControleFabrication.Checked;
+
+            foreach (PartLine l in _lines)
+                if (!string.IsNullOrWhiteSpace(l.PartNumber)) d.Lignes.Add(l);
+            return d;
+        }
+
+        private void Assistant_Verifier(object sender, EventArgs e)
+        {
+            AppliquerDemande(panelAssistant.Demande);
+            StartProcess(false);
         }
 
         private void Assistant_FournisseursChanges(object sender, EventArgs e)
@@ -1585,6 +1588,19 @@ namespace AskThem
             Thread t = new Thread(new ThreadStart(VerifierInventaire));
             t.IsBackground = true;
             t.Start();
+        }
+
+        /// <summary>Les seuils d'email sont conservés d'une session à l'autre.</summary>
+        private void Seuils_Changes(object sender, EventArgs e)
+        {
+            int taille = (int)numTailleMax.Value;
+            int pieces = (int)numPiecesMax.Value;
+            if (taille == _config.ZipThresholdMb && pieces == _config.MaxAttachments) return;
+
+            _config.ZipThresholdMb = taille;
+            _config.MaxAttachments = pieces;
+            ConfigService.Save(_config);
+            Log("Par email : " + taille + " Mo et " + pieces + " pièce(s) jointe(s) au plus.");
         }
 
         /// <summary>Le niveau choisi est conservé d'une session à l'autre.</summary>
@@ -2146,7 +2162,7 @@ namespace AskThem
                 ligne.PdmSupplier = inv.Supplier;
                 ligne.Status = "Autre fournisseur";
                 Log(ligne.PartNumber + " n'est pas vendu par le destinataire choisi. Déclaré chez : "
-                  + NomsFournisseurs(inv) + ".");
+                  + ValidationArticle.Fournisseurs(inv) + ".");
                 return;
             }
 
@@ -2154,14 +2170,6 @@ namespace AskThem
             ligne.SupplierRef = chez.Reference;
             ligne.ManufacturerRef = chez.ReferenceFabricant;
             ligne.Status = chez.Reference == "" ? "Sans référence" : "OK";
-        }
-
-        private static string NomsFournisseurs(InventoryService.Entry inv)
-        {
-            List<string> noms = new List<string>();
-            foreach (InventoryService.Fournisseur f in inv.Fournisseurs)
-                if (f.Nom != "") noms.Add(f.Nom);
-            return noms.Count == 0 ? "aucun" : string.Join(", ", noms);
         }
 
         /// <summary>
@@ -2247,7 +2255,7 @@ namespace AskThem
         /// <summary>Vrai si cet article s'achète au catalogue, sans plan ni modèle.</summary>
         private bool EstCatalogue(PartLine ligne)
         {
-            return RuleFor(ligne.PartNumber).Catalogue;
+            return ValidationArticle.EstCatalogue(_config, ligne.PartNumber);
         }
 
         /// <summary>Vrai si toutes les lignes renseignées sont des achats catalogue.</summary>
@@ -2718,16 +2726,7 @@ namespace AskThem
         /// </summary>
         private ArticleTypeRule RuleFor(string partNumber)
         {
-            string type = PartNumberFormat.TypeCode(partNumber);
-            ArticleTypeRule regle;
-            if (type != "" && _config.ArticleTypes != null && _config.ArticleTypes.TryGetValue(type, out regle))
-                return regle;
-
-            // Type non déclaré : rien ne part tant que sa règle n'a pas été écrite
-            // dans config.json. Mieux vaut refuser que livrer au hasard.
-            return ArticleTypeRule.Create(
-                type == "" ? "type indéterminé" : "type " + type + " non déclaré",
-                false, false, false, false, false);
+            return ValidationArticle.RegleDe(_config, partNumber);
         }
 
         /// <summary>Vrai si l'état PDM lu est renseigné et ne fait pas partie des états libérés.</summary>
@@ -3138,6 +3137,9 @@ namespace AskThem
                 btnGenerate.Enabled = !busy;
                 cboType.Enabled = !busy;
                 selecteurMode.Enabled = !busy;
+                numTailleMax.Enabled = !busy;
+                numPiecesMax.Enabled = !busy;
+                panelAssistant.Occupe(busy);
                 btnSuppliers.Enabled = !busy;
                 btnInventaire.Enabled = !busy;
                 btnCancel.Enabled = busy;
@@ -3154,6 +3156,7 @@ namespace AskThem
                 if (v > progress.Maximum) v = progress.Maximum;
                 progress.Value = v;
                 lblProgress.Text = text;
+                panelAssistant.Avancement(v, progress.Maximum, text);
             });
         }
 

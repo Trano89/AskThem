@@ -69,11 +69,21 @@ namespace AskThem.Services
                 string chemin = Chemin(nom);
                 if (!File.Exists(chemin)) return "";
                 byte[] clair = Proteger(File.ReadAllBytes(chemin), false);
-                if (clair == null) return "";
+                if (clair == null)
+                {
+                    // Le fichier est là mais illisible : profil Windows changé, fichier
+                    // abîmé. Se taire ferait dire « aucun identifiant enregistré », ce qui
+                    // est faux et envoie chercher au mauvais endroit.
+                    LogService.Write("Secret « " + nom + " » présent mais indéchiffrable sur ce poste : "
+                                   + "il a été chiffré par un autre compte Windows, ou le fichier est abîmé. "
+                                   + "Réenregistrez le mot de passe.");
+                    return "";
+                }
                 return Encoding.UTF8.GetString(clair);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                LogService.Write("Lecture du secret « " + nom + " » impossible : " + ex.Message);
                 return "";
             }
         }

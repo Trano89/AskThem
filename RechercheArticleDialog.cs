@@ -165,12 +165,7 @@ namespace AskThem
             foreach (Article a in par.Values)
             {
                 a.TypeCode = PartNumberFormat.TypeCode(a.Numero);
-                ArticleTypeRule regle;
-                if (a.TypeCode != "" && _config.ArticleTypes != null
-                    && _config.ArticleTypes.TryGetValue(a.TypeCode, out regle))
-                    a.TypeLabel = regle.Label;
-                else
-                    a.TypeLabel = a.TypeCode == "" ? "" : "type " + a.TypeCode;
+                a.TypeLabel = ValidationArticle.RegleDe(_config, a.Numero).Label;
 
                 a.PreparerRecherche();
                 _tous.Add(a);

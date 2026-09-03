@@ -77,6 +77,12 @@ namespace AskThem
         // Étape 5
         private Label lblRecap;
 
+        // Bande d'état, pendant une génération
+        private Panel panneauEtat;
+        private ProgressBar progression;
+        private Label lblEtat;
+        private Button btnAnnuler;
+
         /// <summary>Ce que l'utilisateur a construit.</summary>
         public DemandeEnCours Demande { get { return _demande; } }
 
@@ -85,6 +91,70 @@ namespace AskThem
 
         /// <summary>Appelé quand la liste des fournisseurs a été modifiée depuis ce panneau.</summary>
         public event EventHandler FournisseursChanges;
+
+        /// <summary>Appelé quand l'utilisateur veut vérifier sans envoyer.</summary>
+        public event EventHandler Verifier;
+
+        /// <summary>Appelé quand l'utilisateur veut arrêter le traitement en cours.</summary>
+        public event EventHandler Annuler;
+
+        private void Verifier_Click(object sender, EventArgs e)
+        {
+            Recolter();
+            if (!EtapeValide()) return;
+            if (Verifier != null) Verifier(this, EventArgs.Empty);
+        }
+
+        private void Annuler_Click(object sender, EventArgs e)
+        {
+            if (Annuler != null) Annuler(this, EventArgs.Empty);
+        }
+
+        /// <summary>Montre où en est le traitement, et permet de l'arrêter.</summary>
+        public void Occupe(bool occupe)
+        {
+            panneauEtat.Visible = occupe;
+            progression.Visible = occupe;
+            btnAnnuler.Enabled = occupe;
+            btnPrecedent.Enabled = !occupe;
+            btnSuivant.Enabled = !occupe;
+            corps.Enabled = !occupe;
+            if (!occupe) progression.Value = 0;
+        }
+
+        /// <summary>Avancement, repris de la fenêtre qui traite.</summary>
+        public void Avancement(int valeur, int maximum, string texte)
+        {
+            if (maximum > 0) progression.Maximum = maximum;
+            progression.Value = Math.Max(0, Math.Min(valeur, progression.Maximum));
+            lblEtat.Text = texte;
+        }
+
+        /// <summary>
+        /// Reprend une demande venue d'ailleurs, pour que la bascule entre les deux vues ne
+        /// perde rien dans un sens comme dans l'autre.
+        /// </summary>
+        public void Charger(DemandeEnCours d)
+        {
+            if (d == null) return;
+
+            _demande.Type = d.Type;
+            _demande.Destinataire = d.Destinataire;
+            _demande.ReferenceCommande = d.ReferenceCommande;
+            _demande.Delai = d.Delai;
+            _demande.CheminPo = d.CheminPo;
+            _demande.Commentaire = d.Commentaire;
+            _demande.Export3D = d.Export3D;
+            _demande.Export2D = d.Export2D;
+            _demande.ControleFabrication = d.ControleFabrication;
+
+            _demande.Lignes = new List<PartLine>(d.Lignes);
+            _lignes.Clear();
+            foreach (PartLine l in d.Lignes) _lignes.Add(l);
+            if (_lignes.Count == 0) _lignes.Add(new PartLine());
+
+            AllerA(_etape);
+        }
 
         /// <summary>Recommence une demande vierge.</summary>
         public void Reinitialiser()
@@ -175,8 +245,42 @@ namespace AskThem
             bas.Padding = new Padding(28, 14, 28, 14);
             bas.Controls.Add(droite);
 
+            // Une génération dure des minutes : sans cette bande, le mode guidé n'en montrait
+            // rien et n'offrait aucun moyen d'arrêter.
+            lblEtat = new Label();
+            lblEtat.Dock = DockStyle.Fill;
+            lblEtat.TextAlign = ContentAlignment.MiddleLeft;
+
+            btnAnnuler = new Button();
+            btnAnnuler.Text = "Annuler";
+            btnAnnuler.Width = AppFont.Width(btnAnnuler.Text, 34);
+            btnAnnuler.Height = 28;
+            btnAnnuler.Dock = DockStyle.Right;
+            btnAnnuler.Enabled = false;
+            btnAnnuler.Click += new EventHandler(Annuler_Click);
+
+            Panel ligneEtat = new Panel();
+            ligneEtat.Dock = DockStyle.Top;
+            ligneEtat.Height = 30;
+            ligneEtat.Controls.Add(lblEtat);
+            ligneEtat.Controls.Add(btnAnnuler);
+
+            progression = new ProgressBar();
+            progression.Dock = DockStyle.Top;
+            progression.Height = 16;
+            progression.Visible = false;
+
+            panneauEtat = new Panel();
+            panneauEtat.Dock = DockStyle.Bottom;
+            panneauEtat.Height = 48;
+            panneauEtat.Padding = new Padding(28, 2, 28, 0);
+            panneauEtat.Visible = false;
+            panneauEtat.Controls.Add(ligneEtat);
+            panneauEtat.Controls.Add(progression);
+
             Controls.Add(corps);
             Controls.Add(bas);
+            Controls.Add(panneauEtat);
             Controls.Add(entete);
         }
 
@@ -351,11 +455,7 @@ namespace AskThem
 
         private bool EstCatalogue(string numero)
         {
-            string type = PartNumberFormat.TypeCode(numero);
-            ArticleTypeRule regle;
-            if (type != "" && _config.ArticleTypes != null
-                && _config.ArticleTypes.TryGetValue(type, out regle)) return regle.Catalogue;
-            return false;
+            return ValidationArticle.EstCatalogue(_config, numero);
         }
 
         private void Prevenir(string message)
@@ -532,6 +632,8 @@ namespace AskThem
 
             grille.DataSource = _lignes;
             grille.DataError += new DataGridViewDataErrorEventHandler(Grille_Erreur);
+            grille.CellValidating += new DataGridViewCellValidatingEventHandler(Grille_Validation);
+            grille.CellEndEdit += new DataGridViewCellEventHandler(Grille_FinSaisie);
             _lignes.ListChanged += new ListChangedEventHandler(Lignes_Change);
 
             Button btnRecherche = GrandBouton("Rechercher un article…", 260);
@@ -575,6 +677,42 @@ namespace AskThem
         private void Grille_Erreur(object sender, DataGridViewDataErrorEventArgs e)
         {
             e.ThrowException = false;
+        }
+
+        /// <summary>
+        /// Le même contrôle que dans la vue complète : format, type d'article autorisé, et
+        /// fournisseur qui vend bien l'article. Les deux vues appellent le même service.
+        /// </summary>
+        private void Grille_Validation(object sender, DataGridViewCellValidatingEventArgs e)
+        {
+            if (e.ColumnIndex != 0) return;
+            string brut = e.FormattedValue == null ? "" : e.FormattedValue.ToString();
+            if (string.IsNullOrWhiteSpace(brut)) return;
+
+            string normalise = PartNumberFormat.Normalize(brut, _config.PartNumberPatterns);
+            if (e.RowIndex >= 0 && e.RowIndex < _lignes.Count
+                && string.Equals(_lignes[e.RowIndex].PartNumber, normalise, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            Dictionary<string, InventoryService.Entry> inventaire =
+                _inventaire == null ? null : _inventaire();
+
+            string refus = ValidationArticle.Verifier(_config, normalise, _demande.Destinataire, inventaire);
+            if (refus == null) return;
+
+            MessageBox.Show(refus, "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            e.Cancel = true;
+        }
+
+        /// <summary>Insère les tirets après la saisie, comme dans la vue complète.</summary>
+        private void Grille_FinSaisie(object sender, DataGridViewCellEventArgs e)
+        {
+            if (e.ColumnIndex != 0 || e.RowIndex < 0 || e.RowIndex >= _lignes.Count) return;
+            PartLine ligne = _lignes[e.RowIndex];
+            string normalise = PartNumberFormat.Normalize(ligne.PartNumber, _config.PartNumberPatterns);
+            if (normalise == ligne.PartNumber) return;
+            ligne.PartNumber = normalise;
+            grille.Refresh();
         }
 
         private void Lignes_Change(object sender, ListChangedEventArgs e)
@@ -647,6 +785,7 @@ namespace AskThem
         private void AjouterLigne(string numero, int quantite, string remarque)
         {
             if (string.IsNullOrWhiteSpace(numero)) return;
+            numero = PartNumberFormat.Normalize(numero, _config.PartNumberPatterns);
             foreach (PartLine l in _lignes)
                 if (string.Equals(l.PartNumber, numero, StringComparison.OrdinalIgnoreCase)) return;
 
@@ -833,7 +972,14 @@ namespace AskThem
             lblRecap.Font = new Font(AppFont.Family, 11F);
             lblRecap.Text = Recapitulatif();
 
+            // Un essai à blanc avant d'envoyer : le coffre et l'inventaire sont interrogés,
+            // rien n'est exporté ni écrit.
+            Button btnVerifier = GrandBouton("Vérifier sans envoyer", 240);
+            btnVerifier.Dock = DockStyle.Bottom;
+            btnVerifier.Click += new EventHandler(Verifier_Click);
+
             corps.Controls.Add(lblRecap);
+            corps.Controls.Add(btnVerifier);
         }
 
         private string Recapitulatif()

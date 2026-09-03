@@ -193,6 +193,10 @@ un article en porte une — elle n'est renseignée que sur une minorité d'entre
 | `Export2D` | booléen | État initial de la case « Exporter 2D (PDF + DXF) ». |
 | `ZipCompression` | texte | Niveau de compression des archives : `Aucune`, `Rapide`, `Optimal` ou `Maximale`. Réglable dans le bandeau d'options, le choix s'y enregistre. |
 
+`ZipThresholdMb`, `MaxAttachments` et `ZipCompression` se règlent aussi dans le bandeau
+d'options de la vue complète, et le choix y est enregistré. Les journaux de plus de soixante
+jours sont effacés automatiquement.
+
 ### Contrôle de fabrication (bêta)
 
 Un second fichier, `config\controle-fabrication.json`, règle le module de contrôle de fabrication :
