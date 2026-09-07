@@ -80,6 +80,9 @@ namespace AskThem
         private Button btnClear;
         private Button btnInventaire;
         private Label pastilleInventaire;
+        private Label lblPoste;
+        private DepotExports _depot;
+        private string _folderDepot;
         private volatile bool inventaireConnecte;
 
         private DataGridView grid;
@@ -263,6 +266,17 @@ namespace AskThem
                 pastilleInventaire.Region = new Region(rond);
             }
             panelTools.Controls.Add(pastilleInventaire);
+
+            // Ce que le poste sait produire, annonce des l'ouverture : un acheteur sans
+            // SolidWorks doit le savoir avant de preparer une demande, pas au moment de
+            // l'envoyer.
+            lblPoste = new Label();
+            lblPoste.Font = AppFont.Get();
+            lblPoste.AutoSize = true;
+            lblPoste.Location = new Point(pastilleInventaire.Right + 18,
+                                          btnInventaire.Top + (btnInventaire.Height - lblPoste.PreferredHeight) / 2);
+            panelTools.Controls.Add(lblPoste);
+            AfficherEtatPoste();
 
             panelTools.Height = btnAddLine.Height + 16;
             AfficherEtatInventaire(false, "État de la connexion inconnu.");
@@ -1222,6 +1236,14 @@ namespace AskThem
             PerformLayout();
             AppliquerSeparateurs();
 
+            // Les demandes envoyées depuis la dernière session rejoignent l'archive. Un poste
+            // éteint, un partage momentanément injoignable ou un envoi différé ne font perdre
+            // aucun dossier : la reprise est simplement rejouée.
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try { ArchiveEnAttente.Reprendre(_config, LogFromWorker); }
+                catch (Exception ex) { LogService.Write("Reprise des demandes en attente : " + ex.Message); }
+            });
         }
 
         /// <summary>Réapplique la répartition tant que l'utilisateur n'a rien déplacé.</summary>
@@ -1537,6 +1559,30 @@ namespace AskThem
                 txtPo.Text = dlg.FileName;
                 Log("Document joint : " + Path.GetFileName(dlg.FileName));
             }
+        }
+
+        /// <summary>
+        /// Affiche ce que le poste peut produire.
+        ///
+        /// La sonde ne leve jamais d'exception : elle sert justement a repondre avant qu'une
+        /// demande soit preparee, la ou Connect() echouerait. Un poste sans SolidWorks reste
+        /// pleinement utilisable pour les articles de catalogue.
+        /// </summary>
+        private void AfficherEtatPoste()
+        {
+            bool equipe = SolidWorksExporter.EstPosteEquipe();
+
+            lblPoste.Text = equipe
+                ? "Poste équipé : plans et modèles disponibles"
+                : "Poste sans SolidWorks : demandes catalogue uniquement";
+            lblPoste.ForeColor = equipe ? Color.Gray : Color.FromArgb(154, 98, 6);
+
+            toolTip.SetToolTip(lblPoste, equipe
+                ? "SolidWorks est installé : les plans, modèles 3D et contrôles de fabrication "
+                  + "peuvent être produits depuis ce poste."
+                : "SolidWorks n'est pas installé sur ce poste. Les demandes d'articles de "
+                  + "catalogue fonctionnent normalement ; celles qui exigent un plan devront "
+                  + "être préparées depuis un poste équipé.");
         }
 
         /// <summary>Couleur et infobulle de la pastille, selon l'état de la connexion.</summary>
@@ -2393,6 +2439,12 @@ namespace AskThem
             Directory.CreateDirectory(folder2D);
             Directory.CreateDirectory(folderZip);
             if (_optControle) Directory.CreateDirectory(folderControles);
+
+            // Le depot partage : un poste equipe y publie ce qu'il exporte, un poste sans
+            // SolidWorks y lit ce qu'il ne peut pas produire.
+            _depot = new DepotExports(DepotExports.RacineParDefaut(_config));
+            _folderDepot = Path.Combine(outputFolder, "Documents_depot");
+
             _archivePath = outputFolder;
             Log("Dossier de la demande : " + outputFolder);
 
@@ -2438,6 +2490,38 @@ namespace AskThem
                     SetProgress(i, "Article " + (i + 1) + "/" + total + " : " + ligne.PartNumber);
                     TraiterArticleCatalogue(ligne);
                     SetProgress(i + 1, "Article " + (i + 1) + "/" + total + " : " + ligne.PartNumber);
+                }
+                RefreshGrid();
+            }
+            else if (!SolidWorksExporter.EstPosteEquipe())
+            {
+                // Poste sans SolidWorks : on ne tente pas une connexion vouee a echouer. Tout
+                // ce qui peut etre joint vient du depot, et ce qui manque est annonce au lieu
+                // d'interrompre la demande.
+                Directory.CreateDirectory(_folderDepot);
+                Log(_depot.Accessible()
+                    ? "Poste sans SolidWorks : lecture du dépôt d'exports."
+                    : "Poste sans SolidWorks et dépôt d'exports injoignable : la demande se prépare sans pièce jointe.");
+
+                for (int i = 0; i < total; i++)
+                {
+                    if (_cancelRequested) { Log("Annulation demandée."); break; }
+                    PartLine ligne = _work[i];
+                    SetProgress(i, "Article " + (i + 1) + "/" + total + " : " + ligne.PartNumber);
+                    try
+                    {
+                        TraiterArticleDepuisDepot(ligne, folderZip);
+                    }
+                    catch (Exception ex)
+                    {
+                        ligne.Status = "Erreur";
+                        Log("ERREUR " + ligne.PartNumber + " : " + ex.Message);
+                    }
+                    finally
+                    {
+                        SetProgress(i + 1, "Article " + (i + 1) + "/" + total + " : " + ligne.PartNumber);
+                        RefreshGrid();
+                    }
                 }
                 RefreshGrid();
             }
@@ -2533,6 +2617,7 @@ namespace AskThem
             // --- Étape 8 : emails Outlook (jamais en cas d'annulation) ---
             List<object> mailsOuverts = new List<object>();
             List<string> cheminsMsg = new List<string>();
+            List<string> sujetsEnvoyes = new List<string>();
             if (!_cancelRequested)
             {
                 string nomPo = _optPoPath == "" ? "" : Path.GetFileName(_optPoPath);
@@ -2552,6 +2637,7 @@ namespace AskThem
                         object mail = OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, pieces);
                         mailsOuverts.Add(mail);
                         cheminsMsg.Add(Path.Combine(outputFolder, NomMessage(i + 1, lots.Count)));
+                        sujetsEnvoyes.Add(subject);
                         Log("Email " + (i + 1) + "/" + lots.Count + " préparé : " + lot.Lignes.Count
                           + " article(s), " + lot.TailleMb.ToString("0.0") + " Mo.");
                     }
@@ -2573,11 +2659,17 @@ namespace AskThem
                     Log("Aucun message n'est envoyé automatiquement.");
             }
 
-            // --- Étape 9 : bilan ---
+            // --- Étape 9 : la demande attend son envoi ---
+            ArchiveEnAttente.Deposer(outputFolder, sujetsEnvoyes, _optSupplier);
+
+            // --- Étape 10 : bilan ---
             ShowSummary(outputFolder);
 
-            // --- Étape 10 : suivi silencieux des emails, interface déjà rendue ---
+            // --- Étape 11 : suivi silencieux des emails, interface déjà rendue ---
             WatchMails(mailsOuverts, cheminsMsg, outputFolder);
+
+            // --- Étape 12 : si l'envoi a eu lieu pendant le suivi, la demande rejoint l'archive ---
+            ArchiveEnAttente.Reprendre(_config, LogFromWorker);
         }
 
         /// <summary>Suffixe de sujet quand la demande part en plusieurs messages.</summary>
@@ -2699,6 +2791,9 @@ namespace AskThem
                 if (line.PdmSupplier == "") line.PdmSupplier = inv.Supplier;
             }
 
+            // --- Ce qui vient d'etre produit est publie pour les postes non equipes ---
+            PublierAuDepot(line);
+
             // --- Une archive par numéro d'article ---
             if (line.ExportedFiles.Count > 0)
             {
@@ -2718,6 +2813,118 @@ namespace AskThem
             if (livrer3D && line.Model3DPath == null) line.Status = "Manquant 3D";
             else if (livrer2D && line.DrawingPath == null) line.Status = "Manquant 2D";
             else line.Status = "OK";
+        }
+
+        /// <summary>
+        /// Publie dans le dépôt ce que ce poste vient d'exporter.
+        ///
+        /// C'est ce qui rend le travail utilisable par les collègues sans SolidWorks : sans
+        /// cette publication, chaque poste équipé reste seul à savoir produire un plan. Un
+        /// échec de publication n'interrompt jamais la demande en cours.
+        /// </summary>
+        private void PublierAuDepot(PartLine line)
+        {
+            if (_depot == null || !_depot.Accessible()) return;
+            if (line.ExportedFiles == null || line.ExportedFiles.Count == 0) return;
+
+            string empreinte = DepotExports.Empreinte(line.Model3DPath, line.DrawingPath);
+            if (empreinte == "") return;
+            if (_depot.Existe(line.PartNumber, empreinte)) return;
+
+            DepotExports.Manifeste m = new DepotExports.Manifeste();
+            m.NoArticle = line.PartNumber;
+            m.Empreinte = empreinte;
+            m.Designation = line.Description;
+            m.RevisionPlan = line.DrawingRevision;
+            m.RevisionModele = line.Revision;
+            m.Matiere = line.Material;
+            m.Traitement = line.Treatment;
+            m.Etat = line.State;
+
+            if (_depot.Publier(m, line.ExportedFiles))
+                Log("Dépôt : " + line.PartNumber + " publié (" + m.Fichiers.Count + " fichier(s)).");
+        }
+
+        /// <summary>
+        /// Prépare un article depuis le dépôt, sur un poste sans SolidWorks.
+        ///
+        /// L'absence d'export ne bloque rien : la demande se prépare sans les pièces
+        /// manquantes, l'utilisateur voit lesquelles, et il peut les réclamer au bureau
+        /// technique plutôt que de se retrouver devant un message d'erreur.
+        ///
+        /// La date de l'export et la révision d'origine sont affichées : l'acheteur qui n'a pas
+        /// accès au coffre doit voir ce qu'il s'apprête à envoyer, et depuis quand il dort.
+        /// </summary>
+        private void TraiterArticleDepuisDepot(PartLine line, string folderZip)
+        {
+            line.ExportedFiles.Clear();
+            line.ZipPath = null;
+            line.TypeCode = PartNumberFormat.TypeCode(line.PartNumber);
+
+            DepotExports.Manifeste m = _depot != null ? _depot.Lire(line.PartNumber) : null;
+
+            if (m == null)
+            {
+                line.Status = "Sans export";
+                Log("Aucun export publié pour " + line.PartNumber
+                    + " — demande préparée sans pièce jointe, export à demander au bureau technique.");
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(line.Description)) line.Description = m.Designation;
+                line.DrawingRevision = m.RevisionPlan;
+                line.Revision = m.RevisionModele;
+                line.Material = m.Matiere;
+                line.Treatment = m.Traitement;
+                line.State = m.Etat;
+
+                foreach (string source in _depot.Fichiers(m))
+                {
+                    try
+                    {
+                        string cible = Path.Combine(_folderDepot, Path.GetFileName(source));
+                        File.Copy(source, cible, true);
+                        line.ExportedFiles.Add(cible);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("ERREUR copie depuis le dépôt (" + line.PartNumber + ") : " + ex.Message);
+                    }
+                }
+
+                string age = m.JoursDepuisExport < 0
+                    ? "date inconnue"
+                    : (m.JoursDepuisExport == 0 ? "exporté aujourd'hui" : "exporté il y a " + m.JoursDepuisExport + " j");
+                string revision = string.IsNullOrWhiteSpace(m.RevisionPlan) ? "?" : m.RevisionPlan;
+
+                line.Status = line.ExportedFiles.Count > 0 ? "Dépôt — " + age : "Dépôt vide";
+                Log(line.PartNumber + " : " + line.ExportedFiles.Count + " fichier(s) du dépôt, "
+                    + age + ", révision " + revision + ", publié par " + m.ExportePar + ".");
+            }
+
+            // Ce que l'inventaire sait de cet article : accessible depuis n'importe quel poste.
+            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
+            if (inv != null)
+            {
+                line.OldRef = inv.OldRef;
+                if (string.IsNullOrWhiteSpace(line.SupplierRef)) line.SupplierRef = inv.SupplierRef;
+                if (string.IsNullOrWhiteSpace(line.PdmSupplier)) line.PdmSupplier = inv.Supplier;
+                if (string.IsNullOrWhiteSpace(line.Description)) line.Description = inv.Designation;
+            }
+
+            if (line.ExportedFiles.Count > 0)
+            {
+                try
+                {
+                    string zipPath = Path.Combine(folderZip, SafeName(line.PartNumber) + ".zip");
+                    line.ZipPath = ZipService.ZipFiles(line.ExportedFiles, zipPath, _optCompression);
+                    Log("Archive : " + Path.GetFileName(line.ZipPath) + " (" + line.ExportedFiles.Count + " fichier(s))");
+                }
+                catch (Exception ex)
+                {
+                    Log("ERREUR archive " + line.PartNumber + " : " + ex.Message);
+                }
+            }
         }
 
         /// <summary>
@@ -3014,17 +3221,16 @@ namespace AskThem
         }
 
         /// <summary>
-        /// Racine où écrire la demande : l'archive réseau si elle est joignable,
-        /// sinon le dossier local, pour ne jamais perdre un traitement.
+        /// Racine où écrire la demande : sur le poste, en attente d'envoi.
+        ///
+        /// Une demande préparée n'est pas une demande faite. Elle ne rejoint l'archive du
+        /// réseau qu'une fois le message retrouvé dans les éléments envoyés — voir
+        /// ArchiveEnAttente. Un brouillon abandonné ne laisse ainsi aucune trace sur le
+        /// partage, et l'archive redevient la liste de ce qui est réellement parti.
         /// </summary>
         private string RacineDeSortie()
         {
-            if (!string.IsNullOrWhiteSpace(_config.ArchiveRoot) && Directory.Exists(_config.ArchiveRoot))
-                return _config.ArchiveRoot;
-
-            Log("Archive réseau inaccessible (" + _config.ArchiveRoot + ") : "
-              + "la demande est écrite en local, dans " + _config.OutputRoot + ".");
-            return _config.OutputRoot;
+            return ArchiveEnAttente.RacineLocale();
         }
 
         /// <summary>Évite d'écraser une demande du même jour pour le même fournisseur.</summary>
@@ -3056,7 +3262,11 @@ namespace AskThem
                 else if (l.Status != "") warn++;
             }
             Log("Terminé : " + ok + " article(s) exporté(s), " + warn + " avertissement(s), " + err + " erreur(s).");
-            Log("Demande enregistrée dans : " + outputFolder);
+            // Le dossier est encore sur le poste : le dire, plutot que de laisser croire
+            // qu'il est deja archive sur le reseau.
+            Log("Demande préparée dans : " + outputFolder);
+            Log("Elle rejoindra l'archive réseau (" + _config.ArchiveRoot
+              + ") dès que l'envoi du message aura été constaté.");
 
             if (!_cancelRequested) return;
 

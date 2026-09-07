@@ -44,6 +44,20 @@ namespace AskThem.Services
             catch (Exception) { return false; }
         }
 
+        /// <summary>
+        /// Indique si le poste peut produire des documents CAO, sans jamais lever d'exception.
+        ///
+        /// Connect() echoue volontairement quand SolidWorks manque : c'est le bon comportement
+        /// au moment d'exporter. Mais l'application doit pouvoir se demander en amont, et sans
+        /// risque, ce que le poste sait faire — pour adapter ce qu'elle propose au lieu
+        /// d'echouer une fois la demande preparee.
+        /// </summary>
+        public static bool EstPosteEquipe()
+        {
+            try { return Type.GetTypeFromProgID("SldWorks.Application") != null; }
+            catch (Exception) { return false; }
+        }
+
         /// <summary>Démarre ou récupère l'instance SolidWorks. Lève une exception si impossible.</summary>
         public void Connect()
         {

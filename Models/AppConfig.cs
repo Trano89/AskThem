@@ -125,11 +125,14 @@ namespace AskThem.Models
             Export2D = true;
             Properties = new PropertyNames();
             ReleasedStates = new List<string> { "Libéré", "Libere", "Released", "Approuvé", "Approved" };
-            ArchiveRoot = "P:\\PRODUCTION\\3) Document fournisseur";
-            SupplierListPath = "P:\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs";
+            // Chemins reseau en forme UNC et non par la lettre P: : le lecteur n'est pas monte
+            // sur tous les postes, et une demande archivee sur un chemin inexistant est perdue
+            // en silence. Le partage et le lecteur designent le meme volume.
+            ArchiveRoot = "\\\\zeus\\production\\PRODUCTION\\3) Document fournisseur";
+            SupplierListPath = "\\\\zeus\\production\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs";
             InventoryApiUrl = "http://inventaire.lynceetec.local/api/v1";
             InventoryUser = "";
-            InventoryExportPath = "P:\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs\\inventaire.xlsx";
+            InventoryExportPath = "\\\\zeus\\production\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs\\inventaire.xlsx";
             CheckUpdatesOnStartup = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
 

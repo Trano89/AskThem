@@ -55,10 +55,32 @@ namespace AskThem.Services
                     Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
                     "Downloads");
             }
+
+            // Les configurations deja installees designent le partage par la lettre P:, qui
+            // n'existe pas sur les postes ou elle n'a pas ete montee. On les ramene a la forme
+            // UNC a chaque lecture, sans reecrire le fichier de l'utilisateur.
+            config.ArchiveRoot = EnUnc(config.ArchiveRoot);
+            config.SupplierListPath = EnUnc(config.SupplierListPath);
+            config.InventoryExportPath = EnUnc(config.InventoryExportPath);
+
             return config;
         }
 
         /// <summary>Écrit la configuration sur le disque. Un échec est journalisé, sans exception.</summary>
+        /// <summary>
+        /// Ramene un chemin commencant par la lettre P: a sa forme UNC.
+        ///
+        /// Le lecteur P: et le partage \\zeus\production pointent le meme volume, mais seul le
+        /// second est atteignable depuis un poste ou le lecteur n'a pas ete monte. Convertir a
+        /// la lecture evite de dependre de la cartographie de chaque poste.
+        /// </summary>
+        private static string EnUnc(string chemin)
+        {
+            if (string.IsNullOrWhiteSpace(chemin)) return chemin;
+            if (!chemin.StartsWith("P:\\", StringComparison.OrdinalIgnoreCase)) return chemin;
+            return "\\\\zeus\\production\\" + chemin.Substring(3);
+        }
+
         public static void Save(AppConfig config)
         {
             try
