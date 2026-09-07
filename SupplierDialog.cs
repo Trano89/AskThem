@@ -29,8 +29,12 @@ namespace AskThem
         /// <summary>Liste telle qu'elle a été enregistrée. À relire après un OK.</summary>
         public List<Supplier> Suppliers { get { return _suppliers; } }
 
+        /// <summary>Horodatage du fichier partagé à l'ouverture, pour repérer un conflit.</summary>
+        private readonly DateTime _ouvertLe;
+
         public SupplierDialog(AppConfig config, List<Supplier> suppliers)
         {
+            _ouvertLe = SupplierService.DerniereEcriture(config);
             _config = config;
             _suppliers = Copy(suppliers);
 
@@ -492,6 +496,20 @@ namespace AskThem
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
+            }
+
+            // La liste est partagee : l'enregistrement reecrit tout le fichier. Si un collegue
+            // l'a modifiee entre-temps, son travail serait efface en silence. On refuse plutot
+            // que de choisir a sa place.
+            if (SupplierService.DerniereEcriture(_config) > _ouvertLe)
+            {
+                MessageBox.Show(this,
+                    "La liste des fournisseurs a été modifiée par quelqu'un d'autre depuis que "
+                  + "vous l'avez ouverte." + Environment.NewLine + Environment.NewLine
+                  + "Enregistrer maintenant effacerait ses modifications. Fermez cette fenêtre, "
+                  + "redémarrez AskThem, et refaites vos changements sur la liste à jour.",
+                    "Fournisseurs", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
             string message;

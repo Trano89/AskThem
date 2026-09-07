@@ -62,7 +62,7 @@ namespace AskThem.Services
             html = html.Replace("{{COMMENTAIRE}}", BuildCommentaire(conditions));
             html = html.Replace("{{NOTES}}", BuildNotes(type, lines, catalogue));
             html = html.Replace("{{PO}}", BuildPo(type, poFileName));
-            html = html.Replace("{{FICHIERS}}", BuildFichiers(type, catalogue, nbArchives));
+            html = html.Replace("{{FICHIERS}}", BuildFichiers(type, catalogue, nbArchives, lines));
             return html;
         }
 
@@ -73,14 +73,32 @@ namespace AskThem.Services
         /// piece jointe affirmait quand meme au fournisseur que les fichiers etaient joints.
         /// Il vaut mieux le prevenir que le laisser chercher.
         /// </summary>
-        private static string BuildFichiers(RequestType type, bool catalogue, int nbArchives)
+        private static string BuildFichiers(RequestType type, bool catalogue, int nbArchives,
+                                            List<PartLine> lines)
         {
             if (catalogue || type == RequestType.CommandeCatalogue) return "";
 
+            int controles = 0;
+            if (lines != null)
+                foreach (PartLine l in lines)
+                    if (!string.IsNullOrWhiteSpace(l.ControlePath)) controles++;
+
+            // Le formulaire est hors archive et doit être rempli : il mérite sa propre phrase,
+            // sans quoi il passe pour une pièce jointe de plus.
+            string mentionControle = controles == 0 ? "" :
+                "<p>Un <b>formulaire de contrôle de fabrication</b> accompagne ce message, en "
+              + "pièce jointe distincte pour chacun des " + controles + " article(s) concerné(s). "
+              + "Il porte la révision du plan auquel il se rapporte. Merci de le retourner "
+              + "rempli avec la livraison.</p>";
+
             if (nbArchives > 0) return
                 "<p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive "
-              + "par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) "
-              + "lorsqu'il existe.</p>";
+              + "par article. Son contenu exact — modèle 3D au format STEP AP203, plan en PDF "
+              + "et en DXF — varie selon ce qui existe pour chaque pièce.</p>" + mentionControle;
+
+            if (controles > 0) return
+                "<p><b>Aucun plan ni modèle n'accompagne ce message</b> : ils vous seront "
+              + "transmis séparément.</p>" + mentionControle;
 
             return
                 "<p><b>Aucun document n'accompagne ce message.</b> Les plans et modèles vous "

@@ -6,6 +6,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AskThem.Models;
+using AskThem.Pdf;
 
 namespace AskThem.Services
 {
@@ -37,6 +38,16 @@ namespace AskThem.Services
         public string Poste { get; set; }
         public string VersionAskThem { get; set; }
         public DateTime PublieLeUtc { get; set; }
+
+        /// <summary>
+        /// Le contrôle de fabrication de cet article, tel qu'extrait du plan.
+        ///
+        /// Conservé en données et non en PDF : le formulaire porte le nom du fournisseur et la
+        /// référence de commande, qui changent à chaque demande. On le regénère donc à chaque
+        /// fois, ce qu'un poste sans SolidWorks sait faire — seule l'extraction exige le
+        /// coffre, pas la mise en page.
+        /// </summary>
+        public ControleFabrication Controle { get; set; }
 
         public FicheArticle()
         {
@@ -104,8 +115,23 @@ namespace AskThem.Services
         /// <summary>Où atterrissent les archives remplacées.</summary>
         public const string DossierAnciennes = "Old_Versions";
 
+        /// <summary>
+        /// Où vivent les formulaires de contrôle, à part des archives.
+        ///
+        /// Ils ne sont pas de même nature : un plan et un STEP se transmettent, un contrôle se
+        /// remplit. Le sous-traitant doit pouvoir l'ouvrir sans décompresser quoi que ce soit,
+        /// et il ne concerne que la fabrication.
+        /// </summary>
+        public const string DossierControles = "Controles fabrication";
+
         /// <summary>Ce qui sépare le numéro d'article de sa révision, dans le nom de l'archive.</summary>
         private const string Separateur = " rev ";
+
+        /// <summary>
+        /// Taille maximale du manifeste. Le format ZIP plafonne son commentaire à 65535
+        /// octets ; on garde une marge pour ne jamais frôler la troncature.
+        /// </summary>
+        private const int LimiteCommentaire = 60000;
 
         private readonly string _racine;
         private readonly List<string> _etatsLiberes;
@@ -313,7 +339,25 @@ namespace AskThem.Services
         {
             string archive = TrouverArchive(noArticle);
             if (archive == null) return new List<string>();
-            return ZipService.Extraire(archive, dossierCible, NomManifeste);
+
+            List<string> extraits = ZipService.Extraire(archive, dossierCible, NomManifeste);
+
+            // Les archives d'avant la séparation contiennent un formulaire de contrôle figé,
+            // au nom du fournisseur de la demande qui l'a produit. Le renvoyer tel quel à un
+            // autre sous-traitant serait une faute : il est écarté, et celui qui part est
+            // regénéré au nom du destinataire du jour.
+            List<string> retenus = new List<string>();
+            foreach (string f in extraits)
+            {
+                if (Path.GetFileName(f).StartsWith("CF_", StringComparison.OrdinalIgnoreCase))
+                {
+                    try { File.Delete(f); }
+                    catch (Exception) { }
+                    continue;
+                }
+                retenus.Add(f);
+            }
+            return retenus;
         }
 
         /// <summary>Numéros d'article ayant une archive publiée.</summary>
@@ -366,7 +410,14 @@ namespace AskThem.Services
             if (existante != null)
             {
                 FicheArticle enPlace = LireArchive(existante);
-                if (enPlace != null && enPlace.Empreinte == fiche.Empreinte)
+
+                // Même empreinte ne veut pas dire même contenu utile : une archive publiée
+                // avant que les contrôles n'existent n'en porte aucun. Sans cette exception,
+                // elle resterait « à jour » pour toujours et aucun poste sans SolidWorks
+                // n'obtiendrait jamais son formulaire.
+                bool controleAAjouter = enPlace != null && enPlace.Controle == null && fiche.Controle != null;
+
+                if (enPlace != null && enPlace.Empreinte == fiche.Empreinte && !controleAAjouter)
                     return ResultatPublication.Inchange;
             }
 
@@ -384,14 +435,45 @@ namespace AskThem.Services
                 }
                 if (fiche.Fichiers.Count == 0) return ResultatPublication.Echec;
 
+                // Le formulaire conservé dans la base est neutre : il vaut pour n'importe quel
+                // sous-traitant. Le nom du destinataire et la référence de commande sont
+                // effacés AVANT la sérialisation, sinon le manifeste garderait le fournisseur
+                // de la demande qui a servi à le produire.
+                if (fiche.Controle != null)
+                {
+                    fiche.Controle.Fournisseur = "";
+                    fiche.Controle.NumeroCommande = "";
+
+                    // La quantite d'une demande passee n'a aucun sens dans la base, et le
+                    // chemin du coffre n'a rien a faire dans un document qui part dehors.
+                    fiche.Controle.QuantiteLot = 0;
+                    fiche.Controle.CheminSourcePlan = "";
+                }
+
                 fiche.PublieLeUtc = DateTime.UtcNow;
                 if (string.IsNullOrWhiteSpace(fiche.PubliePar)) fiche.PubliePar = Environment.UserName;
                 if (string.IsNullOrWhiteSpace(fiche.Poste)) fiche.Poste = Environment.MachineName;
                 if (string.IsNullOrWhiteSpace(fiche.VersionAskThem)) fiche.VersionAskThem = UpdateService.CurrentVersion();
 
+                // Le manifeste loge dans le commentaire de l'archive, plafonné à 65535 octets
+                // par le format ZIP. Compact et sans échappement inutile des accents, il tient
+                // largement ; au-delà, on préfère publier sans le contrôle plutôt que de le
+                // laisser tronquer en silence, ce qui rendrait le manifeste illisible et
+                // l'article invisible pour les postes sans SolidWorks.
                 JsonSerializerOptions options = new JsonSerializerOptions();
-                options.WriteIndented = true;
+                options.WriteIndented = false;
+                options.Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping;
+
                 string manifeste = JsonSerializer.Serialize(fiche, options);
+                if (Encoding.UTF8.GetByteCount(manifeste) > LimiteCommentaire)
+                {
+                    int caracteristiques = fiche.Controle != null && fiche.Controle.Caracteristiques != null
+                        ? fiche.Controle.Caracteristiques.Count : 0;
+                    LogService.Write("Manifeste trop volumineux pour " + fiche.NoArticle
+                                   + " (" + caracteristiques + " caractéristiques) : publié sans le contrôle.");
+                    fiche.Controle = null;
+                    manifeste = JsonSerializer.Serialize(fiche, options);
+                }
 
                 using (ZipArchive zip = ZipFile.Open(temporaire, ZipArchiveMode.Create))
                 {
@@ -414,6 +496,10 @@ namespace AskThem.Services
 
                 // 3. Le renommage rend l'archive visible, d'un seul geste.
                 File.Move(temporaire, destination);
+
+                // 4. Le contrôle vit à part, en clair, pour être lu sans décompresser.
+                PublierControle(fiche);
+
                 return remplacement ? ResultatPublication.Remplace : ResultatPublication.Publie;
             }
             catch (Exception ex)
@@ -422,6 +508,79 @@ namespace AskThem.Services
                 try { if (File.Exists(temporaire)) File.Delete(temporaire); }
                 catch (Exception) { }
                 return ResultatPublication.Echec;
+            }
+        }
+
+        /// <summary>Dossier des contrôles, créé au besoin.</summary>
+        public string DossierDesControles()
+        {
+            if (string.IsNullOrWhiteSpace(_racine)) return "";
+            return Path.Combine(_racine, DossierControles);
+        }
+
+        /// <summary>
+        /// Écrit le formulaire de contrôle de cet article, sans fournisseur ni commande.
+        ///
+        /// Celui qui dort dans la base est neutre : il vaut pour n'importe quel sous-traitant.
+        /// C'est au moment d'une demande qu'il prend le nom de son destinataire.
+        /// </summary>
+        private void PublierControle(FicheArticle fiche)
+        {
+            if (fiche.Controle == null || fiche.Controle.Caracteristiques == null
+                || fiche.Controle.Caracteristiques.Count == 0) return;
+
+            try
+            {
+                string dossier = DossierDesControles();
+                Directory.CreateDirectory(dossier);
+
+                // L'ancien formulaire est rangé avant d'être remplacé, comme une archive.
+                foreach (string ancien in Directory.GetFiles(dossier, "CF_" + NomSur(fiche.NoArticle) + "_rev*.pdf"))
+                {
+                    try { Archiver(ancien); }
+                    catch (Exception) { }
+                }
+
+                // Le contrôle a déjà été neutralisé avant la sérialisation du manifeste :
+                // ce qu'on met en page ici est donc exactement ce que la base conserve.
+                new QuestPdfGenerateur().Generer(fiche.Controle, dossier);
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Contrôle non publié pour " + fiche.NoArticle + " : " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Regénère le formulaire de contrôle d'un article pour une demande précise.
+        ///
+        /// La mise en page ne demande pas SolidWorks : un acheteur sans coffre obtient donc un
+        /// formulaire complet, au nom de son fournisseur, à partir des caractéristiques
+        /// relevées sur le plan par un poste équipé. Renvoie le chemin du PDF, ou null.
+        /// </summary>
+        public string GenererControlePour(FicheArticle fiche, string fournisseur,
+                                          string commande, int quantiteLot, string dossierCible)
+        {
+            if (fiche == null || fiche.Controle == null) return null;
+            if (fiche.Controle.Caracteristiques == null || fiche.Controle.Caracteristiques.Count == 0) return null;
+
+            try
+            {
+                Directory.CreateDirectory(dossierCible);
+                fiche.Controle.Fournisseur = fournisseur != null ? fournisseur : "";
+                fiche.Controle.NumeroCommande = commande != null ? commande : "";
+
+                // La quantité conservée dans la base est celle du jour de la publication :
+                // sans cela le sous-traitant recevrait un formulaire annonçant un lot qui
+                // n'est pas le sien.
+                fiche.Controle.QuantiteLot = quantiteLot;
+
+                return new QuestPdfGenerateur().Generer(fiche.Controle, dossierCible);
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Contrôle non regénéré pour " + fiche.NoArticle + " : " + ex.Message);
+                return null;
             }
         }
 
@@ -454,6 +613,7 @@ namespace AskThem.Services
                     if (!EstDeProduction(numero))
                     {
                         Archiver(archive);
+                        SortirControle(numero);
                         sorties++;
                         continue;
                     }
@@ -481,7 +641,9 @@ namespace AskThem.Services
                         cible.Comment = manifeste;
                     }
 
-                    File.Delete(archive);
+                    // L'ancienne est rangée, pas supprimée : une coupure réseau entre les
+                    // deux gestes ne doit jamais laisser l'article sans archive du tout.
+                    Archiver(archive);
                     File.Move(temporaire, archive);
                     faites++;
                 }
@@ -507,6 +669,22 @@ namespace AskThem.Services
             return faites;
         }
 
+        /// <summary>Sort de la base le formulaire de contrôle d'une référence hors production.</summary>
+        private void SortirControle(string noArticle)
+        {
+            try
+            {
+                string dossier = DossierDesControles();
+                if (!Directory.Exists(dossier)) return;
+                foreach (string f in Directory.GetFiles(dossier, "CF_" + NomSur(noArticle) + "_rev*.pdf"))
+                    Archiver(f);
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Contrôle non sorti pour " + noArticle + " : " + ex.Message);
+            }
+        }
+
         /// <summary>
         /// Range une archive remplacée dans Old_Versions.
         ///
@@ -514,28 +692,28 @@ namespace AskThem.Services
         /// contexte d'origine. En cas d'homonymie — même article, même révision remplacée deux
         /// fois — la date départage.
         /// </summary>
-        private void Archiver(string archive)
+        private void Archiver(string fichier)
         {
             string anciennes = Path.Combine(_racine, DossierAnciennes);
             Directory.CreateDirectory(anciennes);
 
-            string cible = Path.Combine(anciennes, Path.GetFileName(archive));
+            string extension = Path.GetExtension(fichier);
+            string cible = Path.Combine(anciennes, Path.GetFileName(fichier));
             if (File.Exists(cible))
             {
-                string sansExt = Path.GetFileNameWithoutExtension(archive);
-                cible = Path.Combine(anciennes,
-                    sansExt + " - remplacée le " + DateTime.Now.ToString("yyyy-MM-dd") + ".zip");
+                string sansExt = Path.GetFileNameWithoutExtension(fichier);
+                string jour = DateTime.Now.ToString("yyyy-MM-dd");
+                cible = Path.Combine(anciennes, sansExt + " - remplacé le " + jour + extension);
 
                 int suffixe = 2;
                 while (File.Exists(cible))
                 {
                     cible = Path.Combine(anciennes,
-                        sansExt + " - remplacée le " + DateTime.Now.ToString("yyyy-MM-dd")
-                        + " (" + suffixe + ").zip");
+                        sansExt + " - remplacé le " + jour + " (" + suffixe + ")" + extension);
                     suffixe++;
                 }
             }
-            File.Move(archive, cible);
+            File.Move(fichier, cible);
         }
 
         /// <summary>

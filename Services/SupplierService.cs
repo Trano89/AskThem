@@ -62,6 +62,25 @@ namespace AskThem.Services
         }
 
         /// <summary>Enregistre la liste sur le réseau. Retourne false et un message en cas d'échec.</summary>
+        /// <summary>
+        /// Horodatage du fichier partagé, ou DateTime.MinValue s'il est absent.
+        ///
+        /// Sert à repérer qu'un collègue a modifié la liste pendant qu'on la retouchait :
+        /// l'enregistrement réécrit tout le fichier, il effacerait son travail en silence.
+        /// </summary>
+        public static DateTime DerniereEcriture(AppConfig config)
+        {
+            try
+            {
+                string chemin = GetFilePath(config);
+                return File.Exists(chemin) ? File.GetLastWriteTimeUtc(chemin) : DateTime.MinValue;
+            }
+            catch (Exception)
+            {
+                return DateTime.MinValue;
+            }
+        }
+
         public static bool Save(AppConfig config, List<Supplier> suppliers, out string message)
         {
             message = "";

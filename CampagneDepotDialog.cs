@@ -37,6 +37,7 @@ namespace AskThem
 
         private volatile bool _annule;
         private volatile bool _occupe;
+        private Thread _fil;
         private List<CampagneDepot.Candidat> _candidats;
         private string _dernierRapport = "";
 
@@ -136,6 +137,21 @@ namespace AskThem
                                               barre, txtJournal, btnFermer });
         }
 
+        /// <summary>
+        /// Lance un travail sur un fil STA.
+        ///
+        /// La campagne ouvre des centaines de documents SolidWorks en COM, ce qui exige un
+        /// appartement mono-fil. Un fil du pool est MTA : tout y passe par marshalling, ce
+        /// qui est au mieux lent et au pire instable sur plusieurs centaines d'appels.
+        /// </summary>
+        private void Lancer(ThreadStart travail)
+        {
+            _fil = new Thread(travail);
+            _fil.SetApartmentState(ApartmentState.STA);
+            _fil.IsBackground = true;
+            _fil.Start();
+        }
+
         private Button Bouton(string texte, int x, int y)
         {
             Button b = new Button();
@@ -203,14 +219,13 @@ namespace AskThem
             Occupe(true);
             btnProduire.Enabled = false;
 
-            ThreadPool.QueueUserWorkItem(delegate
+            Lancer(delegate
             {
                 try
                 {
                     DepotArticles depot = new DepotArticles(_config);
-                    string raison;
-                    if (!depot.Amorcer(out raison))
-                        Journal("ATTENTION : la base articles n'est pas accessible en écriture — " + raison);
+                    if (!depot.Lisible())
+                        Journal("ATTENTION : la base articles n'est pas joignable depuis ce poste.");
 
                     CampagneDepot campagne = new CampagneDepot(_config, depot, Journal,
                                                                delegate { return _annule; });
@@ -287,7 +302,7 @@ namespace AskThem
             _annule = false;
             Occupe(true);
 
-            ThreadPool.QueueUserWorkItem(delegate
+            Lancer(delegate
             {
                 try
                 {
@@ -369,13 +384,25 @@ namespace AskThem
             {
                 // Fermer pendant une campagne laisserait SolidWorks piloté par personne.
                 if (MessageBox.Show(this,
-                        "Une campagne est en cours. L'interrompre et fermer ?",
+                        "Une campagne est en cours." + Environment.NewLine + Environment.NewLine
+                      + "Elle va s'interrompre à la fin de l'article en cours, puis SolidWorks "
+                      + "sera refermé proprement. Patienter et fermer ?",
                         "AskThem", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
                 {
                     e.Cancel = true;
                     return;
                 }
                 _annule = true;
+
+                // On attend reellement la fin : rendre la main pendant qu'un fil pilote encore
+                // SolidWorks permettrait de lancer une demande sur la meme instance COM, que
+                // la campagne refermerait en plein milieu.
+                if (_fil != null && _fil.IsAlive)
+                {
+                    Cursor = Cursors.WaitCursor;
+                    try { _fil.Join(TimeSpan.FromMinutes(3)); }
+                    finally { Cursor = Cursors.Default; }
+                }
             }
             base.OnFormClosing(e);
         }

@@ -86,6 +86,27 @@ namespace AskThem.Services
         }
 
         /// <summary>
+        /// Objet du message, tel qu'il est à cet instant, ou null s'il n'est plus joignable.
+        ///
+        /// L'utilisateur retouche souvent l'objet avant d'envoyer. C'est par lui qu'on
+        /// retrouve ensuite le message dans les éléments envoyés : il faut donc suivre sa
+        /// dernière valeur, et non celle qu'on avait proposée.
+        /// </summary>
+        public static string LireSujet(object mailItem)
+        {
+            if (mailItem == null) return null;
+            try
+            {
+                dynamic mail = mailItem;
+                return (string)mail.Subject;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Enregistre le message au format .msg, dans l'état où il se trouve : si
         /// l'utilisateur l'a modifié dans Outlook, ses modifications sont capturées.
         /// Retourne false si Outlook ne rend plus le message accessible.

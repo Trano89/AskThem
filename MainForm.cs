@@ -51,6 +51,8 @@ namespace AskThem
         private int _optFournisseurInventaire;
         private CompressionLevel _optCompression = CompressionLevel.Optimal;
         private ControleFabricationConfig _controleCfg;
+        private readonly Dictionary<string, ControleFabrication> _controlesExtraits
+            = new Dictionary<string, ControleFabrication>(StringComparer.OrdinalIgnoreCase);
         private IGenerateurPdf _generateurPdf;
         private string _journalControles = "";
         private string _optSupplier = "";
@@ -61,6 +63,9 @@ namespace AskThem
         private string _optConditions = "";
         private string _optPoPath = "";
         private string _archivePath = null;
+
+        /// <summary>Laisse passer la fermeture demandée par la mise à jour, elle est voulue.</summary>
+        private bool _fermetureAutorisee;
         private volatile bool _stopMailWatch;
         private UpdateService.UpdateInfo _update;
         private RequestType _optType = RequestType.Offre;
@@ -303,7 +308,9 @@ namespace AskThem
             SetBusy(true);
             Log("Analyse du coffre avant recensement…");
 
-            ThreadPool.QueueUserWorkItem(delegate
+            // SolidWorks en COM exige un thread STA : la campagne en ouvre des centaines de
+            // documents, elle ne peut pas s'exécuter sur un fil du pool, qui est MTA.
+            Thread fil = new Thread(delegate ()
             {
                 try
                 {
@@ -323,6 +330,9 @@ namespace AskThem
                     SetBusy(false);
                 }
             });
+            fil.SetApartmentState(ApartmentState.STA);
+            fil.IsBackground = true;
+            fil.Start();
         }
 
         /// <summary>Crée un bouton de la barre d'outils (140 x 30).</summary>
@@ -1303,6 +1313,30 @@ namespace AskThem
             });
         }
 
+        /// <summary>
+        /// Refuse la fermeture pendant un traitement.
+        ///
+        /// Les fils de traitement sont d'arriere-plan : les tuer saute leurs blocs finally,
+        /// donc Dispose() de l'exportateur. La session SolidWorks de l'utilisateur resterait
+        /// en « command in progress », inutilisable, ou une session masquee survivrait sans
+        /// proprietaire.
+        /// </summary>
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            if (_busy && e.CloseReason == CloseReason.UserClosing && !_fermetureAutorisee)
+            {
+                MessageBox.Show(this,
+                    "Un traitement est en cours." + Environment.NewLine + Environment.NewLine
+                  + "Fermer maintenant laisserait SolidWorks dans un état inutilisable. "
+                  + "Attendez la fin du traitement, ou annulez-le.",
+                    "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                e.Cancel = true;
+                return;
+            }
+            _stopMailWatch = true;
+            base.OnFormClosing(e);
+        }
+
         /// <summary>Réapplique la répartition tant que l'utilisateur n'a rien déplacé.</summary>
         protected override void OnResize(EventArgs e)
         {
@@ -1412,13 +1446,13 @@ namespace AskThem
             // Un achat catalogue ne livre aucun fichier : ces réglages n'ont rien à régler.
             chk3D.Enabled = !catalogue;
             chk2D.Enabled = !catalogue;
-            chkControleFabrication.Enabled = !catalogue;
-            if (catalogue) chkControleFabrication.Checked = false;
             lblInfo.Text = RequestTypes.Description(type);
 
-            // Le controle accompagne une fabrication ; sur une demande d'offre il ne se
-            // justifie pas, la piece n'est pas encore commandee.
-            if (chkControleFabrication != null) chkControleFabrication.Checked = !offre;
+            // Le controle n'accompagne qu'une fabrication : sur une offre la piece n'est pas
+            // encore commandee, et un article de catalogue ne se controle pas sur plan. Une
+            // seule affectation, sinon la suivante annule la precedente.
+            chkControleFabrication.Enabled = (type == RequestType.Fabrication);
+            chkControleFabrication.Checked = (type == RequestType.Fabrication);
 
             // Le document joint change de nature selon le mode : bon de commande en
             // fabrication, demande de PO en offre. Il reste facultatif en offre.
@@ -2038,12 +2072,17 @@ namespace AskThem
             _optSupplierCc = fournisseur == null ? "" : fournisseur.CcLine;
             _optSupplierName = fournisseur == null ? "" : fournisseur.Name;
             _optFournisseurInventaire = fournisseur == null ? 0 : fournisseur.InventoryId;
+
+            // Le type d'abord : tout ce qui suit en depend. Il etait lu cinq lignes plus bas,
+            // si bien qu'une demande preparee apres une commande catalogue heritait du type
+            // precedent et partait sans plan ni modele, avec le texte du catalogue.
+            _optType = CurrentType;
             _optCatalogue = RequestTypes.EstCatalogue(_optType) || ToutEnCatalogue();
+
             _optProject = txtProject.Text.Trim();
             _optDeadline = dtpDeadline.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
             _optConditions = txtConditions.Text;
             _optPoPath = txtPo.Text.Trim();
-            _optType = CurrentType;
             _work = new List<PartLine>(_lines);
 
             progress.Maximum = _work.Count > 0 ? _work.Count : 1;
@@ -2173,7 +2212,9 @@ namespace AskThem
                 ControleFabrication controle = extracteur.Extraire(plan, line, _optSupplierName, _optProject);
                 string pdf = _generateurPdf.Generer(controle, dossier);
 
-                line.ExportedFiles.Add(pdf);
+                // Hors de l'archive : le contrôle se remplit, il doit s'ouvrir directement.
+                line.ControlePath = pdf;
+                _controlesExtraits[line.PartNumber] = controle;
                 Log("Controle de fabrication (beta) : " + Path.GetFileName(pdf)
                     + " (" + controle.Caracteristiques.Count + " caracteristique(s))");
                 if (controle.ExtractionPartielle)
@@ -2323,6 +2364,7 @@ namespace AskThem
 
             int ajoutes = 0;
             int deja = 0;
+            List<string> refuses = new List<string>();
             foreach (string numero in numeros)
             {
                 bool present = false;
@@ -2335,6 +2377,15 @@ namespace AskThem
                     }
                 }
                 if (present) { deja++; continue; }
+
+                // Meme controle que la frappe dans la grille : un assemblage ou un type non
+                // declare etait refuse a la main et accepte par la fenetre de recherche.
+                string refus = ValidationArticle.Verifier(_config, numero, SelectedSupplier, _inventaire);
+                if (refus != null)
+                {
+                    refuses.Add(numero + " — " + refus);
+                    continue;
+                }
 
                 PartLine vide = null;
                 foreach (PartLine l in _lines)
@@ -2352,7 +2403,17 @@ namespace AskThem
 
             RefreshGrid();
             Log(ajoutes + " article(s) ajouté(s) depuis le catalogue du fournisseur"
-              + (deja > 0 ? ", " + deja + " déjà présent(s)" : "") + ".");
+              + (deja > 0 ? ", " + deja + " déjà présent(s)" : "")
+              + (refuses.Count > 0 ? ", " + refuses.Count + " refusé(s)" : "") + ".");
+
+            if (refuses.Count > 0)
+            {
+                foreach (string r in refuses) Log("Refusé : " + r);
+                MessageBox.Show(this,
+                    refuses.Count + " article(s) n'ont pas pu être ajoutés :" + Environment.NewLine
+                  + Environment.NewLine + Summarize(refuses),
+                    "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
         }
 
         /// <summary>Vrai si cet article s'achète au catalogue, sans plan ni modèle.</summary>
@@ -2529,6 +2590,8 @@ namespace AskThem
                 _generateurPdf = new QuestPdfGenerateur();
                 _journalControles = Path.Combine(folderControles, "extraction.log");
             }
+
+            _controlesExtraits.Clear();
 
             if (!_optCatalogue) BuildPdmIndex();
 
@@ -2718,7 +2781,18 @@ namespace AskThem
             }
 
             // --- Étape 9 : la demande attend son envoi ---
-            ArchiveEnAttente.Deposer(outputFolder, sujetsEnvoyes, _optSupplier);
+            // Sans message, il n'y a pas d'envoi à constater : déposer une fiche d'attente
+            // laisserait un dossier que personne ne reprendrait jamais.
+            if (sujetsEnvoyes.Count > 0)
+            {
+                ArchiveEnAttente.Deposer(outputFolder, sujetsEnvoyes, _optSupplier,
+                                         RequestTypes.SousDossier(_optType));
+            }
+            else
+            {
+                Log("Aucun message n'a été préparé : la demande reste sur ce poste, dans "
+                  + outputFolder + ", et ne sera pas archivée.");
+            }
 
             // --- Étape 10 : bilan ---
             ShowSummary(outputFolder);
@@ -2753,6 +2827,10 @@ namespace AskThem
         {
             line.ExportedFiles.Clear();
             line.ZipPath = null;
+            // Sans remise à zéro, un article traité une première fois garderait son formulaire
+            // et son drapeau : le contrôle d'un fournisseur pourrait partir chez un autre.
+            line.ControlePath = null;
+            line.PlanDisponible = false;
             line.TypeCode = PartNumberFormat.TypeCode(line.PartNumber);
 
             // Le type de l'article décide de ce qu'on livre : un article catalogue
@@ -2802,7 +2880,11 @@ namespace AskThem
 
                     // Le controle est tire du plan deja ouvert : le document n'est jamais
                     // rouvert. Un echec ici ne touche ni l'export PDF/DXF ni les autres articles.
+                    // Le formulaire ne part qu'avec une demande de fabrication : ailleurs il
+                    // n'a pas de destinataire pour le remplir. Il est en revanche extrait dès
+                    // qu'on ouvre le plan, pour alimenter la base articles.
                     if (_optControle && regle.Export2D) GenererControle(doc, line, folderControles);
+                    if (_optType != RequestType.Fabrication) line.ControlePath = null;
                 }
                 finally
                 {
@@ -2847,8 +2929,13 @@ namespace AskThem
             if (inv != null)
             {
                 line.OldRef = inv.OldRef;
-                if (line.SupplierRef == "") line.SupplierRef = inv.SupplierRef;
-                if (line.PdmSupplier == "") line.PdmSupplier = inv.Supplier;
+
+                // La reference du DESTINATAIRE, pas celle du premier fournisseur rendu par
+                // l'API : le message imprime cette valeur sous « Votre reference », et celle
+                // d'un concurrent n'a aucun sens pour celui qui la lit.
+                InventoryService.Fournisseur chez = inv.Chez(_optFournisseurInventaire, _optSupplierName);
+                if (line.SupplierRef == "" && chez != null) line.SupplierRef = chez.Reference;
+                if (line.PdmSupplier == "" && chez != null) line.PdmSupplier = chez.Nom;
             }
 
             // --- Ce qui vient d'etre produit est publie pour les postes non equipes ---
@@ -2886,6 +2973,18 @@ namespace AskThem
         {
             if (_depot == null || line.ExportedFiles == null || line.ExportedFiles.Count == 0) return;
 
+            // Une demande preparee avec 3D ou 2D decoche ne produit qu'une partie des
+            // documents. Publier ce fragment remplacerait l'archive complete par une archive
+            // amputee — et comme l'empreinte porte sur les sources et non sur le contenu, elle
+            // le resterait indefiniment pour tous les postes sans SolidWorks.
+            ArticleTypeRule regle = RuleFor(line.PartNumber);
+            if ((regle.Export3D && !_opt3D) || (regle.Export2D && !_opt2D))
+            {
+                Log("Base articles : " + line.PartNumber + " non publié — export partiel "
+                  + "(3D ou 2D décoché), la base garde sa version complète.");
+                return;
+            }
+
             string empreinte = DepotArticles.Empreinte(line.Model3DPath, line.DrawingPath);
             if (empreinte == "") return;
 
@@ -2898,6 +2997,8 @@ namespace AskThem
             fiche.Matiere = line.Material;
             fiche.Traitement = line.Treatment;
             fiche.Etat = line.State;
+            if (_controlesExtraits.ContainsKey(line.PartNumber))
+                fiche.Controle = _controlesExtraits[line.PartNumber];
 
             ResultatPublication r = _depot.Publier(fiche, line.ExportedFiles, _optCompression);
             Log(MessageDePublication(line.PartNumber, fiche, r));
@@ -2943,6 +3044,8 @@ namespace AskThem
         {
             line.ExportedFiles.Clear();
             line.ZipPath = null;
+            line.ControlePath = null;
+            line.PlanDisponible = false;
             line.TypeCode = PartNumberFormat.TypeCode(line.PartNumber);
 
             FicheArticle fiche = _depot != null ? _depot.Lire(line.PartNumber) : null;
@@ -2972,6 +3075,20 @@ namespace AskThem
                         line.PlanDisponible = true;
                 }
 
+                // Le contrôle ne concerne que la fabrication, et se regénère au nom du
+                // destinataire : la mise en page n'exige pas SolidWorks, seule l'extraction
+                // le demandait.
+                if (_optControle && _optType == RequestType.Fabrication)
+                {
+                    string cf = _depot.GenererControlePour(fiche, _optSupplierName, _optProject,
+                                                          line.Qty1, _folderDepot);
+                    if (cf != null)
+                    {
+                        line.ControlePath = cf;
+                        Log("Contrôle de fabrication (bêta) regénéré : " + Path.GetFileName(cf));
+                    }
+                }
+
                 string age = fiche.JoursDepuisPublication < 0
                     ? "date inconnue"
                     : (fiche.JoursDepuisPublication == 0 ? "publié aujourd'hui"
@@ -2989,8 +3106,9 @@ namespace AskThem
             if (inv != null)
             {
                 line.OldRef = inv.OldRef;
-                if (string.IsNullOrWhiteSpace(line.SupplierRef)) line.SupplierRef = inv.SupplierRef;
-                if (string.IsNullOrWhiteSpace(line.PdmSupplier)) line.PdmSupplier = inv.Supplier;
+                InventoryService.Fournisseur chez = inv.Chez(_optFournisseurInventaire, _optSupplierName);
+                if (string.IsNullOrWhiteSpace(line.SupplierRef) && chez != null) line.SupplierRef = chez.Reference;
+                if (string.IsNullOrWhiteSpace(line.PdmSupplier) && chez != null) line.PdmSupplier = chez.Nom;
                 if (string.IsNullOrWhiteSpace(line.Description)) line.Description = inv.Designation;
             }
 
@@ -3300,6 +3418,16 @@ namespace AskThem
 
             foreach (int i in actifs)
                 Log("Email archivé dans son état final : " + chemins[i]);
+
+            // L'objet a pu être retouché : c'est sa dernière version qu'on retrouvera dans
+            // les éléments envoyés, donc celle qu'il faut retenir pour constater l'envoi.
+            List<string> sujetsFinaux = new List<string>();
+            foreach (object mail in mails)
+            {
+                string sujet = OutlookService.LireSujet(mail);
+                if (!string.IsNullOrWhiteSpace(sujet)) sujetsFinaux.Add(sujet);
+            }
+            if (sujetsFinaux.Count > 0) ArchiveEnAttente.MettreAJourSujets(dossier, sujetsFinaux);
         }
 
         /// <summary>
@@ -3334,16 +3462,20 @@ namespace AskThem
         /// </summary>
         private void ShowSummary(string outputFolder)
         {
+            // Un article venu de la base articles porte un statut qui décrit sa provenance,
+            // pas « OK » : le compter comme un échec ferait dire au bilan « 0 article exporté »
+            // sur une demande parfaitement réussie.
             int ok = 0;
             int warn = 0;
             int err = 0;
             foreach (PartLine l in _work)
             {
-                if (l.Status == "OK") ok++;
-                else if (l.Status == "Erreur") err++;
-                else if (l.Status != "") warn++;
+                if (string.IsNullOrWhiteSpace(l.Status)) continue;
+                if (l.Status == "Erreur") err++;
+                else if (l.ExportedFiles.Count > 0 || !string.IsNullOrWhiteSpace(l.ControlePath)) ok++;
+                else warn++;
             }
-            Log("Terminé : " + ok + " article(s) exporté(s), " + warn + " avertissement(s), " + err + " erreur(s).");
+            Log("Terminé : " + ok + " article(s) avec document, " + warn + " sans, " + err + " erreur(s).");
             // Le dossier est encore sur le poste : le dire, plutot que de laisser croire
             // qu'il est deja archive sur le reseau.
             Log("Demande préparée dans : " + outputFolder);
@@ -3433,6 +3565,8 @@ namespace AskThem
                 numPiecesMax.Enabled = !busy;
                 panelAssistant.Occupe(busy);
                 btnSuppliers.Enabled = !busy;
+            if (btnUpdate != null) btnUpdate.Enabled = !busy;
+            if (panelParams != null) panelParams.Enabled = !busy;
                 btnInventaire.Enabled = !busy;
                 btnCancel.Enabled = busy;
                 Cursor = busy ? Cursors.WaitCursor : Cursors.Default;

@@ -59,6 +59,22 @@ namespace AskThem.Models
         }
 
         /// <summary>Suffixe du dossier d'archive.</summary>
+        /// <summary>
+        /// Sous-dossier d'archivage, par nature de demande.
+        ///
+        /// Les demandes s'accumulent au fil des mois : les ranger par nature évite qu'une
+        /// offre de l'an dernier se perde entre deux commandes de la semaine.
+        /// </summary>
+        public static string SousDossier(RequestType type)
+        {
+            switch (type)
+            {
+                case RequestType.Fabrication: return "Fabrications";
+                case RequestType.CommandeCatalogue: return "Commandes";
+                default: return "Offres";
+            }
+        }
+
         public static string Tag(RequestType type)
         {
             switch (type)

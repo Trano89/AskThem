@@ -55,27 +55,44 @@ namespace AskThem.Services
 
             foreach (PartLine ligne in lignes)
             {
-                string archive = ligne.ZipPath;
-                bool aUneArchive = !string.IsNullOrEmpty(archive) && File.Exists(archive);
+                // Toutes les pièces d'un même article restent ensemble : l'archive, et le
+                // formulaire de contrôle qui voyage hors d'elle parce que le sous-traitant
+                // doit l'ouvrir pour le remplir. Les séparer enverrait un formulaire sans
+                // le plan auquel il se rapporte.
+                List<string> pieces = new List<string>();
+                double poids = 0;
 
-                // Un article sans archive ne pèse rien : il suit le lot en cours et reste
-                // ainsi à sa place dans la suite des messages.
-                if (!aUneArchive)
+                string archive = ligne.ZipPath;
+                if (!string.IsNullOrEmpty(archive) && File.Exists(archive))
+                {
+                    pieces.Add(archive);
+                    poids += TailleMb(archive);
+                }
+
+                string controle = ligne.ControlePath;
+                if (!string.IsNullOrEmpty(controle) && File.Exists(controle))
+                {
+                    pieces.Add(controle);
+                    poids += TailleMb(controle);
+                }
+
+                // Un article sans aucune pièce ne pèse rien : il suit le lot en cours et
+                // reste ainsi à sa place dans la suite des messages.
+                if (pieces.Count == 0)
                 {
                     courant.Lignes.Add(ligne);
                     continue;
                 }
 
-                double poids = TailleMb(archive);
-
-                // Une archive plus lourde que la limite ne peut pas être coupée : elle part
-                // seule, et l'on prévient plutôt que de fabriquer un message impossible.
+                // Un article plus lourd que la limite à lui seul ne peut pas être coupé :
+                // il part dans son propre message, et l'on prévient plutôt que de fabriquer
+                // un envoi impossible.
                 if (poids > limiteMb)
                 {
                     if (journal != null)
-                        journal("ATTENTION : l'archive de " + ligne.PartNumber + " pèse "
-                              + poids.ToString("0.0") + " Mo à elle seule, au-delà de la limite de "
-                              + limiteMb.ToString("0.#") + " Mo. Elle part dans un message à part.");
+                        journal("ATTENTION : les pièces de " + ligne.PartNumber + " pèsent "
+                              + poids.ToString("0.0") + " Mo à elles seules, au-delà de la limite de "
+                              + limiteMb.ToString("0.#") + " Mo. Elles partent dans un message à part.");
 
                     if (courant.PiecesJointes.Count > 0)
                     {
@@ -83,7 +100,7 @@ namespace AskThem.Services
                         lots.Add(courant);
                     }
                     courant.Lignes.Add(ligne);
-                    courant.PiecesJointes.Add(archive);
+                    courant.PiecesJointes.AddRange(pieces);
                     courant.TailleMb = poids;
 
                     courant = new LotEnvoi();
@@ -92,7 +109,7 @@ namespace AskThem.Services
                 }
 
                 bool tropLourd = courant.TailleMb + poids > limiteMb;
-                bool tropNombreux = courant.PiecesJointes.Count + 1 > maxPieces;
+                bool tropNombreux = courant.PiecesJointes.Count + pieces.Count > maxPieces;
                 if (courant.PiecesJointes.Count > 0 && (tropLourd || tropNombreux))
                 {
                     courant = new LotEnvoi();
@@ -100,7 +117,7 @@ namespace AskThem.Services
                 }
 
                 courant.Lignes.Add(ligne);
-                courant.PiecesJointes.Add(archive);
+                courant.PiecesJointes.AddRange(pieces);
                 courant.TailleMb += poids;
             }
 

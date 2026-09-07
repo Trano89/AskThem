@@ -112,9 +112,18 @@ namespace AskThem.Pdf
              });
         }
 
+        /// <summary>
+        /// Origine du document, telle qu'elle peut figurer sur une copie qui part dehors.
+        ///
+        /// Le chemin complet du plan dans le coffre y figurait : l'arborescence porte les
+        /// noms de projets et de clients, et ce formulaire est envoye a un sous-traitant.
+        /// Seul le nom du fichier est repris, ce qui suffit a retrouver la source en interne.
+        /// </summary>
         private static string Source(ControleFabrication r)
         {
-            return string.IsNullOrWhiteSpace(r.CheminSourcePlan) ? "coffre PDM" : r.CheminSourcePlan;
+            if (string.IsNullOrWhiteSpace(r.CheminSourcePlan)) return "coffre PDM";
+            try { return System.IO.Path.GetFileName(r.CheminSourcePlan); }
+            catch (Exception) { return "coffre PDM"; }
         }
 
         // ------------------------------------------------------------------
@@ -128,7 +137,7 @@ namespace AskThem.Pdf
                 if (r.ExtractionPartielle)
                 {
                     col.Item().PaddingBottom(2, Unit.Millimetre)
-                       .Text("Extraction partielle — vérifier le plan avant envoi.")
+                       .Text("Relevé non exhaustif : se référer au plan pour les cotes non listées.")
                        .FontSize(8).Bold().FontColor(Ko);
                 }
 

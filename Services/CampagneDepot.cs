@@ -4,6 +4,8 @@ using System.IO;
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using AskThem.Config;
+using AskThem.Inspection;
 using AskThem.Models;
 using SolidWorks.Interop.sldworks;
 
@@ -127,6 +129,7 @@ namespace AskThem.Services
         private readonly DepotArticles _depot;
         private readonly Action<string> _journal;
         private readonly Func<bool> _annule;
+        private readonly ControleFabricationConfig _controleCfg;
 
         public CampagneDepot(AppConfig config, DepotArticles depot,
                              Action<string> journal, Func<bool> annulation)
@@ -135,6 +138,12 @@ namespace AskThem.Services
             _depot = depot;
             _journal = journal;
             _annule = annulation;
+
+            // Le contrôle est extrait pendant la campagne, au même titre que le plan et le
+            // modèle : sans lui, un poste sans SolidWorks n'aurait pas de formulaire à joindre
+            // à une demande de fabrication.
+            try { _controleCfg = ControleFabricationConfig.Load(); }
+            catch (Exception ex) { LogService.Write("Réglages de contrôle illisibles : " + ex.Message); }
         }
 
         private void Dire(string message)
@@ -157,9 +166,9 @@ namespace AskThem.Services
             List<Candidat> candidats = new List<Candidat>();
             if (indexPdm == null) return candidats;
 
-            // Les archives d'avant le reconditionnement portent encore leur manifeste en
-            // fichier : on le sort avant toute chose, sans rien régénérer.
-            _depot.Reconditionner(_journal);
+            // Le reconditionnement écrit sur le partage : il n'a donc pas sa place dans un
+            // recensement, annoncé comme n'écrivant rien. Il a lieu au début d'une production.
+            if (!o.RecensementSeul) _depot.Reconditionner(_journal);
 
             List<string> articles = new List<string>();
             foreach (string cle in indexPdm.Keys)
@@ -221,8 +230,9 @@ namespace AskThem.Services
                 FicheArticle enPlace = _depot.Lire(numero);
 
                 if (enPlace == null) c.Verdict = "à produire";
-                else if (enPlace.Empreinte == c.Empreinte) c.Verdict = "à jour";
-                else c.Verdict = "à remplacer";
+                else if (enPlace.Empreinte != c.Empreinte) c.Verdict = "à remplacer";
+                else if (enPlace.Controle == null && c.Plan != null) c.Verdict = "sans contrôle";
+                else c.Verdict = "à jour";
 
                 candidats.Add(c);
             }
@@ -378,6 +388,7 @@ namespace AskThem.Services
                     fiche.Traitement = m.Treatment;
                     fiche.Etat = m.State;
                     produits.AddRange(exporter.ExportDrawing(doc, dossier, c.NoArticle));
+                    fiche.Controle = ExtraireControle(doc, c.NoArticle, m);
                 }
                 finally { exporter.CloseDocument(doc); }
             }
@@ -437,6 +448,42 @@ namespace AskThem.Services
             }
 
             try { Directory.Delete(dossier, true); } catch (Exception) { }
+        }
+
+        /// <summary>
+        /// Relève les caractéristiques du plan déjà ouvert, sans destinataire.
+        ///
+        /// Le formulaire prendra le nom d'un fournisseur au moment d'une demande : ici on ne
+        /// conserve que ce que le plan dit. Un échec n'interrompt jamais la campagne — un
+        /// article sans contrôle vaut mieux qu'une campagne arrêtée.
+        /// </summary>
+        private ControleFabrication ExtraireControle(ModelDoc2 plan, string noArticle,
+                                                     SolidWorksExporter.DocMetadata m)
+        {
+            if (_controleCfg == null) return null;
+            try
+            {
+                PartLine ligne = new PartLine();
+                ligne.PartNumber = noArticle;
+                ligne.Description = m.Description;
+                ligne.DrawingRevision = m.Revision;
+                ligne.Material = m.Material;
+                ligne.Treatment = m.Treatment;
+                ligne.State = m.State;
+
+                ExtracteurCaracteristiques extracteur =
+                    new ExtracteurCaracteristiques(_controleCfg, null);
+                ControleFabrication controle = extracteur.Extraire(plan, ligne, "", "");
+
+                if (controle != null && controle.Caracteristiques != null
+                    && controle.Caracteristiques.Count > 0) return controle;
+                return null;
+            }
+            catch (Exception ex)
+            {
+                Dire(noArticle + " : contrôle non extrait — " + ex.Message);
+                return null;
+            }
         }
 
         // ------------------------------------------------------------------ rapport

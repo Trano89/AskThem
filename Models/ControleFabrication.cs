@@ -108,13 +108,18 @@ namespace AskThem.Models
         public int NombreFeuilles { get; set; }
 
         /// <summary>Les lignes du tableau, dans leur ordre de numérotation.</summary>
-        public List<Caracteristique> Caracteristiques { get; private set; }
+        /// <remarks>
+        /// Accesseur public en écriture : le contrôle est conservé dans la base articles au
+        /// format JSON, pour qu'un poste sans SolidWorks puisse regénérer le formulaire avec
+        /// le fournisseur et la commande du jour. Sans cela, il faudrait rouvrir le plan.
+        /// </remarks>
+        public List<Caracteristique> Caracteristiques { get; set; }
 
         /// <summary>
         /// Ce que l'extraction n'a pas su faire : symbole inconnu, propriété absente,
         /// zone indéterminable. Repris dans le journal.
         /// </summary>
-        public List<string> Avertissements { get; private set; }
+        public List<string> Avertissements { get; set; }
 
         /// <summary>
         /// Vrai quand le contrôle est trop maigre pour être envoyé tel quel : signale

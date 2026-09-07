@@ -28,6 +28,7 @@ namespace AskThem.Services
             public List<string> Sujets { get; set; }
             public string Destinataire { get; set; }
             public string NomCible { get; set; }
+            public string SousDossier { get; set; }
             public DateTime PrepareeLe { get; set; }
             public string Auteur { get; set; }
 
@@ -36,6 +37,7 @@ namespace AskThem.Services
                 Sujets = new List<string>();
                 Destinataire = "";
                 NomCible = "";
+                SousDossier = "";
                 Auteur = "";
             }
         }
@@ -59,6 +61,18 @@ namespace AskThem.Services
         /// </summary>
         public static void Deposer(string dossier, List<string> sujets, string destinataire)
         {
+            Deposer(dossier, sujets, destinataire, "");
+        }
+
+        /// <summary>
+        /// Même chose, en rangeant la demande par nature une fois archivée.
+        ///
+        /// Les demandes s'accumulent : offres, commandes et fabrications dans un même dossier
+        /// deviennent vite illisibles.
+        /// </summary>
+        public static void Deposer(string dossier, List<string> sujets, string destinataire,
+                                   string sousDossier)
+        {
             if (string.IsNullOrWhiteSpace(dossier) || !Directory.Exists(dossier)) return;
 
             try
@@ -67,6 +81,7 @@ namespace AskThem.Services
                 if (sujets != null) f.Sujets = new List<string>(sujets);
                 f.Destinataire = destinataire != null ? destinataire : "";
                 f.NomCible = new DirectoryInfo(dossier).Name;
+                f.SousDossier = sousDossier != null ? sousDossier : "";
                 f.PrepareeLe = DateTime.Now;
                 f.Auteur = Environment.UserName;
 
@@ -78,6 +93,33 @@ namespace AskThem.Services
             catch (Exception ex)
             {
                 LogService.Write("Fiche d'attente non écrite pour " + dossier + " : " + ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Remplace les sujets retenus pour une demande en attente.
+        ///
+        /// L'utilisateur retouche l'objet du message avant de l'envoyer ; c'est cette
+        /// dernière version qu'on retrouvera dans les éléments envoyés. Sans cette mise à
+        /// jour, la demande partirait sans jamais être archivée.
+        /// </summary>
+        public static void MettreAJourSujets(string dossier, List<string> sujets)
+        {
+            if (string.IsNullOrWhiteSpace(dossier) || sujets == null || sujets.Count == 0) return;
+            try
+            {
+                Fiche f = LireFiche(dossier);
+                if (f == null) return;
+
+                f.Sujets = new List<string>(sujets);
+                JsonSerializerOptions options = new JsonSerializerOptions();
+                options.WriteIndented = true;
+                File.WriteAllText(Path.Combine(dossier, NomFiche),
+                                  JsonSerializer.Serialize(f, options), Encoding.UTF8);
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Sujets d'attente non mis à jour pour " + dossier + " : " + ex.Message);
             }
         }
 
@@ -128,7 +170,12 @@ namespace AskThem.Services
 
             try
             {
-                string cible = DossierLibre(Path.Combine(racineArchive, f.NomCible));
+                string racineNature = string.IsNullOrWhiteSpace(f.SousDossier)
+                    ? racineArchive
+                    : Path.Combine(racineArchive, f.SousDossier.Trim());
+                Directory.CreateDirectory(racineNature);
+
+                string cible = DossierLibre(Path.Combine(racineNature, f.NomCible));
 
                 // La fiche d'attente est un outil interne : elle n'a rien à faire dans l'archive.
                 try { File.Delete(Path.Combine(dossier, NomFiche)); }

@@ -912,11 +912,20 @@ namespace AskThem
             chkControle.Location = new Point(24, 64);
             chkControle.Checked = _demande.ControleFabrication;
 
+            // On grise sans decocher : forcer l'etat le reportait ensuite dans la demande,
+            // si bien qu'un aller-retour par le mode guide sur des articles de catalogue
+            // laissait 3D et 2D decoches pour toutes les demandes suivantes. Les regles de
+            // type empechent deja d'exporter quoi que ce soit pour un article de catalogue.
             bool catalogue = RequestTypes.EstCatalogue(_demande.Type) || ToutEnCatalogue();
             chk3D.Enabled = !catalogue;
             chk2D.Enabled = !catalogue;
-            chkControle.Enabled = !catalogue;
-            if (catalogue) { chk3D.Checked = false; chk2D.Checked = false; chkControle.Checked = false; }
+
+            // Meme regle que la vue complete : le controle n'accompagne qu'une fabrication.
+            // Le mode guide le laissait decoche par defaut, ce qui privait la base articles
+            // du formulaire des que la demande passait par l'assistant.
+            bool fabrication = _demande.Type == RequestType.Fabrication && !catalogue;
+            chkControle.Enabled = fabrication;
+            chkControle.Checked = fabrication;
 
             voletAvance = new Panel();
             voletAvance.Dock = DockStyle.Bottom;

@@ -95,6 +95,15 @@ namespace AskThem.Models
         /// <summary>D'où viennent les documents : "", "Coffre" ou "Base articles".</summary>
         public string SourceDocuments { get; set; }
 
+        /// <summary>
+        /// Formulaire de contrôle de fabrication de cet article, s'il en a un.
+        ///
+        /// Il ne rejoint pas l'archive ZIP : le sous-traitant doit le remplir, donc l'ouvrir,
+        /// donc le trouver sans avoir à décompresser quoi que ce soit. Il part en pièce
+        /// jointe distincte.
+        /// </summary>
+        public string ControlePath { get; set; }
+
         /// <summary>Révision à afficher : celle du plan si connue, sinon celle du modèle.</summary>
         public string EffectiveRevision
         {
