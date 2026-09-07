@@ -131,6 +131,9 @@ namespace AskThem.Services
         private readonly Func<bool> _annule;
         private readonly ControleFabricationConfig _controleCfg;
 
+        /// <summary>Base de l'inventaire, quand c'est elle qui porte les documents.</summary>
+        private DepotInventaire _inventaire;
+
         public CampagneDepot(AppConfig config, DepotArticles depot,
                              Action<string> journal, Func<bool> annulation)
         {
@@ -144,6 +147,17 @@ namespace AskThem.Services
             // à une demande de fabrication.
             try { _controleCfg = ControleFabricationConfig.Load(); }
             catch (Exception ex) { LogService.Write("Réglages de contrôle illisibles : " + ex.Message); }
+        }
+
+        /// <summary>
+        /// Fait publier la campagne dans l'inventaire plutôt que sur le partage.
+        ///
+        /// Le recensement continue de s'appuyer sur la base passée au constructeur pour
+        /// savoir ce qui existe ; c'est le dépôt qui change de destination.
+        /// </summary>
+        public void PublierDansInventaire(DepotInventaire inventaire)
+        {
+            _inventaire = inventaire;
         }
 
         private void Dire(string message)
@@ -168,7 +182,7 @@ namespace AskThem.Services
 
             // Le reconditionnement écrit sur le partage : il n'a donc pas sa place dans un
             // recensement, annoncé comme n'écrivant rien. Il a lieu au début d'une production.
-            if (!o.RecensementSeul) _depot.Reconditionner(_journal);
+            if (_inventaire == null && !o.RecensementSeul) _depot.Reconditionner(_journal);
 
             List<string> articles = new List<string>();
             foreach (string cle in indexPdm.Keys)
@@ -227,6 +241,19 @@ namespace AskThem.Services
                 }
 
                 c.Empreinte = DepotArticles.Empreinte(c.Modele, c.Plan);
+
+                // Quand l'inventaire porte les documents, c'est lui qui dit ce qui existe.
+                if (_inventaire != null)
+                {
+                    DocumentsArticle d = _inventaire.Pour(numero);
+                    if (d == null || !d.Trouve) c.Verdict = "hors inventaire";
+                    else if (d.Documents.Count == 0) c.Verdict = "à produire";
+                    else if (d.De(TypeDocument.Controle) == null && c.Plan != null) c.Verdict = "sans contrôle";
+                    else c.Verdict = "à jour";
+                    candidats.Add(c);
+                    continue;
+                }
+
                 FicheArticle enPlace = _depot.Lire(numero);
 
                 if (enPlace == null) c.Verdict = "à produire";
@@ -419,6 +446,24 @@ namespace AskThem.Services
                 return;
             }
 
+            if (_inventaire != null)
+            {
+                // Chaque document part nu, sous sa nature. Aucune archive n'est constituée :
+                // les ZIP naissent au moment d'une demande, et n'y survivent pas.
+                _inventaire.Publier(c.NoArticle, fiche.Revision, fiche.Etat, produits, _journal);
+
+                if (fiche.Controle != null)
+                {
+                    string cf = ProduireControle(fiche, dossier);
+                    if (cf != null)
+                        _inventaire.PublierControle(c.NoArticle, fiche.Revision, cf, _journal);
+                }
+
+                bilan.Produits++;
+                try { Directory.Delete(dossier, true); } catch (Exception) { }
+                return;
+            }
+
             CompressionLevel niveau = ZipService.Niveau(_config.ZipCompression);
             ResultatPublication r = _depot.Publier(fiche, produits, niveau);
 
@@ -482,6 +527,29 @@ namespace AskThem.Services
             catch (Exception ex)
             {
                 Dire(noArticle + " : contrôle non extrait — " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Met en page le formulaire de contrôle, sans destinataire.
+        ///
+        /// Celui qui dort dans la base vaut pour n'importe quel sous-traitant : il prendra un
+        /// nom au moment d'une demande. La mise en page n'exige pas SolidWorks.
+        /// </summary>
+        private string ProduireControle(FicheArticle fiche, string dossier)
+        {
+            try
+            {
+                fiche.Controle.Fournisseur = "";
+                fiche.Controle.NumeroCommande = "";
+                fiche.Controle.QuantiteLot = 0;
+                fiche.Controle.CheminSourcePlan = "";
+                return new AskThem.Pdf.QuestPdfGenerateur().Generer(fiche.Controle, dossier);
+            }
+            catch (Exception ex)
+            {
+                Dire(fiche.NoArticle + " : contrôle non mis en page — " + ex.Message);
                 return null;
             }
         }

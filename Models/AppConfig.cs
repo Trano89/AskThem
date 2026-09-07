@@ -84,6 +84,16 @@ namespace AskThem.Models
         public bool PublierSeulementLiberes { get; set; }
 
         /// <summary>
+        /// Les documents d'article vivent dans l'inventaire plutôt que sur le partage.
+        ///
+        /// L'inventaire porte déjà les droits — tout le monde lit, seuls les comptes
+        /// autorisés déposent — et sait distinguer la nature d'un document. Il n'y a plus
+        /// d'archive de stockage : les ZIP sont assemblés à l'envoi et ne subsistent que
+        /// dans l'historique de la demande.
+        /// </summary>
+        public bool DocumentsDansInventaire { get; set; }
+
+        /// <summary>
         /// Formats de numéro d'article acceptés, décrits par les longueurs de groupes.
         /// "3-5-2" décrit XYZ-AAAAA-BB. Le PREMIER sert à insérer les tirets
         /// automatiquement quand ils ne sont pas saisis. Liste vide = aucun contrôle.
@@ -148,6 +158,7 @@ namespace AskThem.Models
             DepotArticlesRoot = "";
             CategoriesCampagne = new List<string> { "21", "22", "24" };
             PublierSeulementLiberes = true;
+            DocumentsDansInventaire = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
 
             //                                   intitulé                              autorisé fabric.  3D     2D   fourn. figé

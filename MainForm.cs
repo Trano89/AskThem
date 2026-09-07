@@ -88,6 +88,7 @@ namespace AskThem
         private Label lblPoste;
         private Button btnBaseArticles;
         private DepotArticles _depot;
+        private DepotInventaire _depotInv;
         private string _folderDepot;
         private volatile bool inventaireConnecte;
 
@@ -2563,6 +2564,28 @@ namespace AskThem
             _depot = new DepotArticles(_config);
             _folderDepot = Path.Combine(outputFolder, "Documents_base_articles");
 
+            // Les documents vivent dans l'inventaire : une session, et le releve de ce qu'il
+            // possede pour toute la demande en un seul appel.
+            if (_config.DocumentsDansInventaire && !_optCatalogue)
+            {
+                _depotInv = new DepotInventaire(_config);
+                string motif;
+                if (_depotInv.Connecter(out motif))
+                {
+                    Log(motif);
+                    List<string> refs = new List<string>();
+                    foreach (PartLine l in _work)
+                        if (!string.IsNullOrWhiteSpace(l.PartNumber)) refs.Add(l.PartNumber);
+                    _depotInv.Charger(refs, LogFromWorker);
+                }
+                else
+                {
+                    Log("Documents de l'inventaire indisponibles : " + motif);
+                    _depotInv.Dispose();
+                    _depotInv = null;
+                }
+            }
+
             _archivePath = outputFolder;
             Log("Dossier de la demande : " + outputFolder);
 
@@ -2802,6 +2825,8 @@ namespace AskThem
 
             // --- Étape 12 : si l'envoi a eu lieu pendant le suivi, la demande rejoint l'archive ---
             ArchiveEnAttente.Reprendre(_config, LogFromWorker);
+
+            if (_depotInv != null) { _depotInv.Dispose(); _depotInv = null; }
         }
 
         /// <summary>Suffixe de sujet quand la demande part en plusieurs messages.</summary>
@@ -2963,6 +2988,93 @@ namespace AskThem
         }
 
         /// <summary>
+        /// Prépare un article à partir des documents de l'inventaire.
+        ///
+        /// Les documents y vivent seuls, distingués par leur nature. Le ZIP par article est
+        /// assemblé ici, au moment de la demande, et ne subsistera que dans l'historique de
+        /// l'envoi : la base, elle, ne contient que des fichiers nus, consultables et
+        /// joignables un par un.
+        ///
+        /// Renvoie faux si l'article est inconnu de l'inventaire, pour laisser sa chance au
+        /// partage.
+        /// </summary>
+        private bool TraiterDepuisInventaire(PartLine line, string folderZip)
+        {
+            DocumentsArticle d = _depotInv.Pour(line.PartNumber);
+            if (d == null || !d.Trouve) return false;
+
+            Directory.CreateDirectory(_folderDepot);
+            line.SourceDocuments = "Inventaire";
+
+            DocumentArticle plan = d.De(TypeDocument.Plan);
+            if (plan != null) line.DrawingRevision = plan.Revision;
+
+            foreach (string f in _depotInv.TelechargerPour(line.PartNumber, _folderDepot, LogFromWorker))
+            {
+                line.ExportedFiles.Add(f);
+                if (TypeDocument.DapresFichier(f) == TypeDocument.Plan) line.PlanDisponible = true;
+            }
+
+            // Le formulaire ne part qu'avec une fabrication, et seulement si l'utilisateur
+            // l'a demande.
+            if (_optControle && _optType == RequestType.Fabrication)
+            {
+                string cf = _depotInv.TelechargerControle(line.PartNumber, _folderDepot, LogFromWorker);
+                if (cf != null)
+                {
+                    line.ControlePath = cf;
+                    Log("Contrôle de fabrication (bêta) repris de l'inventaire : " + Path.GetFileName(cf));
+                }
+            }
+
+            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
+            if (inv != null)
+            {
+                line.OldRef = inv.OldRef;
+                InventoryService.Fournisseur chez = inv.Chez(_optFournisseurInventaire, _optSupplierName);
+                if (string.IsNullOrWhiteSpace(line.SupplierRef) && chez != null) line.SupplierRef = chez.Reference;
+                if (string.IsNullOrWhiteSpace(line.PdmSupplier) && chez != null) line.PdmSupplier = chez.Nom;
+                if (string.IsNullOrWhiteSpace(line.Description)) line.Description = inv.Designation;
+            }
+
+            if (line.ExportedFiles.Count == 0)
+            {
+                line.Status = "Sans document";
+                Log("Aucun document dans l'inventaire pour " + line.PartNumber
+                  + " — demande préparée sans pièce jointe, publication à demander au bureau technique.");
+                return true;
+            }
+
+            // Le ZIP naît ici et nulle part ailleurs : la base ne stocke que des fichiers nus.
+            try
+            {
+                string zipPath = Path.Combine(folderZip, SafeName(line.PartNumber) + ".zip");
+                line.ZipPath = ZipService.ZipFiles(line.ExportedFiles, zipPath, _optCompression);
+                Log("Archive : " + Path.GetFileName(line.ZipPath)
+                  + " (" + line.ExportedFiles.Count + " fichier(s) de l'inventaire)");
+            }
+            catch (Exception ex)
+            {
+                Log("ERREUR archive " + line.PartNumber + " : " + ex.Message);
+            }
+
+            // L'acheteur doit voir de quelle revision datent les documents qu'il envoie, et
+            // depuis quand ils dorment.
+            string age = plan == null || plan.JoursDepuisDepot < 0
+                ? "date inconnue"
+                : (plan.JoursDepuisDepot == 0 ? "déposé aujourd'hui"
+                                              : "déposé il y a " + plan.JoursDepuisDepot + " j");
+            if (plan != null)
+            {
+                line.RealizedDate = plan.RevisionDate;
+                Log(line.PartNumber + " : rev " + plan.RevisionAffichee
+                  + " du " + plan.DateAffichee + ", " + age + ".");
+            }
+            line.Status = "Inventaire rev " + (plan == null ? "?" : plan.RevisionAffichee) + " — " + age;
+            return true;
+        }
+
+        /// <summary>
         /// Publie dans le dépôt ce que ce poste vient d'exporter.
         ///
         /// C'est ce qui rend le travail utilisable par les collègues sans SolidWorks : sans
@@ -2999,6 +3111,25 @@ namespace AskThem
             fiche.Etat = line.State;
             if (_controlesExtraits.ContainsKey(line.PartNumber))
                 fiche.Controle = _controlesExtraits[line.PartNumber];
+
+            if (_depotInv != null)
+            {
+                // Les documents partent nus dans l'inventaire, chacun sous sa nature. Le
+                // formulaire de controle a la sienne, et se depose a part.
+                //
+                // La date de revision vient de la propriete lue sur le document. Elle n'est
+                // ni deductible du fichier ni retrouvable ensuite : sans elle, le document
+                // s'affichera « date inconnue » et ne pourra plus etre situe dans l'ordre
+                // des revisions. Ce qu'on ne sait pas lire n'est pas envoye.
+                string dateRev = DateRevision.Normaliser(line.RealizedDate, LogFromWorker);
+
+                _depotInv.Publier(line.PartNumber, fiche.Revision, dateRev, fiche.Etat,
+                                  line.ExportedFiles, LogFromWorker);
+                if (!string.IsNullOrWhiteSpace(line.ControlePath))
+                    _depotInv.PublierControle(line.PartNumber, fiche.Revision, dateRev,
+                                              line.ControlePath, LogFromWorker);
+                return;
+            }
 
             ResultatPublication r = _depot.Publier(fiche, line.ExportedFiles, _optCompression);
             Log(MessageDePublication(line.PartNumber, fiche, r));
@@ -3047,6 +3178,10 @@ namespace AskThem
             line.ControlePath = null;
             line.PlanDisponible = false;
             line.TypeCode = PartNumberFormat.TypeCode(line.PartNumber);
+
+            // La base de l'inventaire prime : c'est elle qui porte les droits et la nature
+            // des documents. Le partage ne sert plus que si elle n'est pas configuree.
+            if (_depotInv != null && TraiterDepuisInventaire(line, folderZip)) return;
 
             FicheArticle fiche = _depot != null ? _depot.Lire(line.PartNumber) : null;
 

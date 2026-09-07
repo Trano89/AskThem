@@ -152,6 +152,39 @@ namespace AskThem
             _fil.Start();
         }
 
+        /// <summary>Session de l'inventaire, ou null si ce n'est pas lui qui porte les documents.</summary>
+        private DepotInventaire Inventaire()
+        {
+            if (!_config.DocumentsDansInventaire) return null;
+
+            DepotInventaire inv = new DepotInventaire(_config);
+            string motif;
+            if (inv.Connecter(out motif))
+            {
+                Journal(motif);
+                return inv;
+            }
+            Journal("Inventaire indisponible : " + motif);
+            inv.Dispose();
+            return null;
+        }
+
+        /// <summary>Références codifiées présentes dans l'index du coffre.</summary>
+        private List<string> ReferencesDuCoffre()
+        {
+            List<string> refs = new List<string>();
+            if (_indexPdm == null) return refs;
+            foreach (string cle in _indexPdm.Keys)
+            {
+                string n = System.IO.Path.GetFileNameWithoutExtension(cle);
+                if (string.IsNullOrWhiteSpace(n)) continue;
+                string numero = PartNumberFormat.Normalize(n, _config.PartNumberPatterns);
+                if (PartNumberFormat.IsValid(numero, _config.PartNumberPatterns) && !refs.Contains(numero))
+                    refs.Add(numero);
+            }
+            return refs;
+        }
+
         private Button Bouton(string texte, int x, int y)
         {
             Button b = new Button();
@@ -224,20 +257,29 @@ namespace AskThem
                 try
                 {
                     DepotArticles depot = new DepotArticles(_config);
-                    if (!depot.Lisible())
-                        Journal("ATTENTION : la base articles n'est pas joignable depuis ce poste.");
-
                     CampagneDepot campagne = new CampagneDepot(_config, depot, Journal,
                                                                delegate { return _annule; });
 
                     CampagneDepot.Options o = OptionsChoisies();
                     o.RecensementSeul = true;
 
-                    _candidats = campagne.Recenser(_indexPdm, o);
-                    CampagneDepot.Bilan bilan = campagne.Executer(_candidats, o, Avancement);
-                    _dernierRapport = bilan.CheminRapport;
+                    using (DepotInventaire inv = Inventaire())
+                    {
+                        if (inv != null)
+                        {
+                            campagne.PublierDansInventaire(inv);
+                            inv.Charger(ReferencesDuCoffre(), Journal);
+                        }
+                        else if (!depot.Lisible())
+                        {
+                            Journal("ATTENTION : aucune base documentaire n'est joignable depuis ce poste.");
+                        }
 
-                    Resume(bilan, true);
+                        _candidats = campagne.Recenser(_indexPdm, o);
+                        CampagneDepot.Bilan bilan = campagne.Executer(_candidats, o, Avancement);
+                        _dernierRapport = bilan.CheminRapport;
+                        Resume(bilan, true);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -307,18 +349,36 @@ namespace AskThem
                 try
                 {
                     DepotArticles depot = new DepotArticles(_config);
-                    string raison;
-                    if (!depot.Amorcer(out raison))
-                    {
-                        Journal("La base articles n'est pas accessible en écriture — " + raison);
-                        return;
-                    }
-
                     CampagneDepot campagne = new CampagneDepot(_config, depot, Journal,
                                                                delegate { return _annule; });
-                    CampagneDepot.Bilan bilan = campagne.Executer(_candidats, OptionsChoisies(), Avancement);
-                    _dernierRapport = bilan.CheminRapport;
-                    Resume(bilan, false);
+
+                    using (DepotInventaire inv = Inventaire())
+                    {
+                        if (inv != null)
+                        {
+                            if (!inv.PeutPublier)
+                            {
+                                Journal("Votre compte ne peut pas déposer de documents dans "
+                                      + "l'inventaire : la campagne s'arrête ici.");
+                                return;
+                            }
+                            campagne.PublierDansInventaire(inv);
+                            inv.Charger(ReferencesDuCoffre(), Journal);
+                        }
+                        else
+                        {
+                            string raison;
+                            if (!depot.Amorcer(out raison))
+                            {
+                                Journal("Aucune base accessible en écriture — " + raison);
+                                return;
+                            }
+                        }
+
+                        CampagneDepot.Bilan bilan = campagne.Executer(_candidats, OptionsChoisies(), Avancement);
+                        _dernierRapport = bilan.CheminRapport;
+                        Resume(bilan, false);
+                    }
                 }
                 catch (Exception ex)
                 {
