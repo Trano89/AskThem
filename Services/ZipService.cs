@@ -1,6 +1,8 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Text;
 
 namespace AskThem.Services
 {
@@ -43,6 +45,72 @@ namespace AskThem.Services
                 }
             }
             return zipPath;
+        }
+
+        /// <summary>
+        /// Lit une entrée texte d'une archive, sans la décompresser sur le disque.
+        ///
+        /// Sert à relire le manifeste rangé dans l'archive d'un article : c'est lui qui porte
+        /// l'empreinte des sources, donc la seule façon exacte de savoir si l'archive est
+        /// encore à jour. Renvoie null si l'archive ou l'entrée manquent.
+        /// </summary>
+        public static string LireEntree(string zipPath, string nomEntree)
+        {
+            try
+            {
+                if (!File.Exists(zipPath)) return null;
+                using (ZipArchive zip = ZipFile.OpenRead(zipPath))
+                {
+                    ZipArchiveEntry entree = zip.GetEntry(nomEntree);
+                    if (entree == null) return null;
+                    using (StreamReader lecteur = new StreamReader(entree.Open(), Encoding.UTF8))
+                        return lecteur.ReadToEnd();
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Archive illisible (" + zipPath + ") : " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Extrait une archive dans un dossier, en écartant les entrées nommées dans
+        /// <paramref name="exclusions"/>. Renvoie les chemins extraits.
+        ///
+        /// L'exclusion sert au manifeste : il décrit l'article pour nous, il n'a rien à faire
+        /// dans ce qu'on envoie à un fournisseur.
+        /// </summary>
+        public static List<string> Extraire(string zipPath, string dossierCible, params string[] exclusions)
+        {
+            List<string> extraits = new List<string>();
+            try
+            {
+                if (!File.Exists(zipPath)) return extraits;
+                Directory.CreateDirectory(dossierCible);
+
+                using (ZipArchive zip = ZipFile.OpenRead(zipPath))
+                {
+                    foreach (ZipArchiveEntry entree in zip.Entries)
+                    {
+                        if (string.IsNullOrEmpty(entree.Name)) continue;       // dossier
+
+                        bool ecartee = false;
+                        foreach (string x in exclusions)
+                            if (string.Equals(entree.Name, x, StringComparison.OrdinalIgnoreCase)) ecartee = true;
+                        if (ecartee) continue;
+
+                        string cible = Path.Combine(dossierCible, entree.Name);
+                        entree.ExtractToFile(cible, true);
+                        extraits.Add(cible);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Extraction impossible (" + zipPath + ") : " + ex.Message);
+            }
+            return extraits;
         }
     }
 }

@@ -60,6 +60,9 @@ namespace AskThem.Services
             // n'existe pas sur les postes ou elle n'a pas ete montee. On les ramene a la forme
             // UNC a chaque lecture, sans reecrire le fichier de l'utilisateur.
             config.ArchiveRoot = EnUnc(config.ArchiveRoot);
+            config.DepotArticlesRoot = EnUnc(config.DepotArticlesRoot);
+            if (config.CategoriesCampagne == null || config.CategoriesCampagne.Count == 0)
+                config.CategoriesCampagne = new List<string> { "21", "22", "24" };
             config.SupplierListPath = EnUnc(config.SupplierListPath);
             config.InventoryExportPath = EnUnc(config.InventoryExportPath);
 

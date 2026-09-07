@@ -73,6 +73,17 @@ namespace AskThem.Models
         public string ArchiveRoot { get; set; }
 
         /// <summary>
+        /// Où vivent les archives de la base articles. Vide : à la racine des demandes.
+        /// </summary>
+        public string DepotArticlesRoot { get; set; }
+
+        /// <summary>Catégories retenues par une campagne de mise à jour de la base.</summary>
+        public List<string> CategoriesCampagne { get; set; }
+
+        /// <summary>Ne publier que les articles dont l'état figure dans ReleasedStates.</summary>
+        public bool PublierSeulementLiberes { get; set; }
+
+        /// <summary>
         /// Formats de numéro d'article acceptés, décrits par les longueurs de groupes.
         /// "3-5-2" décrit XYZ-AAAAA-BB. Le PREMIER sert à insérer les tirets
         /// automatiquement quand ils ne sont pas saisis. Liste vide = aucun contrôle.
@@ -134,6 +145,9 @@ namespace AskThem.Models
             InventoryUser = "";
             InventoryExportPath = "\\\\zeus\\production\\PRODUCTION\\14) Documents techniques\\AskThem_Liste fournisseurs\\inventaire.xlsx";
             CheckUpdatesOnStartup = true;
+            DepotArticlesRoot = "";
+            CategoriesCampagne = new List<string> { "21", "22", "24" };
+            PublierSeulementLiberes = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
 
             //                                   intitulé                              autorisé fabric.  3D     2D   fourn. figé

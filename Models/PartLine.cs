@@ -82,6 +82,19 @@ namespace AskThem.Models
         /// <summary>Archive ZIP propre à cet article.</summary>
         public string ZipPath { get; set; }
 
+        /// <summary>
+        /// Vrai si un plan accompagne réellement cette ligne.
+        ///
+        /// On ne peut pas le déduire de DrawingPath : sur un poste sans SolidWorks, le plan
+        /// vient de la base articles et aucun chemin de coffre n'est renseigné. Sans ce
+        /// drapeau, l'avertissement « sans plan » se déclencherait sur des articles dont le
+        /// plan est pourtant joint.
+        /// </summary>
+        public bool PlanDisponible { get; set; }
+
+        /// <summary>D'où viennent les documents : "", "Coffre" ou "Base articles".</summary>
+        public string SourceDocuments { get; set; }
+
         /// <summary>Révision à afficher : celle du plan si connue, sinon celle du modèle.</summary>
         public string EffectiveRevision
         {

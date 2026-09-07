@@ -32,7 +32,14 @@ namespace AskThem.Services
         public static string BuildBody(RequestType type, List<PartLine> lines, string project,
                                       string deadline, string conditions, string poFileName)
         {
-            return BuildBody(type, lines, project, deadline, conditions, poFileName, false);
+            return BuildBody(type, lines, project, deadline, conditions, poFileName, false, 0);
+        }
+
+        public static string BuildBody(RequestType type, List<PartLine> lines, string project,
+                                      string deadline, string conditions, string poFileName,
+                                      bool catalogue)
+        {
+            return BuildBody(type, lines, project, deadline, conditions, poFileName, catalogue, 0);
         }
 
         /// <summary>
@@ -42,7 +49,7 @@ namespace AskThem.Services
         /// </summary>
         public static string BuildBody(RequestType type, List<PartLine> lines, string project,
                                       string deadline, string conditions, string poFileName,
-                                      bool catalogue)
+                                      bool catalogue, int nbArchives)
         {
             string html = LoadTemplate(type, catalogue);
             string projectText = string.IsNullOrWhiteSpace(project) ? "-" : project.Trim();
@@ -55,7 +62,30 @@ namespace AskThem.Services
             html = html.Replace("{{COMMENTAIRE}}", BuildCommentaire(conditions));
             html = html.Replace("{{NOTES}}", BuildNotes(type, lines, catalogue));
             html = html.Replace("{{PO}}", BuildPo(type, poFileName));
+            html = html.Replace("{{FICHIERS}}", BuildFichiers(type, catalogue, nbArchives));
             return html;
+        }
+
+        /// <summary>
+        /// Annonce des pièces jointes, ou son absence.
+        ///
+        /// La phrase etait auparavant ecrite en dur dans les modeles : un message sans aucune
+        /// piece jointe affirmait quand meme au fournisseur que les fichiers etaient joints.
+        /// Il vaut mieux le prevenir que le laisser chercher.
+        /// </summary>
+        private static string BuildFichiers(RequestType type, bool catalogue, int nbArchives)
+        {
+            if (catalogue || type == RequestType.CommandeCatalogue) return "";
+
+            if (nbArchives > 0) return
+                "<p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive "
+              + "par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) "
+              + "lorsqu'il existe.</p>";
+
+            return
+                "<p><b>Aucun document n'accompagne ce message.</b> Les plans et modèles vous "
+              + "seront transmis séparément : merci de ne rien engager avant de les avoir "
+              + "reçus.</p>";
         }
 
         /// <summary>
@@ -333,7 +363,7 @@ Délai souhaité : <b>{{DELAI}}</b></p>
 {{TABLEAU}}
 {{COMMENTAIRE}}
 {{PO}}
-<p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) lorsqu'il existe.</p>
+{{FICHIERS}}
 <p>Dans l'attente de votre retour, nous vous adressons nos meilleures salutations.</p>
 {{NOTES}}
 </div>
@@ -351,7 +381,7 @@ Délai souhaité : <b>{{DELAI}}</b></p>
 {{TABLEAU}}
 {{COMMENTAIRE}}
 {{PO}}
-<p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive par article, contenant le modèle 3D (STEP AP203) et le plan (PDF et DXF) lorsqu'il existe.</p>
+{{FICHIERS}}
 <p>Avec nos remerciements et nos meilleures salutations.</p>
 {{NOTES}}
 </div>

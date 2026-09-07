@@ -81,7 +81,8 @@ namespace AskThem
         private Button btnInventaire;
         private Label pastilleInventaire;
         private Label lblPoste;
-        private DepotExports _depot;
+        private Button btnBaseArticles;
+        private DepotArticles _depot;
         private string _folderDepot;
         private volatile bool inventaireConnecte;
 
@@ -248,10 +249,18 @@ namespace AskThem
             btnInventaire = MakeToolButton("Inventaire…");
             btnInventaire.Click += new EventHandler(BtnInventaire_Click);
 
+            btnBaseArticles = MakeToolButton("Base articles…");
+            btnBaseArticles.Click += new EventHandler(BtnBaseArticles_Click);
+
             // Les boutons s'enchaînent selon leur largeur mesurée : aucune position figée.
+            // La campagne n'a de sens que sur un poste qui sait produire des documents : le
+            // bouton n'apparaît pas ailleurs, plutôt que d'être présent et de refuser.
+            List<Button> boutons = new List<Button> { btnAddLine, btnPaste, btnImportCsv,
+                                                      btnExportCsv, btnClear, btnInventaire };
+            if (SolidWorksExporter.EstPosteEquipe()) boutons.Add(btnBaseArticles);
+
             int x = 12;
-            foreach (Button b in new Button[] { btnAddLine, btnPaste, btnImportCsv,
-                                                btnExportCsv, btnClear, btnInventaire })
+            foreach (Button b in boutons)
             {
                 b.Location = new Point(x, 8);
                 panelTools.Controls.Add(b);
@@ -259,7 +268,7 @@ namespace AskThem
             }
             pastilleInventaire = new Label();
             pastilleInventaire.Size = new Size(14, 14);
-            pastilleInventaire.Location = new Point(btnInventaire.Right + 8, btnInventaire.Top + (btnInventaire.Height - 14) / 2);
+            pastilleInventaire.Location = new Point(x, btnInventaire.Top + (btnInventaire.Height - 14) / 2);
             using (System.Drawing.Drawing2D.GraphicsPath rond = new System.Drawing.Drawing2D.GraphicsPath())
             {
                 rond.AddEllipse(0, 0, 14, 14);
@@ -280,6 +289,40 @@ namespace AskThem
 
             panelTools.Height = btnAddLine.Height + 16;
             AfficherEtatInventaire(false, "État de la connexion inconnu.");
+        }
+
+        /// <summary>
+        /// Ouvre la campagne de mise à jour de la base articles.
+        ///
+        /// L'index du coffre est construit avant d'ouvrir la fenêtre : sans lui, le
+        /// recensement n'aurait rien à comparer. C'est quelques secondes, pas davantage.
+        /// </summary>
+        private void BtnBaseArticles_Click(object sender, EventArgs e)
+        {
+            if (_busy) return;
+            SetBusy(true);
+            Log("Analyse du coffre avant recensement…");
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                try
+                {
+                    BuildPdmIndex();
+                    UiInvoke(delegate
+                    {
+                        using (CampagneDepotDialog dlg = new CampagneDepotDialog(_config, _pdmIndex))
+                            dlg.ShowDialog(this);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log("ERREUR : " + ex.Message);
+                }
+                finally
+                {
+                    SetBusy(false);
+                }
+            });
         }
 
         /// <summary>Crée un bouton de la barre d'outils (140 x 30).</summary>
@@ -1243,6 +1286,20 @@ namespace AskThem
             {
                 try { ArchiveEnAttente.Reprendre(_config, LogFromWorker); }
                 catch (Exception ex) { LogService.Write("Reprise des demandes en attente : " + ex.Message); }
+
+                // Une campagne interrompue n'a pas besoin d'être reprise pas à pas : un
+                // nouveau recensement retrouve exactement ce qui reste, puisque les articles
+                // déjà publiés ressortent « à jour ». On se contente de le rappeler.
+                try
+                {
+                    CampagneDepot.Etat etat = CampagneDepot.Etat.Lire();
+                    if (etat != null)
+                        LogFromWorker("Une campagne de base articles a été interrompue le "
+                                    + etat.DebutLe.ToString("dd.MM.yyyy à HH:mm") + " : "
+                                    + etat.Restants.Count + " article(s) restaient à faire. "
+                                    + "Relancez un recensement pour reprendre.");
+                }
+                catch (Exception ex) { LogService.Write("Etat de campagne illisible : " + ex.Message); }
             });
         }
 
@@ -1573,16 +1630,16 @@ namespace AskThem
             bool equipe = SolidWorksExporter.EstPosteEquipe();
 
             lblPoste.Text = equipe
-                ? "Poste équipé : plans et modèles disponibles"
-                : "Poste sans SolidWorks : demandes catalogue uniquement";
+                ? "Poste équipé : plans et modèles produits depuis le coffre"
+                : "Poste sans SolidWorks : documents lus dans la base articles";
             lblPoste.ForeColor = equipe ? Color.Gray : Color.FromArgb(154, 98, 6);
 
             toolTip.SetToolTip(lblPoste, equipe
                 ? "SolidWorks est installé : les plans, modèles 3D et contrôles de fabrication "
                   + "peuvent être produits depuis ce poste."
-                : "SolidWorks n'est pas installé sur ce poste. Les demandes d'articles de "
-                  + "catalogue fonctionnent normalement ; celles qui exigent un plan devront "
-                  + "être préparées depuis un poste équipé.");
+                : "SolidWorks n'est pas installé sur ce poste. Les plans et modèles sont lus "
+                  + "dans la base articles du réseau ; ceux qui n'y figurent pas doivent être "
+                  + "publiés depuis un poste équipé.");
         }
 
         /// <summary>Couleur et infobulle de la pastille, selon l'état de la connexion.</summary>
@@ -2440,10 +2497,10 @@ namespace AskThem
             Directory.CreateDirectory(folderZip);
             if (_optControle) Directory.CreateDirectory(folderControles);
 
-            // Le depot partage : un poste equipe y publie ce qu'il exporte, un poste sans
+            // La base articles : un poste equipe y publie ce qu'il exporte, un poste sans
             // SolidWorks y lit ce qu'il ne peut pas produire.
-            _depot = new DepotExports(DepotExports.RacineParDefaut(_config));
-            _folderDepot = Path.Combine(outputFolder, "Documents_depot");
+            _depot = new DepotArticles(_config);
+            _folderDepot = Path.Combine(outputFolder, "Documents_base_articles");
 
             _archivePath = outputFolder;
             Log("Dossier de la demande : " + outputFolder);
@@ -2499,9 +2556,9 @@ namespace AskThem
                 // ce qui peut etre joint vient du depot, et ce qui manque est annonce au lieu
                 // d'interrompre la demande.
                 Directory.CreateDirectory(_folderDepot);
-                Log(_depot.Accessible()
-                    ? "Poste sans SolidWorks : lecture du dépôt d'exports."
-                    : "Poste sans SolidWorks et dépôt d'exports injoignable : la demande se prépare sans pièce jointe.");
+                Log(_depot.Lisible()
+                    ? "Poste sans SolidWorks : lecture de la base articles."
+                    : "Poste sans SolidWorks et base articles injoignable : la demande se prépare sans pièce jointe.");
 
                 for (int i = 0; i < total; i++)
                 {
@@ -2629,7 +2686,8 @@ namespace AskThem
                         string subject = EmailBuilder.BuildSubject(_optType, _optProject, lot.Lignes.Count)
                                        + Numerotation(i + 1, lots.Count);
                         string body = EmailBuilder.BuildBody(_optType, lot.Lignes, _optProject, _optDeadline,
-                                                             _optConditions, i == 0 ? nomPo : "", _optCatalogue);
+                                                             _optConditions, i == 0 ? nomPo : "", _optCatalogue,
+                                                             lot.PiecesJointes.Count);
 
                         List<string> pieces = new List<string>(lot.PiecesJointes);
                         if (poJoignable && i == 0) pieces.Add(cheminPo);
@@ -2738,7 +2796,9 @@ namespace AskThem
                         List<string> created = exporter.ExportDrawing(doc, folder2D, baseName);
                         line.ExportedFiles.AddRange(created);
                         foreach (string f in created) Log("Plan : " + Path.GetFileName(f));
+                        if (created.Count > 0) line.PlanDisponible = true;
                     }
+                    line.SourceDocuments = "Coffre";
 
                     // Le controle est tire du plan deja ouvert : le document n'est jamais
                     // rouvert. Un echec ici ne touche ni l'export PDF/DXF ni les autres articles.
@@ -2824,25 +2884,46 @@ namespace AskThem
         /// </summary>
         private void PublierAuDepot(PartLine line)
         {
-            if (_depot == null || !_depot.Accessible()) return;
-            if (line.ExportedFiles == null || line.ExportedFiles.Count == 0) return;
+            if (_depot == null || line.ExportedFiles == null || line.ExportedFiles.Count == 0) return;
 
-            string empreinte = DepotExports.Empreinte(line.Model3DPath, line.DrawingPath);
+            string empreinte = DepotArticles.Empreinte(line.Model3DPath, line.DrawingPath);
             if (empreinte == "") return;
-            if (_depot.Existe(line.PartNumber, empreinte)) return;
 
-            DepotExports.Manifeste m = new DepotExports.Manifeste();
-            m.NoArticle = line.PartNumber;
-            m.Empreinte = empreinte;
-            m.Designation = line.Description;
-            m.RevisionPlan = line.DrawingRevision;
-            m.RevisionModele = line.Revision;
-            m.Matiere = line.Material;
-            m.Traitement = line.Treatment;
-            m.Etat = line.State;
+            FicheArticle fiche = new FicheArticle();
+            fiche.NoArticle = line.PartNumber;
+            fiche.Empreinte = empreinte;
+            fiche.Designation = line.Description;
+            fiche.Revision = string.IsNullOrWhiteSpace(line.DrawingRevision) ? line.Revision : line.DrawingRevision;
+            fiche.RevisionModele = line.Revision;
+            fiche.Matiere = line.Material;
+            fiche.Traitement = line.Treatment;
+            fiche.Etat = line.State;
 
-            if (_depot.Publier(m, line.ExportedFiles))
-                Log("Dépôt : " + line.PartNumber + " publié (" + m.Fichiers.Count + " fichier(s)).");
+            ResultatPublication r = _depot.Publier(fiche, line.ExportedFiles, _optCompression);
+            Log(MessageDePublication(line.PartNumber, fiche, r));
+        }
+
+        /// <summary>Ce qu'on écrit au journal pour une tentative de publication.</summary>
+        private static string MessageDePublication(string article, FicheArticle fiche, ResultatPublication r)
+        {
+            switch (r)
+            {
+                case ResultatPublication.Publie:
+                    return "Base articles : " + article + " rev " + fiche.RevisionAffichee
+                         + " publié (" + fiche.Fichiers.Count + " fichier(s)).";
+                case ResultatPublication.Remplace:
+                    return "Base articles : " + article + " remplacé par rev " + fiche.RevisionAffichee
+                         + " ; l'archive précédente est dans " + DepotArticles.DossierAnciennes + ".";
+                case ResultatPublication.Inchange:
+                    return "Base articles : " + article + " déjà à jour, rien à republier.";
+                case ResultatPublication.RefuseNonLibere:
+                    return "Base articles : " + article + " NON publié — état « " + fiche.Etat
+                         + " » hors des états libérés.";
+                case ResultatPublication.DepotIndisponible:
+                    return "Base articles injoignable : " + article + " non publié.";
+                default:
+                    return "Base articles : échec de publication pour " + article + ".";
+            }
         }
 
         /// <summary>
@@ -2861,45 +2942,43 @@ namespace AskThem
             line.ZipPath = null;
             line.TypeCode = PartNumberFormat.TypeCode(line.PartNumber);
 
-            DepotExports.Manifeste m = _depot != null ? _depot.Lire(line.PartNumber) : null;
+            FicheArticle fiche = _depot != null ? _depot.Lire(line.PartNumber) : null;
 
-            if (m == null)
+            if (fiche == null)
             {
-                line.Status = "Sans export";
-                Log("Aucun export publié pour " + line.PartNumber
-                    + " — demande préparée sans pièce jointe, export à demander au bureau technique.");
+                line.Status = "Sans document";
+                Log("Aucune archive dans la base articles pour " + line.PartNumber
+                    + " — demande préparée sans pièce jointe, publication à demander au bureau technique.");
             }
             else
             {
-                if (string.IsNullOrWhiteSpace(line.Description)) line.Description = m.Designation;
-                line.DrawingRevision = m.RevisionPlan;
-                line.Revision = m.RevisionModele;
-                line.Material = m.Matiere;
-                line.Treatment = m.Traitement;
-                line.State = m.Etat;
+                if (string.IsNullOrWhiteSpace(line.Description)) line.Description = fiche.Designation;
+                line.DrawingRevision = fiche.Revision;
+                line.Revision = fiche.RevisionModele;
+                line.Material = fiche.Matiere;
+                line.Treatment = fiche.Traitement;
+                line.State = fiche.Etat;
+                line.SourceDocuments = "Base articles";
 
-                foreach (string source in _depot.Fichiers(m))
+                foreach (string extrait in _depot.ExtraireVers(line.PartNumber, _folderDepot))
                 {
-                    try
-                    {
-                        string cible = Path.Combine(_folderDepot, Path.GetFileName(source));
-                        File.Copy(source, cible, true);
-                        line.ExportedFiles.Add(cible);
-                    }
-                    catch (Exception ex)
-                    {
-                        Log("ERREUR copie depuis le dépôt (" + line.PartNumber + ") : " + ex.Message);
-                    }
+                    line.ExportedFiles.Add(extrait);
+                    string ext = Path.GetExtension(extrait);
+                    if (string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase)
+                        && !Path.GetFileName(extrait).StartsWith("CF_", StringComparison.OrdinalIgnoreCase))
+                        line.PlanDisponible = true;
                 }
 
-                string age = m.JoursDepuisExport < 0
+                string age = fiche.JoursDepuisPublication < 0
                     ? "date inconnue"
-                    : (m.JoursDepuisExport == 0 ? "exporté aujourd'hui" : "exporté il y a " + m.JoursDepuisExport + " j");
-                string revision = string.IsNullOrWhiteSpace(m.RevisionPlan) ? "?" : m.RevisionPlan;
+                    : (fiche.JoursDepuisPublication == 0 ? "publié aujourd'hui"
+                                                         : "publié il y a " + fiche.JoursDepuisPublication + " j");
 
-                line.Status = line.ExportedFiles.Count > 0 ? "Dépôt — " + age : "Dépôt vide";
-                Log(line.PartNumber + " : " + line.ExportedFiles.Count + " fichier(s) du dépôt, "
-                    + age + ", révision " + revision + ", publié par " + m.ExportePar + ".");
+                line.Status = line.ExportedFiles.Count > 0
+                    ? "Base articles rev " + fiche.RevisionAffichee + " — " + age
+                    : "Archive vide";
+                Log(line.PartNumber + " : " + line.ExportedFiles.Count + " fichier(s) de la base articles, rev "
+                    + fiche.RevisionAffichee + ", " + age + ", par " + fiche.PubliePar + ".");
             }
 
             // Ce que l'inventaire sait de cet article : accessible depuis n'importe quel poste.
@@ -2973,7 +3052,7 @@ namespace AskThem
                 ArticleTypeRule regle = RuleFor(l.PartNumber);
 
                 // On ne réclame un plan que pour les types qui doivent en avoir un.
-                if (regle.Export2D && l.DrawingPath == null) sansPlan.Add(l.PartNumber);
+                if (regle.Export2D && !l.PlanDisponible) sansPlan.Add(l.PartNumber);
 
                 if (!string.IsNullOrWhiteSpace(l.SupplierRef)) referencesLues++;
                 if (!regle.SupplierImposed) continue;
