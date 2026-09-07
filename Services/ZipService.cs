@@ -75,6 +75,31 @@ namespace AskThem.Services
         }
 
         /// <summary>
+        /// Lit le commentaire d'une archive.
+        ///
+        /// C'est là que vit le manifeste d'un article : porté par le fichier, il n'apparaît
+        /// pas dans la liste de son contenu et ne peut donc pas partir chez un fournisseur,
+        /// même si quelqu'un joint l'archive telle quelle à un message.
+        /// </summary>
+        public static string LireCommentaire(string zipPath)
+        {
+            try
+            {
+                if (!File.Exists(zipPath)) return null;
+                using (ZipArchive zip = ZipFile.OpenRead(zipPath))
+                {
+                    string c = zip.Comment;
+                    return string.IsNullOrWhiteSpace(c) ? null : c;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Commentaire d'archive illisible (" + zipPath + ") : " + ex.Message);
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Extrait une archive dans un dossier, en écartant les entrées nommées dans
         /// <paramref name="exclusions"/>. Renvoie les chemins extraits.
         ///

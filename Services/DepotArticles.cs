@@ -16,6 +16,7 @@ namespace AskThem.Services
         Publie,
         Remplace,
         RefuseNonLibere,
+        RefuseHorsProduction,
         DepotIndisponible,
         Echec
     }
@@ -90,7 +91,14 @@ namespace AskThem.Services
     /// </summary>
     public class DepotArticles
     {
-        /// <summary>Nom du manifeste rangé dans chaque archive.</summary>
+        /// <summary>
+        /// Nom du manifeste dans les archives d'avant le reconditionnement.
+        ///
+        /// Le manifeste vit désormais dans le commentaire de l'archive : un fichier étranger
+        /// au milieu d'un plan et d'un STEP finit tôt ou tard chez un fournisseur, le jour où
+        /// quelqu'un joint l'archive telle quelle. Ce nom ne sert plus qu'à relire les
+        /// archives déjà publiées et à les reconditionner.
+        /// </summary>
         public const string NomManifeste = "article.json";
 
         /// <summary>Où atterrissent les archives remplacées.</summary>
@@ -266,10 +274,17 @@ namespace AskThem.Services
             return archive == null ? null : LireArchive(archive);
         }
 
-        /// <summary>Manifeste rangé dans une archive donnée, ou null.</summary>
+        /// <summary>
+        /// Manifeste d'une archive, ou null.
+        ///
+        /// On lit d'abord le commentaire, puis à défaut l'ancienne entrée : les archives
+        /// publiées avant le reconditionnement restent parfaitement lisibles, et ne sont donc
+        /// pas régénérées pour rien.
+        /// </summary>
         public static FicheArticle LireArchive(string cheminArchive)
         {
-            string json = ZipService.LireEntree(cheminArchive, NomManifeste);
+            string json = ZipService.LireCommentaire(cheminArchive);
+            if (json == null) json = ZipService.LireEntree(cheminArchive, NomManifeste);
             if (json == null) return null;
             try
             {
@@ -344,6 +359,7 @@ namespace AskThem.Services
             if (fichiersSource == null || fichiersSource.Count == 0) return ResultatPublication.Echec;
             if (string.IsNullOrWhiteSpace(fiche.Empreinte)) return ResultatPublication.Echec;
             if (!Lisible()) return ResultatPublication.DepotIndisponible;
+            if (!EstDeProduction(fiche.NoArticle)) return ResultatPublication.RefuseHorsProduction;
             if (!EstLibere(fiche.Etat)) return ResultatPublication.RefuseNonLibere;
 
             string existante = TrouverArchive(fiche.NoArticle);
@@ -384,9 +400,7 @@ namespace AskThem.Services
                         if (string.IsNullOrWhiteSpace(source) || !File.Exists(source)) continue;
                         zip.CreateEntryFromFile(source, Path.GetFileName(source), niveau);
                     }
-                    ZipArchiveEntry entree = zip.CreateEntry(NomManifeste, niveau);
-                    using (StreamWriter ecrivain = new StreamWriter(entree.Open(), Encoding.UTF8))
-                        ecrivain.Write(manifeste);
+                    zip.Comment = manifeste;
                 }
 
                 // 2. L'archive en place est rangée avant d'être remplacée.
@@ -409,6 +423,88 @@ namespace AskThem.Services
                 catch (Exception) { }
                 return ResultatPublication.Echec;
             }
+        }
+
+        /// <summary>
+        /// Sort le manifeste des archives où il est encore un fichier.
+        ///
+        /// Rien n'est régénéré : on recopie les entrées utiles dans une nouvelle archive et on
+        /// place le manifeste dans son commentaire. Aucune ouverture de SolidWorks, quelques
+        /// secondes pour tout le dépôt. Renvoie le nombre d'archives reconditionnées.
+        /// </summary>
+        public int Reconditionner(Action<string> journal)
+        {
+            if (!Lisible()) return 0;
+            int faites = 0;
+
+            string[] archives;
+            try { archives = Directory.GetFiles(_racine, "*" + Separateur + "*.zip"); }
+            catch (Exception) { return 0; }
+
+            int sorties = 0;
+            foreach (string archive in archives)
+            {
+                try
+                {
+                    // Une référence de projet publiée par erreur est sortie de la base. On la
+                    // range plutôt que de la supprimer : rien ne se perd sans recours.
+                    string nom = Path.GetFileNameWithoutExtension(archive);
+                    int coupe = nom.LastIndexOf(Separateur, StringComparison.Ordinal);
+                    string numero = coupe > 0 ? nom.Substring(0, coupe).Trim() : nom;
+                    if (!EstDeProduction(numero))
+                    {
+                        Archiver(archive);
+                        sorties++;
+                        continue;
+                    }
+
+                    if (ZipService.LireCommentaire(archive) != null) continue;   // déjà fait
+
+                    string manifeste = ZipService.LireEntree(archive, NomManifeste);
+                    if (manifeste == null) continue;                             // rien à sortir
+
+                    string temporaire = archive + ".tmp-" + Guid.NewGuid().ToString("N").Substring(0, 8);
+
+                    using (ZipArchive source = ZipFile.OpenRead(archive))
+                    using (ZipArchive cible = ZipFile.Open(temporaire, ZipArchiveMode.Create))
+                    {
+                        foreach (ZipArchiveEntry entree in source.Entries)
+                        {
+                            if (string.IsNullOrEmpty(entree.Name)) continue;
+                            if (string.Equals(entree.Name, NomManifeste, StringComparison.OrdinalIgnoreCase)) continue;
+
+                            ZipArchiveEntry copie = cible.CreateEntry(entree.Name, CompressionLevel.Optimal);
+                            using (Stream lu = entree.Open())
+                            using (Stream ecrit = copie.Open())
+                                lu.CopyTo(ecrit);
+                        }
+                        cible.Comment = manifeste;
+                    }
+
+                    File.Delete(archive);
+                    File.Move(temporaire, archive);
+                    faites++;
+                }
+                catch (Exception ex)
+                {
+                    LogService.Write("Reconditionnement impossible pour "
+                                   + Path.GetFileName(archive) + " : " + ex.Message);
+                }
+            }
+
+            if (journal != null)
+            {
+                try
+                {
+                    if (faites > 0)
+                        journal(faites + " archive(s) reconditionnée(s) : le manifeste est passé dans le commentaire.");
+                    if (sorties > 0)
+                        journal(sorties + " référence(s) de projet sortie(s) de la base vers "
+                              + DossierAnciennes + " : elles n'ont pas leur place en production.");
+                }
+                catch (Exception) { }
+            }
+            return faites;
         }
 
         /// <summary>
@@ -440,6 +536,21 @@ namespace AskThem.Services
                 }
             }
             File.Move(archive, cible);
+        }
+
+        /// <summary>
+        /// Vrai si ce numéro désigne un article de production.
+        ///
+        /// La codification commence par une lettre d'origine. Le coffre contient aussi des
+        /// références de projet, préfixées d'un dièse : elles restent utilisables pour une
+        /// demande ponctuelle — le format les accepte délibérément — mais elles n'ont rien à
+        /// faire dans la base documentaire de production, qui doit ne contenir que des
+        /// articles établis.
+        /// </summary>
+        public static bool EstDeProduction(string noArticle)
+        {
+            if (string.IsNullOrWhiteSpace(noArticle)) return false;
+            return char.IsLetter(noArticle.Trim()[0]);
         }
 
         /// <summary>

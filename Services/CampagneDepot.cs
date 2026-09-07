@@ -157,6 +157,10 @@ namespace AskThem.Services
             List<Candidat> candidats = new List<Candidat>();
             if (indexPdm == null) return candidats;
 
+            // Les archives d'avant le reconditionnement portent encore leur manifeste en
+            // fichier : on le sort avant toute chose, sans rien régénérer.
+            _depot.Reconditionner(_journal);
+
             List<string> articles = new List<string>();
             foreach (string cle in indexPdm.Keys)
             {
@@ -183,6 +187,16 @@ namespace AskThem.Services
             {
                 Candidat c = new Candidat();
                 c.NoArticle = numero;
+
+                // Les références de projet restent disponibles pour une demande ponctuelle,
+                // mais n'entrent pas dans la base de production.
+                if (!DepotArticles.EstDeProduction(numero))
+                {
+                    c.Verdict = "ignoré (projet)";
+                    candidats.Add(c);
+                    continue;
+                }
+
                 c.Modele = PdmSearchService.Find3DInIndex(indexPdm, numero);
                 c.Plan = PdmSearchService.FindDrawingInIndex(indexPdm, numero);
 

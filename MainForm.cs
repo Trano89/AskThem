@@ -2916,6 +2916,9 @@ namespace AskThem
                          + " ; l'archive précédente est dans " + DepotArticles.DossierAnciennes + ".";
                 case ResultatPublication.Inchange:
                     return "Base articles : " + article + " déjà à jour, rien à republier.";
+                case ResultatPublication.RefuseHorsProduction:
+                    return "Base articles : " + article + " NON publié — référence de projet, "
+                         + "hors de la base de production.";
                 case ResultatPublication.RefuseNonLibere:
                     return "Base articles : " + article + " NON publié — état « " + fiche.Etat
                          + " » hors des états libérés.";
