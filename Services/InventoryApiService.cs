@@ -505,6 +505,15 @@ namespace AskThem.Services
         public string Telecharger(int articleId, DocumentArticle document, string dossierCible,
                                   out string message)
         {
+            return Telecharger(articleId, document, dossierCible, "", out message);
+        }
+
+        /// <param name="nomDeSecours">
+        /// Base du nom si le serveur n'en donne aucun — le numéro d'article, en pratique.
+        /// </param>
+        public string Telecharger(int articleId, DocumentArticle document, string dossierCible,
+                                  string nomDeSecours, out string message)
+        {
             message = "";
             if (!Connected || articleId <= 0 || document == null) return null;
             try
@@ -515,12 +524,22 @@ namespace AskThem.Services
                 if (!rep.IsSuccessStatusCode)
                 {
                     message = "Téléchargement refusé (" + (int)rep.StatusCode + ") pour "
-                            + document.Filename + ".";
+                            + TypeDocument.Libelle(document.Kind) + ".";
                     return null;
                 }
 
-                string nom = string.IsNullOrWhiteSpace(document.Filename)
-                    ? "document_" + document.Id : document.Filename;
+                // Le nom vient d'abord de la réponse : le relevé compact ne le porte pas, et
+                // un fichier sans nom ni extension n'est ni ouvrable ni reconnaissable.
+                string nom = NomDeLaReponse(rep);
+                if (nom == "") nom = document.Filename;
+                if (string.IsNullOrWhiteSpace(nom))
+                {
+                    string racine = string.IsNullOrWhiteSpace(nomDeSecours)
+                        ? "document_" + document.Id : nomDeSecours.Trim();
+                    nom = racine + TypeDocument.ExtensionParDefaut(document.Kind);
+                }
+                document.Filename = nom;
+
                 string cible = Path.Combine(dossierCible, NomSur(nom));
 
                 using (Stream flux = rep.Content.ReadAsStream())
@@ -653,6 +672,31 @@ namespace AskThem.Services
                     foreach (byte b in somme) hex.Append(b.ToString("x2"));
                     return hex.ToString();
                 }
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Nom de fichier annoncé par le serveur, ou une chaîne vide.
+        ///
+        /// .NET rend la valeur avec ses guillemets : il faut les retirer, sinon le fichier
+        /// écrit s'appellerait « "A21-00052-01.pdf" », guillemets compris.
+        /// </summary>
+        private static string NomDeLaReponse(HttpResponseMessage rep)
+        {
+            try
+            {
+                if (rep.Content == null || rep.Content.Headers.ContentDisposition == null) return "";
+                ContentDispositionHeaderValue cd = rep.Content.Headers.ContentDisposition;
+
+                string nom = cd.FileNameStar;
+                if (string.IsNullOrWhiteSpace(nom)) nom = cd.FileName;
+                if (string.IsNullOrWhiteSpace(nom)) return "";
+
+                return nom.Trim().Trim('"').Trim();
             }
             catch (Exception)
             {

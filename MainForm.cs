@@ -3018,11 +3018,12 @@ namespace AskThem
             DocumentArticle plan = d.De(TypeDocument.Plan);
             if (plan != null) line.DrawingRevision = plan.Revision;
 
+            // Le plan se reconnait a la nature declaree par l'inventaire, pas a l'extension
+            // du fichier rapatrie : c'est l'inventaire qui sait ce qu'est chaque document.
+            if (d.De(TypeDocument.Plan) != null) line.PlanDisponible = true;
+
             foreach (string f in _depotInv.TelechargerPour(line.PartNumber, _folderDepot, LogFromWorker))
-            {
                 line.ExportedFiles.Add(f);
-                if (TypeDocument.DapresFichier(f) == TypeDocument.Plan) line.PlanDisponible = true;
-            }
 
             // Le formulaire ne part qu'avec une fabrication, et seulement si l'utilisateur
             // l'a demande.

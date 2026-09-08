@@ -112,7 +112,7 @@ namespace AskThem.Services
                 if (!doc.IsCurrent || !TypeDocument.PourFournisseur(doc.Kind)) continue;
 
                 string message;
-                string chemin = _api.Telecharger(d.ArticleId, doc, dossierCible, out message);
+                string chemin = _api.Telecharger(d.ArticleId, doc, dossierCible, reference, out message);
                 if (chemin != null) fichiers.Add(chemin);
                 else Dire(journal, reference + " : " + message);
             }
@@ -129,7 +129,8 @@ namespace AskThem.Services
             if (doc == null) return null;
 
             string message;
-            string chemin = _api.Telecharger(d.ArticleId, doc, dossierCible, out message);
+            string chemin = _api.Telecharger(d.ArticleId, doc, dossierCible,
+                                             "CF_" + reference, out message);
             if (chemin == null) Dire(journal, reference + " : " + message);
             return chemin;
         }

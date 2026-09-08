@@ -59,6 +59,24 @@ namespace AskThem.Models
             }
         }
 
+        /// <summary>
+        /// Extension à donner à un document dont on ignore le nom d'origine.
+        ///
+        /// Un fichier sans extension n'est pas ouvrable d'un double-clic et ne se reconnaît
+        /// plus : ni le programme ni le fournisseur ne savent ce qu'ils tiennent.
+        /// </summary>
+        public static string ExtensionParDefaut(string kind)
+        {
+            switch (kind)
+            {
+                case Plan: return ".pdf";
+                case PlanDxf: return ".dxf";
+                case Modele: return ".STEP";
+                case Controle: return ".pdf";
+                default: return ".bin";
+            }
+        }
+
         /// <summary>Vrai si cette nature accompagne une demande envoyée au fournisseur.</summary>
         public static bool PourFournisseur(string kind)
         {
