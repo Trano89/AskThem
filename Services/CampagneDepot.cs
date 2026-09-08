@@ -195,6 +195,11 @@ namespace AskThem.Services
                 if (!PartNumberFormat.IsValid(numero, _config.PartNumberPatterns)) continue;
                 if (articles.Contains(numero)) continue;
 
+                // Le perimetre porte sur ce que la reference declare : seuls les articles
+                // qui attendent un plan interne ont des documents a publier. Un article de
+                // catalogue non modifie se commande par sa reference fournisseur.
+                if (!Codification.AttendUnPlan(numero)) continue;
+
                 string categorie = PartNumberFormat.TypeCode(numero);
                 if (o.Categories != null && o.Categories.Count > 0 && !o.Categories.Contains(categorie)) continue;
 
@@ -211,11 +216,13 @@ namespace AskThem.Services
                 Candidat c = new Candidat();
                 c.NoArticle = numero;
 
-                // Les références de projet restent disponibles pour une demande ponctuelle,
-                // mais n'entrent pas dans la base de production.
-                if (!DepotArticles.EstDeProduction(numero))
+                // Les references de projet et les articles non geres restent disponibles pour
+                // une demande ponctuelle, mais n'entrent pas dans la base de production.
+                if (!Codification.EstDeProduction(numero))
                 {
-                    c.Verdict = "ignoré (projet)";
+                    c.Verdict = "ignoré (" + Codification.LibelleOrigine(numero) + ")";
+                    if (Codification.Categorie(numero) == Codification.Projet)
+                        c.Verdict = "ignoré (projet)";
                     candidats.Add(c);
                     continue;
                 }
@@ -223,12 +230,13 @@ namespace AskThem.Services
                 c.Modele = PdmSearchService.Find3DInIndex(indexPdm, numero);
                 c.Plan = PdmSearchService.FindDrawingInIndex(indexPdm, numero);
 
-                // Un assemblage ouvre tous ses composants : c'est là que les campagnes bloquent.
-                bool assemblage = c.Modele != null
-                    && string.Equals(Path.GetExtension(c.Modele), ".SLDASM", StringComparison.OrdinalIgnoreCase);
-                if (assemblage && !o.InclureAssemblages)
+                // La structure se lit sur le numero, pas sur l'extension du fichier : c'est
+                // la reference qui declare ce qu'est l'article, tandis que l'extension ne dit
+                // que la facon dont il a ete modelise. Un assemblage ouvre tous ses
+                // composants, et c'est la que les campagnes s'enlisent.
+                if (Codification.EstAssemblage(numero) && !o.InclureAssemblages)
                 {
-                    c.Verdict = "ignoré (assemblage)";
+                    c.Verdict = "ignoré (" + Codification.LibelleStructure(numero) + ")";
                     candidats.Add(c);
                     continue;
                 }
@@ -388,6 +396,14 @@ namespace AskThem.Services
 
         // ------------------------------------------------------------------ un article
 
+        /// <summary>
+        /// Produit et publie un article.
+        ///
+        /// L'annulation est verifiee entre chaque etape couteuse — apres le plan, avant le
+        /// modele, avant la publication. Un article prend une dizaine de secondes : ne
+        /// verifier qu'entre deux articles ferait attendre l'utilisateur qui vient de
+        /// demander l'arret, et il croirait le bouton sans effet.
+        /// </summary>
         private void TraiterUn(SolidWorksExporter exporter, Candidat c, string travail, Bilan bilan)
         {
             string dossier = Path.Combine(travail, DepotArticlesNomSur(c.NoArticle));
@@ -420,6 +436,8 @@ namespace AskThem.Services
                 finally { exporter.CloseDocument(doc); }
             }
 
+            if (Annule()) { Nettoyer(dossier); return; }
+
             // --- le modèle : le plan reste prioritaire, le modèle comble les manques ---
             if (c.Modele != null && regle.Export3D)
             {
@@ -443,8 +461,13 @@ namespace AskThem.Services
             {
                 bilan.SansSource++;
                 Dire(c.NoArticle + " : aucun fichier produit.");
+                Nettoyer(dossier);
                 return;
             }
+
+            // Publier prend du temps — un depot par document sur le reseau. On ne le lance
+            // pas si l'arret vient d'etre demande.
+            if (Annule()) { Nettoyer(dossier); return; }
 
             if (_inventaire != null)
             {
@@ -460,7 +483,7 @@ namespace AskThem.Services
                 }
 
                 bilan.Produits++;
-                try { Directory.Delete(dossier, true); } catch (Exception) { }
+                Nettoyer(dossier);
                 return;
             }
 
@@ -492,7 +515,14 @@ namespace AskThem.Services
                     break;
             }
 
-            try { Directory.Delete(dossier, true); } catch (Exception) { }
+            Nettoyer(dossier);
+        }
+
+        /// <summary>Efface le dossier de travail d'un article, sans jamais lever.</summary>
+        private static void Nettoyer(string dossier)
+        {
+            try { if (Directory.Exists(dossier)) Directory.Delete(dossier, true); }
+            catch (Exception) { }
         }
 
         /// <summary>

@@ -727,8 +727,7 @@ namespace AskThem.Services
         /// </summary>
         public static bool EstDeProduction(string noArticle)
         {
-            if (string.IsNullOrWhiteSpace(noArticle)) return false;
-            return char.IsLetter(noArticle.Trim()[0]);
+            return Codification.EstDeProduction(noArticle);
         }
 
         /// <summary>

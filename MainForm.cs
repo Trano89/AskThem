@@ -1159,6 +1159,7 @@ namespace AskThem
             panelAssistant.FournisseursChanges += new EventHandler(Assistant_FournisseursChanges);
             panelAssistant.Verifier += new EventHandler(Assistant_Verifier);
             panelAssistant.Annuler += new EventHandler(BtnCancel_Click);
+            panelAssistant.BaseArticles += new EventHandler(BtnBaseArticles_Click);
 
             selecteurMode = new SelecteurMode();
             selecteurMode.Font = AppFont.Get();
@@ -1542,6 +1543,9 @@ namespace AskThem
         /// <summary>Télécharge et redémarre. Un échec laisse l'application en place.</summary>
         private void LancerMiseAJour()
         {
+            // La mise a jour ferme volontairement la fenetre : on lui ouvre le passage, sinon
+            // le garde-fou de fermeture la retiendrait.
+            _fermetureAutorisee = true;
             UpdateService.UpdateInfo info = _update;
             if (info == null || !info.Available) return;
 
@@ -3699,6 +3703,7 @@ namespace AskThem
                 numTailleMax.Enabled = !busy;
                 numPiecesMax.Enabled = !busy;
                 panelAssistant.Occupe(busy);
+            panelAssistant.BaseArticlesDisponible(!busy);
                 btnSuppliers.Enabled = !busy;
             if (btnUpdate != null) btnUpdate.Enabled = !busy;
             if (panelParams != null) panelParams.Enabled = !busy;

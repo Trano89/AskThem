@@ -44,6 +44,17 @@ namespace AskThem.Services
         /// quand un destinataire est choisi et l'inventaire chargé : sans quoi il n'y a rien
         /// à comparer et la ligne passe, l'avertissement d'avant envoi restant en filet.
         /// </summary>
+        /// <summary>
+        /// Vrai si cette reference designe un assemblage, d'apres son numero.
+        ///
+        /// Le fichier peut etre un SLDPRT alors que la reference declare un sous-ensemble,
+        /// et l'inverse : c'est la reference qui fait foi.
+        /// </summary>
+        public static bool EstAssemblage(string numero)
+        {
+            return Codification.EstAssemblage(numero);
+        }
+
         public static string Verifier(AppConfig config, string numeroNormalise,
                                       Supplier destinataire,
                                       Dictionary<string, InventoryService.Entry> inventaire)

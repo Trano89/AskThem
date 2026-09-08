@@ -50,6 +50,7 @@ namespace AskThem
         private readonly BindingList<PartLine> _lignes = new BindingList<PartLine>();
 
         private Label lblTitre;
+        private Button btnBaseArticles;
         private Label lblSousTitre;
         private Label lblProgression;
         private Panel corps;
@@ -97,6 +98,14 @@ namespace AskThem
 
         /// <summary>Appelé quand l'utilisateur veut arrêter le traitement en cours.</summary>
         public event EventHandler Annuler;
+
+        /// <summary>
+        /// L'utilisateur demande la mise à jour de la base articles.
+        ///
+        /// La fonction n'était offerte qu'en vue complète, alors qu'elle s'adresse au bureau
+        /// technique — qui travaille volontiers en mode guidé.
+        /// </summary>
+        public event EventHandler BaseArticles;
 
         private void Verifier_Click(object sender, EventArgs e)
         {
@@ -188,6 +197,28 @@ namespace AskThem
             AllerA(0);
         }
 
+        /// <summary>Le bouton reste calé en haut à droite de l'en-tête.</summary>
+        private void Entete_Resize(object sender, EventArgs e)
+        {
+            Panel entete = sender as Panel;
+            if (entete == null || btnBaseArticles == null) return;
+            btnBaseArticles.Location = new Point(
+                Math.Max(8, entete.ClientSize.Width - btnBaseArticles.Width - 28), 16);
+            btnBaseArticles.BringToFront();
+        }
+
+        private void BaseArticles_Click(object sender, EventArgs e)
+        {
+            if (BaseArticles != null) BaseArticles(this, EventArgs.Empty);
+        }
+
+        /// <summary>Grise le bouton pendant un traitement, comme le reste de l'écran.</summary>
+        public void BaseArticlesDisponible(bool disponible)
+        {
+            if (btnBaseArticles == null) return;
+            btnBaseArticles.Enabled = disponible;
+        }
+
         // ==================================================================
         // Ossature
         // ==================================================================
@@ -209,6 +240,17 @@ namespace AskThem
             lblProgression.Height = 24;
             lblProgression.ForeColor = Color.FromArgb(120, 127, 135);
 
+            // La mise a jour de la base articles n'a de sens que sur un poste equipe : le
+            // bouton n'apparait pas ailleurs, plutot que d'etre present et de refuser.
+            btnBaseArticles = new Button();
+            btnBaseArticles.Text = "Base articles…";
+            btnBaseArticles.Font = AppFont.Get();
+            btnBaseArticles.Size = new Size(150, 30);
+            btnBaseArticles.FlatStyle = FlatStyle.System;
+            btnBaseArticles.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnBaseArticles.Visible = SolidWorksExporter.EstPosteEquipe();
+            btnBaseArticles.Click += new EventHandler(BaseArticles_Click);
+
             Panel entete = new Panel();
             entete.Dock = DockStyle.Top;
             entete.Height = 104;
@@ -216,6 +258,8 @@ namespace AskThem
             entete.Controls.Add(lblSousTitre);
             entete.Controls.Add(lblTitre);
             entete.Controls.Add(lblProgression);
+            entete.Controls.Add(btnBaseArticles);
+            entete.Resize += new EventHandler(Entete_Resize);
 
             corps = new Panel();
             corps.Dock = DockStyle.Fill;

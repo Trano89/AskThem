@@ -231,8 +231,10 @@ namespace AskThem
             btnRecenser.Enabled = !occupe;
             chkAssemblages.Enabled = !occupe;
             numMax.Enabled = !occupe;
+            btnProduire.Enabled = true;
             btnProduire.Text = occupe ? "Interrompre" : "Produire et publier";
             btnFermer.Enabled = !occupe;
+            if (!occupe) _annule = false;
         }
 
         // ------------------------------------------------------------------ recensement
@@ -305,7 +307,18 @@ namespace AskThem
 
         private void Produire_Click(object sender, EventArgs e)
         {
-            if (_occupe) { _annule = true; Journal("Interruption demandée — le lot en cours se termine."); return; }
+            if (_occupe)
+            {
+                // Sans retour immediat, l'utilisateur reclique en croyant que rien ne s'est
+                // passe : l'arret prend le temps de finir l'article en cours.
+                _annule = true;
+                btnProduire.Enabled = false;
+                btnProduire.Text = "Interruption…";
+                lblTitre.Text = "Base articles — interruption en cours";
+                Journal("Interruption demandée : l'article en cours se termine, "
+                      + "puis SolidWorks sera refermé proprement.");
+                return;
+            }
             if (_candidats == null || _candidats.Count == 0) return;
 
             int aFaire = 0;
