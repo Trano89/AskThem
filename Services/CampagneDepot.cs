@@ -30,10 +30,23 @@ namespace AskThem.Services
 
         public class Options
         {
-            /// <summary>Catégories retenues. Les articles de catalogue n'ont rien à livrer.</summary>
+            /// <summary>Catégories retenues. Conservé pour les configurations anciennes.</summary>
             public List<string> Categories { get; set; }
 
-            /// <summary>Les assemblages ouvrent tous leurs composants : hors campagne par défaut.</summary>
+            /// <summary>
+            /// Structures retenues, par le caractère Y de la référence : '0' assemblage
+            /// complet, '1' sous-ensemble, '2' pièce. Vide = tout.
+            /// </summary>
+            public List<char> Structures { get; set; }
+
+            /// <summary>
+            /// Origines retenues, par le caractère Z : '1' fabriqué, '2' acheté puis
+            /// modifié, '3' ensemble d'articles, '4' fabriqué puis modifié. Vide = tout ce
+            /// qui attend un plan.
+            /// </summary>
+            public List<char> Origines { get; set; }
+
+            /// <summary>Conservé : équivaut à retenir les structures '0' et '1'.</summary>
             public bool InclureAssemblages { get; set; }
 
             /// <summary>Nombre d'articles entre deux redémarrages de SolidWorks.</summary>
@@ -47,7 +60,10 @@ namespace AskThem.Services
 
             public Options()
             {
-                Categories = new List<string> { "21", "22", "24" };
+                Categories = new List<string>();
+                Structures = new List<char> { Codification.Piece };
+                Origines = new List<char> { Codification.Fabrique, Codification.AcheteModifie,
+                                            Codification.FabriqueModifie };
                 InclureAssemblages = false;
                 TailleLot = 25;
                 MaxArticles = 0;
@@ -68,6 +84,12 @@ namespace AskThem.Services
         public class Bilan
         {
             public int Candidats, AJour, Produits, Remplaces, SansSource, NonLiberes, Echecs, Ignores;
+
+            /// <summary>Articles du coffre qui n'ont pas de fiche dans l'inventaire.</summary>
+            public int HorsInventaire;
+
+            /// <summary>Leurs références, pour que quelqu'un puisse créer les fiches.</summary>
+            public List<string> ReferencesHorsInventaire = new List<string>();
             public TimeSpan Duree;
             public List<string> Orphelins = new List<string>();
             public string CheminRapport = "";
@@ -195,18 +217,16 @@ namespace AskThem.Services
                 if (!PartNumberFormat.IsValid(numero, _config.PartNumberPatterns)) continue;
                 if (articles.Contains(numero)) continue;
 
-                // Le perimetre porte sur ce que la reference declare : seuls les articles
-                // qui attendent un plan interne ont des documents a publier. Un article de
-                // catalogue non modifie se commande par sa reference fournisseur.
-                if (!Codification.AttendUnPlan(numero)) continue;
+                // Le perimetre est celui que l'utilisateur a coche : la structure dit quoi
+                // — piece, sous-ensemble, assemblage — et l'origine dit quels articles ont
+                // des documents a publier.
+                if (!Retenu(o.Structures, Codification.Structure(numero))) continue;
+                if (!Retenu(o.Origines, Codification.Origine(numero))) continue;
 
-                string categorie = PartNumberFormat.TypeCode(numero);
-                if (o.Categories != null && o.Categories.Count > 0 && !o.Categories.Contains(categorie)) continue;
-
-                ArticleTypeRule regle = ValidationArticle.RegleDe(_config, numero);
-                if (!regle.Allowed) continue;
-                if (!regle.Export2D && !regle.Export3D) continue;
-
+                // On ne consulte pas la table des types d'article : elle decrit ce qu'une
+                // DEMANDE doit livrer a un fournisseur, et y declare l'assemblage comme
+                // n'ayant rien a transmettre. Ici c'est la selection qui decide du perimetre,
+                // et un assemblage a bien un plan et un modele a publier.
                 articles.Add(numero);
             }
             articles.Sort(StringComparer.OrdinalIgnoreCase);
@@ -230,20 +250,16 @@ namespace AskThem.Services
                 c.Modele = PdmSearchService.Find3DInIndex(indexPdm, numero);
                 c.Plan = PdmSearchService.FindDrawingInIndex(indexPdm, numero);
 
-                // La structure se lit sur le numero, pas sur l'extension du fichier : c'est
-                // la reference qui declare ce qu'est l'article, tandis que l'extension ne dit
-                // que la facon dont il a ete modelise. Un assemblage ouvre tous ses
-                // composants, et c'est la que les campagnes s'enlisent.
-                if (Codification.EstAssemblage(numero) && !o.InclureAssemblages)
-                {
-                    c.Verdict = "ignoré (" + Codification.LibelleStructure(numero) + ")";
-                    candidats.Add(c);
-                    continue;
-                }
+                // Un assemblage ouvre tous ses composants a l'export : c'est plus long et
+                // plus fragile qu'une piece. On le signale sans le refuser — le perimetre a
+                // ete choisi en connaissance de cause.
+                if (Codification.EstAssemblage(numero))
+                    Dire(numero + " : " + Codification.LibelleStructure(numero)
+                       + ", l'export ouvrira ses composants.");
 
                 if (c.Modele == null && c.Plan == null)
                 {
-                    c.Verdict = "sans source";
+                    c.Verdict = SansSource;
                     candidats.Add(c);
                     continue;
                 }
@@ -254,24 +270,54 @@ namespace AskThem.Services
                 if (_inventaire != null)
                 {
                     DocumentsArticle d = _inventaire.Pour(numero);
-                    if (d == null || !d.Trouve) c.Verdict = "hors inventaire";
-                    else if (d.Documents.Count == 0) c.Verdict = "à produire";
-                    else if (d.De(TypeDocument.Controle) == null && c.Plan != null) c.Verdict = "sans contrôle";
-                    else c.Verdict = "à jour";
+                    if (d == null || !d.Trouve) c.Verdict = HorsInventaire;
+                    else if (d.Documents.Count == 0) c.Verdict = AProduire;
+                    else if (d.De(TypeDocument.Controle) == null && c.Plan != null) c.Verdict = SansControle;
+                    else c.Verdict = AJour;
                     candidats.Add(c);
                     continue;
                 }
 
                 FicheArticle enPlace = _depot.Lire(numero);
 
-                if (enPlace == null) c.Verdict = "à produire";
-                else if (enPlace.Empreinte != c.Empreinte) c.Verdict = "à remplacer";
-                else if (enPlace.Controle == null && c.Plan != null) c.Verdict = "sans contrôle";
-                else c.Verdict = "à jour";
+                if (enPlace == null) c.Verdict = AProduire;
+                else if (enPlace.Empreinte != c.Empreinte) c.Verdict = ARemplacer;
+                else if (enPlace.Controle == null && c.Plan != null) c.Verdict = SansControle;
+                else c.Verdict = AJour;
 
                 candidats.Add(c);
             }
             return candidats;
+        }
+
+        /// <summary>Verdicts possibles d'un recensement.</summary>
+        public const string AJour = "à jour";
+        public const string AProduire = "à produire";
+        public const string ARemplacer = "à remplacer";
+        public const string SansControle = "sans contrôle";
+        public const string SansSource = "sans source";
+        public const string HorsInventaire = "hors inventaire";
+
+        /// <summary>
+        /// Vrai si ce verdict désigne du travail à faire.
+        ///
+        /// Un seul juge, partagé par le moteur et par la fenêtre : ils comptaient
+        /// séparément, et la fenêtre annonçait « la base est déjà à jour » sur des articles
+        /// que le moteur aurait traités.
+        ///
+        /// Un article inconnu de l'inventaire n'en fait pas partie : rien ne pourrait y être
+        /// publié. Il est signalé, pas traité.
+        /// </summary>
+        public static bool EstAFaire(string verdict)
+        {
+            return verdict == AProduire || verdict == ARemplacer || verdict == SansControle;
+        }
+
+        /// <summary>Vrai si ce caractère fait partie du choix, ou si le choix est vide.</summary>
+        private static bool Retenu(List<char> choix, char valeur)
+        {
+            if (choix == null || choix.Count == 0) return true;
+            return choix.Contains(valeur);
         }
 
         // ------------------------------------------------------------------ exécution
@@ -290,10 +336,11 @@ namespace AskThem.Services
             foreach (Candidat c in candidats)
             {
                 bilan.Candidats++;
-                if (c.Verdict == "à jour") bilan.AJour++;
-                else if (c.Verdict == "sans source") bilan.SansSource++;
-                else if (c.Verdict != null && c.Verdict.StartsWith("ignoré")) bilan.Ignores++;
-                else aFaire.Add(c);
+                if (EstAFaire(c.Verdict)) aFaire.Add(c);
+                else if (c.Verdict == AJour) bilan.AJour++;
+                else if (c.Verdict == SansSource) bilan.SansSource++;
+                else if (c.Verdict == HorsInventaire) bilan.HorsInventaire++;
+                else bilan.Ignores++;
             }
 
             if (o.MaxArticles > 0 && aFaire.Count > o.MaxArticles)
@@ -301,6 +348,9 @@ namespace AskThem.Services
                 Dire("Campagne limitée à " + o.MaxArticles + " article(s) sur " + aFaire.Count + " à faire.");
                 aFaire = aFaire.GetRange(0, o.MaxArticles);
             }
+
+            foreach (Candidat c in candidats)
+                if (c.Verdict == HorsInventaire) bilan.ReferencesHorsInventaire.Add(c.NoArticle);
 
             bilan.Orphelins = Orphelins(candidats);
 
@@ -410,7 +460,9 @@ namespace AskThem.Services
             if (Directory.Exists(dossier)) Directory.Delete(dossier, true);
             Directory.CreateDirectory(dossier);
 
-            ArticleTypeRule regle = ValidationArticle.RegleDe(_config, c.NoArticle);
+            // On produit ce qui existe : la selection a deja dit que cet article est du
+            // perimetre. Filtrer une seconde fois sur la table des types ferait sortir les
+            // assemblages, que l'utilisateur vient precisement de cocher.
             List<string> produits = new List<string>();
 
             FicheArticle fiche = new FicheArticle();
@@ -421,7 +473,7 @@ namespace AskThem.Services
             string dateRevision = "";
 
             // --- le plan : une seule ouverture pour lire et exporter ---
-            if (c.Plan != null && regle.Export2D)
+            if (c.Plan != null)
             {
                 ModelDoc2 doc = null;
                 try
@@ -443,7 +495,7 @@ namespace AskThem.Services
             if (Annule()) { Nettoyer(dossier); return; }
 
             // --- le modèle : le plan reste prioritaire, le modèle comble les manques ---
-            if (c.Modele != null && regle.Export3D)
+            if (c.Modele != null)
             {
                 ModelDoc2 doc = null;
                 try
@@ -627,8 +679,8 @@ namespace AskThem.Services
                 sb.AppendLine(DateTime.Now.ToString("dd.MM.yyyy HH:mm:ss") + "   par " + System.Environment.UserName
                             + " sur " + System.Environment.MachineName);
                 sb.AppendLine("Base : " + _depot.Racine);
-                sb.AppendLine("Categories : " + string.Join(", ", o.Categories)
-                            + (o.InclureAssemblages ? "   assemblages inclus" : "   assemblages exclus"));
+                sb.AppendLine("Structures : " + Decrire(o.Structures, Codification.LibelleStructure));
+                sb.AppendLine("Origines   : " + Decrire(o.Origines, Codification.LibelleOrigine));
                 sb.AppendLine(o.RecensementSeul ? "MODE RECENSEMENT — rien n'a ete ecrit" : "MODE COMPLET");
                 sb.AppendLine();
                 sb.AppendLine("Examines .......... " + bilan.Candidats);
@@ -636,6 +688,7 @@ namespace AskThem.Services
                 sb.AppendLine("Publies ........... " + bilan.Produits);
                 sb.AppendLine("Remplaces ......... " + bilan.Remplaces);
                 sb.AppendLine("Sans source CAO ... " + bilan.SansSource);
+                sb.AppendLine("Hors inventaire ... " + bilan.HorsInventaire);
                 sb.AppendLine("Non liberes ....... " + bilan.NonLiberes);
                 sb.AppendLine("Ignores ........... " + bilan.Ignores);
                 sb.AppendLine("Echecs ............ " + bilan.Echecs);
@@ -645,6 +698,14 @@ namespace AskThem.Services
                 sb.AppendLine("DETAIL PAR ARTICLE");
                 foreach (Candidat c in candidats)
                     sb.AppendLine("  " + c.NoArticle.PadRight(18) + (c.Verdict == null ? "" : c.Verdict));
+
+                if (bilan.ReferencesHorsInventaire.Count > 0)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine("ARTICLES DU COFFRE SANS FICHE DANS L'INVENTAIRE");
+                    sb.AppendLine("  La fiche est a creer cote inventaire : AskThem n'en cree jamais.");
+                    foreach (string x in bilan.ReferencesHorsInventaire) sb.AppendLine("  " + x);
+                }
 
                 if (bilan.Orphelins.Count > 0)
                 {
@@ -661,6 +722,15 @@ namespace AskThem.Services
                 LogService.Write("Rapport de campagne non ecrit : " + ex.Message);
                 return "";
             }
+        }
+
+        /// <summary>Liste lisible d'un choix de caractères, pour le rapport.</summary>
+        private static string Decrire(List<char> choix, Func<string, string> libelle)
+        {
+            if (choix == null || choix.Count == 0) return "toutes";
+            List<string> mots = new List<string>();
+            foreach (char c in choix) mots.Add(libelle("A" + c + c + "-00000-00"));
+            return string.Join(", ", mots);
         }
 
         private static string DepotArticlesNomSur(string valeur)
