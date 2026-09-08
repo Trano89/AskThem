@@ -96,6 +96,15 @@ namespace AskThem.Models
         public string SourceDocuments { get; set; }
 
         /// <summary>
+        /// Date de réalisation lue sur le PLAN, qui fait foi pour tous les documents.
+        ///
+        /// Le modèle 3D porte parfois sa propre date : elle ne compte pas. Le plan est le
+        /// document qui date une révision, et le STEP comme le formulaire de contrôle en
+        /// dépendent. Vide quand la pièce n'est pas réalisée.
+        /// </summary>
+        public string ReleaseDate { get; set; }
+
+        /// <summary>
         /// Formulaire de contrôle de fabrication de cet article, s'il en a un.
         ///
         /// Il ne rejoint pas l'archive ZIP : le sous-traitant doit le remplir, donc l'ouvrir,

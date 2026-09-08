@@ -417,6 +417,9 @@ namespace AskThem.Services
             fiche.NoArticle = c.NoArticle;
             fiche.Empreinte = c.Empreinte;
 
+            // Date de realisation du plan : elle date toute la fournee de documents.
+            string dateRevision = "";
+
             // --- le plan : une seule ouverture pour lire et exporter ---
             if (c.Plan != null && regle.Export2D)
             {
@@ -430,6 +433,7 @@ namespace AskThem.Services
                     fiche.Matiere = m.Material;
                     fiche.Traitement = m.Treatment;
                     fiche.Etat = m.State;
+                    dateRevision = DateRevision.Normaliser(m.ReleaseDate, _journal);
                     produits.AddRange(exporter.ExportDrawing(doc, dossier, c.NoArticle));
                     fiche.Controle = ExtraireControle(doc, c.NoArticle, m);
                 }
@@ -473,13 +477,15 @@ namespace AskThem.Services
             {
                 // Chaque document part nu, sous sa nature. Aucune archive n'est constituée :
                 // les ZIP naissent au moment d'une demande, et n'y survivent pas.
-                _inventaire.Publier(c.NoArticle, fiche.Revision, fiche.Etat, produits, _journal);
+                _inventaire.Publier(c.NoArticle, fiche.Revision, dateRevision, fiche.Etat,
+                                    produits, _journal);
 
                 if (fiche.Controle != null)
                 {
                     string cf = ProduireControle(fiche, dossier);
                     if (cf != null)
-                        _inventaire.PublierControle(c.NoArticle, fiche.Revision, cf, _journal);
+                        _inventaire.PublierControle(c.NoArticle, fiche.Revision, dateRevision,
+                                                    cf, _journal);
                 }
 
                 bilan.Produits++;

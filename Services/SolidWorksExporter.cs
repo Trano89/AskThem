@@ -18,6 +18,16 @@ namespace AskThem.Services
             public string Description = "";
             public string Revision = "";
             public string Date = "";
+
+            /// <summary>
+            /// Date de réalisation, lue dans la seule variable ReleaseDate.
+            ///
+            /// Distincte de Date, qui retombe sur DrawnDate quand ReleaseDate manque :
+            /// la date à laquelle un dessin a été tracé n'est pas celle à laquelle sa
+            /// révision a été libérée, et les confondre daterait faussement une révision.
+            /// Vide quand la pièce n'est pas réalisée, ce qui est un état normal.
+            /// </summary>
+            public string ReleaseDate = "";
             public string Material = "";
             public string Treatment = "";
             public string State = "";
@@ -170,6 +180,7 @@ namespace AskThem.Services
                 if (m.Description == "") m.Description = GetFirstProp(cpm, _names.Description);
                 if (m.Revision == "") m.Revision = GetFirstProp(cpm, _names.Revision);
                 if (m.Date == "") m.Date = GetFirstProp(cpm, _names.Date);
+                if (m.ReleaseDate == "") m.ReleaseDate = GetFirstProp(cpm, NomsReleaseDate);
                 if (m.Material == "") m.Material = GetFirstProp(cpm, _names.Material);
                 if (m.Treatment == "") m.Treatment = GetFirstProp(cpm, _names.Treatment);
                 if (m.State == "") m.State = GetFirstProp(cpm, _names.State);
@@ -181,6 +192,18 @@ namespace AskThem.Services
             if (m.Material == "") m.Material = GetBodyMaterial(doc);
             return m;
         }
+
+        /// <summary>
+        /// Variables de carte portant la date de réalisation.
+        ///
+        /// Volontairement figée et sans repli sur DrawnDate : c'est la libération de la
+        /// révision qu'on cherche, pas la création du dessin. Une pièce non réalisée n'a
+        /// pas de date, et il vaut mieux le dire que d'en inventer une plausible.
+        /// </summary>
+        private static readonly List<string> NomsReleaseDate = new List<string> {
+            "ReleaseDate", "Release Date", "DateRealisation", "DateRealise",
+            "Date de réalisation", "Date de realisation", "Date de réalisé"
+        };
 
         /// <summary>Configurations à interroger : l'active d'abord, puis toutes les autres.</summary>
         private List<string> GetConfigurationNames(ModelDoc2 doc)

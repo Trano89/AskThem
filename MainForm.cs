@@ -2891,6 +2891,11 @@ namespace AskThem
                     line.DrawingRevision = m.Revision;
                     line.Description = m.Description;
                     line.RealizedDate = m.Date;
+
+                    // La date lue sur le plan vaut pour tous les documents de l'article : le
+                    // STEP et le formulaire de controle datent de la meme revision. Le modele
+                    // ne la comble pas — s'il n'y en a pas, la piece n'est pas realisee.
+                    line.ReleaseDate = m.ReleaseDate;
                     line.Material = m.Material;
                     line.Treatment = m.Treatment;
                     line.State = m.State;
@@ -3071,6 +3076,7 @@ namespace AskThem
             if (plan != null)
             {
                 line.RealizedDate = plan.RevisionDate;
+                line.ReleaseDate = plan.RevisionDate;
                 Log(line.PartNumber + " : rev " + plan.RevisionAffichee
                   + " du " + plan.DateAffichee + ", " + age + ".");
             }
@@ -3125,7 +3131,14 @@ namespace AskThem
                 // ni deductible du fichier ni retrouvable ensuite : sans elle, le document
                 // s'affichera « date inconnue » et ne pourra plus etre situe dans l'ordre
                 // des revisions. Ce qu'on ne sait pas lire n'est pas envoye.
-                string dateRev = DateRevision.Normaliser(line.RealizedDate, LogFromWorker);
+                // Seule la date de realisation du plan est transmise. Une piece non realisee
+                // n'en a pas, et l'inventaire preferera « date inconnue » a une date empruntee
+                // a la creation du dessin.
+                string dateRev = DateRevision.Normaliser(line.ReleaseDate, LogFromWorker);
+                if (dateRev == "" && !string.IsNullOrWhiteSpace(line.DrawingRevision))
+                    Log(line.PartNumber + " : rev " + line.DrawingRevision
+                      + " sans date de réalisation — la pièce n'est pas réalisée, "
+                      + "le document sera daté « inconnue » dans l'inventaire.");
 
                 _depotInv.Publier(line.PartNumber, fiche.Revision, dateRev, fiche.Etat,
                                   line.ExportedFiles, LogFromWorker);
