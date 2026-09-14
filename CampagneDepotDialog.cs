@@ -423,15 +423,38 @@ namespace AskThem
                 return;
             }
 
+            // SolidWorks deja ouvert : on ne refuse plus, on demarre une instance a part.
+            // La session de travail de l'utilisateur n'est ainsi jamais touchee.
             if (SolidWorksExporter.IsSolidWorksRunning())
             {
-                MessageBox.Show(this,
-                    "Une session SolidWorks est ouverte sur ce poste." + Environment.NewLine + Environment.NewLine
-                  + "Une campagne ouvre et ferme des centaines de documents et redémarre SolidWorks "
-                  + "régulièrement : votre travail en cours serait perdu." + Environment.NewLine + Environment.NewLine
-                  + "Fermez SolidWorks, puis relancez la production.",
-                    "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                return;
+                if (MessageBox.Show(this,
+                        "Une session SolidWorks est ouverte sur ce poste." + Environment.NewLine
+                      + Environment.NewLine
+                      + "AskThem va démarrer une seconde instance, réservée à la campagne : "
+                      + "votre travail en cours n'y sera pas touché." + Environment.NewLine
+                      + Environment.NewLine
+                      + "Le démarrage prend un moment. Continuer ?",
+                        "AskThem", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
+                    return;
+
+                Journal("Démarrage d'une seconde instance de SolidWorks pour la campagne…");
+                Cursor = Cursors.WaitCursor;
+                string motif;
+                System.Diagnostics.Process nouvelle;
+                try { nouvelle = SolidWorksExporter.DemarrerNouvelleInstance(out motif); }
+                finally { Cursor = Cursors.Default; }
+
+                if (nouvelle == null)
+                {
+                    Journal("Seconde instance impossible : " + motif);
+                    MessageBox.Show(this,
+                        "La seconde instance de SolidWorks n'a pas pu démarrer :" + Environment.NewLine
+                      + motif + Environment.NewLine + Environment.NewLine
+                      + "Fermez SolidWorks, puis relancez la production.",
+                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+                Journal("Seconde instance démarrée (processus " + nouvelle.Id + ").");
             }
 
             int limite = (int)numMax.Value;

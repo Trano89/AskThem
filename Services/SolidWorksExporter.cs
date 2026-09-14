@@ -68,6 +68,82 @@ namespace AskThem.Services
             catch (Exception) { return false; }
         }
 
+        /// <summary>
+        /// Démarre une instance de SolidWorks propre à AskThem, à côté de celle de
+        /// l'utilisateur.
+        ///
+        /// Une campagne ouvre et ferme des centaines de documents : la faire passer par la
+        /// session de travail de quelqu'un lui coûterait son travail en cours. On lance donc
+        /// un processus séparé, que l'on pourra fermer sans rien perdre.
+        ///
+        /// Renvoie le processus démarré, ou null avec un motif.
+        /// </summary>
+        public static Process DemarrerNouvelleInstance(out string message)
+        {
+            message = "";
+            try
+            {
+                string exe = CheminExecutable();
+                if (exe == "")
+                {
+                    message = "SLDWORKS.exe est introuvable sur ce poste.";
+                    return null;
+                }
+
+                ProcessStartInfo info = new ProcessStartInfo(exe);
+                info.UseShellExecute = true;
+                info.WorkingDirectory = Path.GetDirectoryName(exe);
+
+                Process p = Process.Start(info);
+                if (p == null)
+                {
+                    message = "SolidWorks n'a pas pu être démarré.";
+                    return null;
+                }
+
+                // On attend qu'il soit pret a recevoir des commandes : demarrer prend du
+                // temps, et se connecter trop tot echoue sans rien dire d'utile.
+                try { p.WaitForInputIdle(180000); }
+                catch (Exception) { }
+
+                return p;
+            }
+            catch (Exception ex)
+            {
+                message = "SolidWorks n'a pas pu être démarré : " + ex.Message;
+                return null;
+            }
+        }
+
+        /// <summary>Emplacement de SLDWORKS.exe, d'abord tel que le déclare une session ouverte.</summary>
+        private static string CheminExecutable()
+        {
+            try
+            {
+                Process[] ouverts = Process.GetProcessesByName("SLDWORKS");
+                foreach (Process p in ouverts)
+                {
+                    try
+                    {
+                        if (p.MainModule != null && File.Exists(p.MainModule.FileName))
+                            return p.MainModule.FileName;
+                    }
+                    catch (Exception) { }
+                }
+            }
+            catch (Exception) { }
+
+            foreach (string racine in new string[] {
+                         System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFiles),
+                         System.Environment.GetFolderPath(System.Environment.SpecialFolder.ProgramFilesX86) })
+            {
+                if (string.IsNullOrWhiteSpace(racine)) continue;
+                string chemin = Path.Combine(racine, "SOLIDWORKS Corp", "SOLIDWORKS", "SLDWORKS.exe");
+                if (File.Exists(chemin)) return chemin;
+            }
+            return "";
+        }
+
         /// <summary>Démarre ou récupère l'instance SolidWorks. Lève une exception si impossible.</summary>
         public void Connect()
         {
