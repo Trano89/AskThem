@@ -26,6 +26,7 @@ namespace AskThem
         public bool Export3D = true;
         public bool Export2D = true;
         public bool ControleFabrication;
+        public bool DemanderLivraison = true;
         public bool Generer;
     }
 
@@ -73,6 +74,7 @@ namespace AskThem
         private CheckBox chk3D;
         private CheckBox chk2D;
         private CheckBox chkControle;
+        private CheckBox chkLivraison;
         private Panel voletAvance;
 
         // Étape 5
@@ -156,6 +158,7 @@ namespace AskThem
             _demande.Export3D = d.Export3D;
             _demande.Export2D = d.Export2D;
             _demande.ControleFabrication = d.ControleFabrication;
+            _demande.DemanderLivraison = d.DemanderLivraison;
 
             _demande.Lignes = new List<PartLine>(d.Lignes);
             _lignes.Clear();
@@ -412,6 +415,7 @@ namespace AskThem
                     _demande.Export3D = chk3D.Checked;
                     _demande.Export2D = chk2D.Checked;
                     _demande.ControleFabrication = chkControle.Checked;
+                    _demande.DemanderLivraison = chkLivraison.Checked;
                     break;
             }
         }
@@ -956,6 +960,13 @@ namespace AskThem
             chkControle.Location = new Point(24, 64);
             chkControle.Checked = _demande.ControleFabrication;
 
+            // Le transport se demande sur tous les types d'envoi : rien ne la grise.
+            chkLivraison = new CheckBox();
+            chkLivraison.Text = "Demander le délai et les frais de livraison";
+            chkLivraison.AutoSize = true;
+            chkLivraison.Location = new Point(24, 92);
+            chkLivraison.Checked = _demande.DemanderLivraison;
+
             // On grise sans decocher : forcer l'etat le reportait ensuite dans la demande,
             // si bien qu'un aller-retour par le mode guide sur des articles de catalogue
             // laissait 3D et 2D decoches pour toutes les demandes suivantes. Les regles de
@@ -978,6 +989,7 @@ namespace AskThem
             voletAvance.Controls.Add(chk3D);
             voletAvance.Controls.Add(chk2D);
             voletAvance.Controls.Add(chkControle);
+            voletAvance.Controls.Add(chkLivraison);
 
             CheckBox bascule = new CheckBox();
             bascule.Appearance = Appearance.Button;
@@ -989,12 +1001,12 @@ namespace AskThem
             bascule.CheckedChanged += new EventHandler(delegate (object s, EventArgs e)
             {
                 voletAvance.Visible = bascule.Checked;
-                voletAvance.Height = bascule.Checked ? 100 : 0;
+                voletAvance.Height = bascule.Checked ? 128 : 0;
             });
 
             Panel hote = new Panel();
             hote.Dock = DockStyle.Bottom;
-            hote.Height = 140;
+            hote.Height = 168;
             hote.Controls.Add(voletAvance);
             hote.Controls.Add(bascule);
             return hote;

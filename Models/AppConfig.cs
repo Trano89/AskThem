@@ -84,6 +84,16 @@ namespace AskThem.Models
         public bool PublierSeulementLiberes { get; set; }
 
         /// <summary>
+        /// Demander au fournisseur le délai et les frais de livraison.
+        ///
+        /// Tous les envois n'appellent pas cette question : un transport déjà convenu, un
+        /// article que l'on vient chercher, un accord-cadre qui fixe déjà le port. La poser
+        /// quand même appelle une réponse inutile et retarde le retour du fournisseur.
+        /// Le dernier choix est retenu d'une demande sur l'autre.
+        /// </summary>
+        public bool DemanderLivraison { get; set; }
+
+        /// <summary>
         /// Les documents d'article vivent dans l'inventaire plutôt que sur le partage.
         ///
         /// L'inventaire porte déjà les droits — tout le monde lit, seuls les comptes
@@ -158,6 +168,7 @@ namespace AskThem.Models
             DepotArticlesRoot = "";
             CategoriesCampagne = new List<string> { "21", "22", "24" };
             PublierSeulementLiberes = true;
+            DemanderLivraison = true;
             DocumentsDansInventaire = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
 

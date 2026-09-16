@@ -47,6 +47,7 @@ namespace AskThem
         private bool _opt3D;
         private bool _opt2D;
         private bool _optControle;
+        private bool _optLivraison;
         private bool _optCatalogue;
         private int _optFournisseurInventaire;
         private CompressionLevel _optCompression = CompressionLevel.Optimal;
@@ -125,6 +126,7 @@ namespace AskThem
         private CheckBox chk3D;
         private CheckBox chk2D;
         private CheckBox chkControleFabrication;
+        private CheckBox chkLivraison;
         private ComboBox cboCompression;
         private NumericUpDown numTailleMax;
         private NumericUpDown numPiecesMax;
@@ -886,6 +888,16 @@ namespace AskThem
             toolTip.SetToolTip(chkControleFabrication,
                 "Fonction en bêta : relisez le document avant de l'envoyer au fournisseur.");
 
+            chkLivraison = new CheckBox();
+            chkLivraison.Text = "Demander le délai et les frais de livraison";
+            chkLivraison.AutoSize = true;
+            chkLivraison.Checked = _config.DemanderLivraison;
+            chkLivraison.CheckedChanged += new EventHandler(Livraison_Changee);
+            toolTip.SetToolTip(chkLivraison,
+                "Ajoute au message la demande du délai de livraison et des frais de port. "
+                + "À décocher quand le transport est déjà réglé : accord-cadre, enlèvement "
+                + "sur place, ou port déjà convenu avec ce fournisseur.");
+
             cboCompression = new ComboBox();
             cboCompression.DropDownStyle = ComboBoxStyle.DropDownList;
             cboCompression.Width = 130;
@@ -953,6 +965,7 @@ namespace AskThem
             flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
             flow.Controls.Add(Groupe("", chk3D, chk2D));
             flow.Controls.Add(Groupe("", chkControleFabrication, null));
+            flow.Controls.Add(Groupe("", chkLivraison, null));
             flow.Controls.Add(Groupe("Compression des archives :", cboCompression, null));
             flow.Controls.Add(Groupe("Par email, au plus (Mo / pièces) :", numTailleMax, numPiecesMax));
             groupePo = Groupe(lblPo.Text, txtPo, btnPo);
@@ -1221,6 +1234,7 @@ namespace AskThem
             d.Export3D = chk3D.Checked;
             d.Export2D = chk2D.Checked;
             d.ControleFabrication = chkControleFabrication.Checked;
+            d.DemanderLivraison = chkLivraison.Checked;
 
             foreach (PartLine l in _lines)
                 if (!string.IsNullOrWhiteSpace(l.PartNumber)) d.Lignes.Add(l);
@@ -1281,6 +1295,7 @@ namespace AskThem
             chk3D.Checked = d.Export3D;
             chk2D.Checked = d.Export2D;
             chkControleFabrication.Checked = d.ControleFabrication;
+            chkLivraison.Checked = d.DemanderLivraison;
 
             RefreshGrid();
         }
@@ -1745,6 +1760,24 @@ namespace AskThem
             Log("Par email : " + taille + " Mo et " + pieces + " pièce(s) jointe(s) au plus.");
         }
 
+        /// <summary>
+        /// Demander ou non le délai et les frais de livraison, retenu d'une session à l'autre.
+        ///
+        /// Un acheteur travaille longtemps avec les mêmes conditions de transport : lui faire
+        /// recocher la case à chaque demande reviendrait à ne pas lui offrir le choix.
+        /// </summary>
+        private void Livraison_Changee(object sender, EventArgs e)
+        {
+            bool demander = chkLivraison.Checked;
+            if (demander == _config.DemanderLivraison) return;
+
+            _config.DemanderLivraison = demander;
+            ConfigService.Save(_config);
+            Log(demander
+                ? "Le message demandera le délai et les frais de livraison."
+                : "Le message ne demandera ni délai ni frais de livraison.");
+        }
+
         /// <summary>Le niveau choisi est conservé d'une session à l'autre.</summary>
         private void Compression_Changee(object sender, EventArgs e)
         {
@@ -2071,6 +2104,7 @@ namespace AskThem
             _opt3D = chk3D.Checked;
             _opt2D = chk2D.Checked;
             _optControle = chkControleFabrication.Checked;
+            _optLivraison = chkLivraison.Checked;
             _optCompression = ZipService.Niveau(cboCompression.SelectedItem as string);
             Supplier fournisseur = SelectedSupplier;
             _optSupplier = fournisseur == null ? "" : fournisseur.ToLine;
@@ -2777,7 +2811,7 @@ namespace AskThem
                                        + Numerotation(i + 1, lots.Count);
                         string body = EmailBuilder.BuildBody(_optType, lot.Lignes, _optProject, _optDeadline,
                                                              _optConditions, i == 0 ? nomPo : "", _optCatalogue,
-                                                             lot.PiecesJointes.Count);
+                                                             lot.PiecesJointes.Count, _optLivraison);
 
                         List<string> pieces = new List<string>(lot.PiecesJointes);
                         if (poJoignable && i == 0) pieces.Add(cheminPo);

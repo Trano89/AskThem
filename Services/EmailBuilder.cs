@@ -51,6 +51,18 @@ namespace AskThem.Services
                                       string deadline, string conditions, string poFileName,
                                       bool catalogue, int nbArchives)
         {
+            return BuildBody(type, lines, project, deadline, conditions, poFileName,
+                             catalogue, nbArchives, true);
+        }
+
+        /// <param name="demanderLivraison">
+        /// Réclamer le délai de livraison et les frais de port. À faux, la question ne figure
+        /// pas dans le message : elle est déjà tranchée ailleurs.
+        /// </param>
+        public static string BuildBody(RequestType type, List<PartLine> lines, string project,
+                                      string deadline, string conditions, string poFileName,
+                                      bool catalogue, int nbArchives, bool demanderLivraison)
+        {
             string html = LoadTemplate(type, catalogue);
             string projectText = string.IsNullOrWhiteSpace(project) ? "-" : project.Trim();
             string deadlineText = string.IsNullOrWhiteSpace(deadline) ? "non précisé" : deadline.Trim();
@@ -63,7 +75,29 @@ namespace AskThem.Services
             html = html.Replace("{{NOTES}}", BuildNotes(type, lines, catalogue));
             html = html.Replace("{{PO}}", BuildPo(type, poFileName));
             html = html.Replace("{{FICHIERS}}", BuildFichiers(type, catalogue, nbArchives, lines));
+            html = html.Replace("{{LIVRAISON}}", BuildLivraison(type, demanderLivraison));
             return html;
+        }
+
+        /// <summary>
+        /// Demande du délai de livraison et des frais de port, ou son absence.
+        ///
+        /// Les deux se demandent ensemble : un prix sans son transport n'est pas comparable
+        /// d'un fournisseur à l'autre, et un délai annoncé départ usine n'est pas un délai de
+        /// livraison. La tournure suit le message : sur une offre on demande, sur une commande
+        /// on fait confirmer.
+        /// </summary>
+        private static string BuildLivraison(RequestType type, bool demander)
+        {
+            if (!demander) return "";
+
+            if (type == RequestType.Offre) return
+                "<p>Merci d'indiquer également le <b>délai de livraison</b> ainsi que les "
+              + "<b>frais de port</b>.</p>";
+
+            return
+                "<p>Merci de nous confirmer le <b>délai de livraison</b> ainsi que les "
+              + "<b>frais de port</b>.</p>";
         }
 
         /// <summary>
@@ -347,8 +381,8 @@ namespace AskThem.Services
 + "<p>Nous vous passons commande des {{NB_ARTICLES}} article(s) de catalogue ci-dessous.</p>"
 + "<p>Référence commande : <b>{{COMMANDE}}</b><br/>Délai souhaité : <b>{{DELAI}}</b></p>"
 + "{{TABLEAU}}{{COMMENTAIRE}}{{PO}}"
-+ "<p>Merci de nous <b>confirmer la réception de cette commande</b>, les prix et "
-+ "le délai de livraison.</p>"
++ "<p>Merci de nous <b>confirmer la réception de cette commande</b> ainsi que "
++ "les prix.</p>{{LIVRAISON}}"
 + "<p>Avec nos remerciements, nous vous adressons nos meilleures salutations.</p>"
 + "{{NOTES}}</div></body></html>";
 
@@ -358,8 +392,8 @@ namespace AskThem.Services
 + "<p>Bonjour,</p>"
 + "<p>Nous vous prions de bien vouloir nous faire parvenir votre meilleure offre pour les "
 + "{{NB_ARTICLES}} article(s) de catalogue ci-dessous.</p>"
-+ "<p>Merci d'indiquer un <b>prix unitaire pour chaque palier de quantité</b>, ainsi que le "
-+ "<b>délai de livraison</b> correspondant.</p>"
++ "<p>Merci d'indiquer un <b>prix unitaire pour chaque palier de quantité</b>.</p>"
++ "{{LIVRAISON}}"
 + "<p>Référence commande : <b>{{COMMANDE}}</b><br/>Délai souhaité : <b>{{DELAI}}</b></p>"
 + "{{TABLEAU}}{{COMMENTAIRE}}{{PO}}"
 + "<p>Merci de nous confirmer que les références ci-dessus correspondent bien "
@@ -374,8 +408,8 @@ namespace AskThem.Services
 <p>Bonjour,</p>
 <p>Nous vous prions de bien vouloir nous faire parvenir votre meilleure offre
 pour les {{NB_ARTICLES}} article(s) ci-dessous.</p>
-<p>Merci d'indiquer un <b>prix unitaire pour chaque palier de quantité</b>,
-ainsi que le <b>délai de livraison</b> correspondant.</p>
+<p>Merci d'indiquer un <b>prix unitaire pour chaque palier de quantité</b>.</p>
+{{LIVRAISON}}
 <p>Référence commande : <b>{{COMMANDE}}</b><br/>
 Délai souhaité : <b>{{DELAI}}</b></p>
 {{TABLEAU}}
@@ -400,6 +434,7 @@ Délai souhaité : <b>{{DELAI}}</b></p>
 {{COMMENTAIRE}}
 {{PO}}
 {{FICHIERS}}
+{{LIVRAISON}}
 <p>Avec nos remerciements et nos meilleures salutations.</p>
 {{NOTES}}
 </div>
