@@ -168,7 +168,7 @@ namespace AskThem.Services
                 if (f.Envoyes.Contains(marque)) continue;
 
                 string msg = Path.Combine(dossier, NomMessage(i + 1, f.Marques.Count));
-                EnvoiOutlook.MessageEnvoye m = EnvoiOutlook.Chercher(marque, msg);
+                EnvoiOutlook.MessageEnvoye m = EnvoiOutlook.Chercher(marque, msg, f.PrepareeLe);
                 if (m == null) continue;
 
                 f.Envoyes.Add(marque);

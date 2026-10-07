@@ -161,8 +161,22 @@ namespace AskThem.Services
         /// </summary>
         public static MessageEnvoye Chercher(string marque, string enregistrerSous)
         {
+            return Chercher(marque, enregistrerSous, DateTime.MinValue);
+        }
+
+        /// <param name="depuis">
+        /// Préparation de la demande : les messages envoyés depuis sont relus un à un si le
+        /// filtre d'Outlook ne trouve rien, ce qui arrive sur les comptes IMAP.
+        /// </param>
+        public static MessageEnvoye Chercher(string marque, string enregistrerSous, DateTime depuis)
+        {
             if (string.IsNullOrWhiteSpace(marque) || !OutlookOuvert()) return null;
-            string filtre = "@SQL=\"" + OutlookService.ProprieteMarque + "\" = '" + marque.Replace("'", "''") + "'";
+
+            // Le type de la propriété fait partie de son nom dans un filtre : sans lui
+            // (0x001F, texte Unicode), Outlook ne la reconnaît pas et ne trouve rien — même
+            // sur un message qui la porte.
+            string filtre = "@SQL=\"" + OutlookService.ProprieteMarque + "/0x0000001F\" = '"
+                          + marque.Replace("'", "''") + "'";
 
             object espace = null;
             List<object> dossiers = new List<object>();
@@ -177,6 +191,14 @@ namespace AskThem.Services
                 {
                     MessageEnvoye m = ChercherDans(dossier, filtre, enregistrerSous);
                     if (m != null) return m;
+                }
+                if (depuis != DateTime.MinValue)
+                {
+                    foreach (object dossier in dossiers)
+                    {
+                        MessageEnvoye m = ParcourirDepuis(dossier, marque, depuis, enregistrerSous);
+                        if (m != null) return m;
+                    }
                 }
             }
             catch (Exception ex)
@@ -234,7 +256,81 @@ namespace AskThem.Services
                 if ((int)((dynamic)trouves).Count == 0) return null;
                 element = ((dynamic)trouves).GetFirst();
                 if (element == null) return null;
+                return Decrire(element, enregistrerSous);
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                Liberer(element);
+                Liberer(trouves);
+                Liberer(elements);
+            }
+        }
 
+        /// <summary>
+        /// Relit un à un les messages envoyés depuis la préparation, du plus récent au plus
+        /// ancien, et lit la marque sur chacun. Plus lent que le filtre, mais indépendant de
+        /// ce que le compte sait filtrer.
+        /// </summary>
+        private static MessageEnvoye ParcourirDepuis(object dossier, string marque, DateTime depuis, string enregistrerSous)
+        {
+            object elements = null;
+            try
+            {
+                elements = ((dynamic)dossier).Items;
+                dynamic liste = elements;
+                try { liste.Sort("[SentOn]", true); }
+                catch (Exception) { }
+
+                DateTime plancher = depuis.AddMinutes(-5);
+                object element = liste.GetFirst();
+                int examines = 0;
+                while (element != null && examines < MaxExamines)
+                {
+                    examines++;
+                    bool fini = false, trouve = false;
+                    try
+                    {
+                        dynamic m = element;
+                        if ((DateTime)m.SentOn < plancher) fini = true;
+                        else
+                        {
+                            object accesseur = m.PropertyAccessor;
+                            try
+                            {
+                                object valeur = ((dynamic)accesseur).GetProperty(OutlookService.ProprieteMarque);
+                                trouve = string.Equals(valeur as string, marque, StringComparison.Ordinal);
+                            }
+                            catch (Exception) { }   // pas de marque sur ce message
+                            finally { Liberer(accesseur); }
+                        }
+                    }
+                    catch (Exception) { }
+
+                    if (trouve)
+                    {
+                        try { return Decrire(element, enregistrerSous); }
+                        finally { Liberer(element); }
+                    }
+                    if (fini) { Liberer(element); return null; }
+
+                    object suivant = liste.GetNext();
+                    Liberer(element);
+                    element = suivant;
+                }
+                Liberer(element);
+            }
+            catch (Exception) { }
+            finally { Liberer(elements); }
+            return null;
+        }
+
+        private static MessageEnvoye Decrire(object element, string enregistrerSous)
+        {
+            {
                 dynamic m = element;
                 MessageEnvoye r = new MessageEnvoye();
                 r.EnvoyeLe = (DateTime)m.SentOn;
@@ -248,16 +344,6 @@ namespace AskThem.Services
                     catch (Exception ex) { LogService.Write("Message envoyé non enregistré : " + ex.Message); }
                 }
                 return r;
-            }
-            catch (Exception)
-            {
-                return null;
-            }
-            finally
-            {
-                Liberer(element);
-                Liberer(trouves);
-                Liberer(elements);
             }
         }
 

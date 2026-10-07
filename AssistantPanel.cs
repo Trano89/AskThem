@@ -57,6 +57,12 @@ namespace AskThem
         private Button btnBaseArticles;
         private Button btnPreferences;
         private Button btnSuivi;
+
+        /// <summary>
+        /// Les boutons de l'en-tête, rangés de droite à gauche sur une même ligne. Placés un à
+        /// un, ils se chevauchaient dès que l'écran était mis à l'échelle.
+        /// </summary>
+        private FlowLayoutPanel barreEntete;
         private Label lblSousTitre;
         private Label lblProgression;
         private Panel corps;
@@ -222,25 +228,9 @@ namespace AskThem
         private void Entete_Resize(object sender, EventArgs e)
         {
             Panel entete = sender as Panel;
-            if (entete == null || btnBaseArticles == null) return;
-            int droite = entete.ClientSize.Width - 28;
-            if (btnBaseArticles.Visible)
-            {
-                btnBaseArticles.Location = new Point(Math.Max(8, droite - btnBaseArticles.Width), 16);
-                btnBaseArticles.BringToFront();
-                droite = btnBaseArticles.Left - 8;
-            }
-            if (btnPreferences != null)
-            {
-                btnPreferences.Location = new Point(Math.Max(8, droite - btnPreferences.Width), 16);
-                btnPreferences.BringToFront();
-                droite = btnPreferences.Left - 8;
-            }
-            if (btnSuivi != null)
-            {
-                btnSuivi.Location = new Point(Math.Max(8, droite - btnSuivi.Width), 16);
-                btnSuivi.BringToFront();
-            }
+            if (entete == null || barreEntete == null) return;
+            barreEntete.Location = new Point(Math.Max(8, entete.ClientSize.Width - barreEntete.Width - 28), 14);
+            barreEntete.BringToFront();
         }
 
         private void BaseArticles_Click(object sender, EventArgs e)
@@ -293,9 +283,8 @@ namespace AskThem
             btnBaseArticles = new Button();
             btnBaseArticles.Text = "Base articles…";
             btnBaseArticles.Font = AppFont.Get();
-            btnBaseArticles.Size = new Size(150, 30);
+            btnBaseArticles.Size = new Size(AppFont.Width(btnBaseArticles.Text, 34), 30);
             btnBaseArticles.FlatStyle = FlatStyle.System;
-            btnBaseArticles.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnBaseArticles.Visible = SolidWorksExporter.EstPosteEquipe();
             btnBaseArticles.Click += new EventHandler(BaseArticles_Click);
 
@@ -304,7 +293,6 @@ namespace AskThem
             btnPreferences.Font = AppFont.Get();
             btnPreferences.Size = new Size(AppFont.Width(btnPreferences.Text, 34), 30);
             btnPreferences.FlatStyle = FlatStyle.System;
-            btnPreferences.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnPreferences.Click += new EventHandler(Preferences_Click);
 
             btnSuivi = new Button();
@@ -312,8 +300,21 @@ namespace AskThem
             btnSuivi.Font = AppFont.Get();
             btnSuivi.Size = new Size(AppFont.Width(btnSuivi.Text, 34), 30);
             btnSuivi.FlatStyle = FlatStyle.System;
-            btnSuivi.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnSuivi.Click += new EventHandler(Suivi_Click);
+
+            barreEntete = new FlowLayoutPanel();
+            barreEntete.FlowDirection = FlowDirection.RightToLeft;
+            barreEntete.WrapContents = false;
+            barreEntete.AutoSize = true;
+            barreEntete.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            barreEntete.Margin = Padding.Empty;
+            barreEntete.Padding = Padding.Empty;
+            barreEntete.BackColor = Color.Transparent;
+            foreach (Button b in new Button[] { btnBaseArticles, btnPreferences, btnSuivi })
+            {
+                b.Margin = new Padding(8, 0, 0, 0);
+                barreEntete.Controls.Add(b);
+            }
 
             Panel entete = new Panel();
             entete.Dock = DockStyle.Top;
@@ -322,9 +323,7 @@ namespace AskThem
             entete.Controls.Add(lblSousTitre);
             entete.Controls.Add(lblTitre);
             entete.Controls.Add(lblProgression);
-            entete.Controls.Add(btnBaseArticles);
-            entete.Controls.Add(btnPreferences);
-            entete.Controls.Add(btnSuivi);
+            entete.Controls.Add(barreEntete);
             entete.Resize += new EventHandler(Entete_Resize);
 
             corps = new Panel();
