@@ -3028,6 +3028,7 @@ namespace AskThem
                 demande.CreeeLe = DateTime.Now;
                 demande.Auteur = System.Environment.UserName;
                 demande.AuteurNom = OutlookService.NomUtilisateur();
+                demande.AuteurEmail = OutlookService.AdresseUtilisateur();
                 demande.Poste = System.Environment.MachineName;
                 demande.Fournisseur = _optSupplierName;
                 demande.Destinataires = _optSupplier;

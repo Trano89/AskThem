@@ -35,6 +35,9 @@ namespace AskThem.Services
         /// </summary>
         private const string Protection = "AskThem";
 
+        /// <summary>Onglet masqué où chaque demandeur garde sa couleur.</summary>
+        private const string NomUtilisateurs = "BDD Utilisateurs";
+
         /// <summary>Les trois onglets, dans l'ordre où on les lit.</summary>
         public static readonly string[] Types =
         {
@@ -49,7 +52,8 @@ namespace AskThem.Services
             "Id", "Type", "Statut", "CreeeLe", "Auteur", "AuteurNom", "Poste", "Fournisseur",
             "Destinataires", "Reference", "NbArticles", "Articles", "NbMessages", "MessagesEnvoyes",
             "EnvoyeeLe", "SujetEnvoye", "DestinatairesEnvoyes", "ProchainRappel", "NbRappels",
-            "ReponseLe", "ClotureLe", "ClotureePar", "DossierArchive", "MisAJourLe"
+            "ReponseLe", "ClotureLe", "ClotureePar", "DossierArchive", "MisAJourLe",
+            "AuteurEmail", "DerniereAction", "DerniereActionPar", "DerniereActionLe"
         };
 
         private static readonly object Verrou = new object();
@@ -143,7 +147,8 @@ namespace AskThem.Services
                             foreach (DemandeSuivie d in file.Values) Ecrire(wb, d);
 
                             List<DemandeSuivie> toutes = LireToutes(wb);
-                            foreach (string type in Types) Construire(wb, type, toutes);
+                            Dictionary<string, XLColor> couleurs = Couleurs(wb, toutes);
+                            foreach (string type in Types) Construire(wb, type, toutes, couleurs);
                             ProtegerClasseur(wb);
                             wb.SaveAs(temporaire);
                             MemoriserMiennes(toutes);
@@ -322,6 +327,14 @@ namespace AskThem.Services
             for (int r = 2; r <= derniere; r++)
                 if (string.Equals(bdd.Cell(r, colId).GetString(), d.Id, StringComparison.OrdinalIgnoreCase)) { ligne = r; break; }
             if (ligne < 0) ligne = derniere + 1;
+            else
+            {
+                // Plusieurs postes écrivent la même demande — son auteur, et désormais un
+                // collègue qui la clôt. Une version plus récente déjà écrite n'est pas
+                // écrasée par un état plus ancien resté dans une file.
+                DateTime? deja = Date(bdd, ligne, cols, "MisAJourLe");
+                if (deja.HasValue && deja.Value > d.MisAJourLe.AddSeconds(1)) return;
+            }
 
             Poser(bdd, ligne, cols, "Id", d.Id);
             Poser(bdd, ligne, cols, "Type", type);
@@ -347,6 +360,10 @@ namespace AskThem.Services
             Poser(bdd, ligne, cols, "ClotureePar", d.ClotureePar);
             Poser(bdd, ligne, cols, "DossierArchive", d.DossierArchive);
             Poser(bdd, ligne, cols, "MisAJourLe", d.MisAJourLe);
+            Poser(bdd, ligne, cols, "AuteurEmail", d.AuteurEmail);
+            Poser(bdd, ligne, cols, "DerniereAction", d.DerniereAction);
+            Poser(bdd, ligne, cols, "DerniereActionPar", d.DerniereActionPar);
+            Poser(bdd, ligne, cols, "DerniereActionLe", d.DerniereActionLe);
         }
 
         private static void Poser(IXLWorksheet ws, int ligne, Dictionary<string, int> cols, string champ, object valeur)
@@ -407,6 +424,10 @@ namespace AskThem.Services
                     d.ClotureePar = Texte(bdd, r, cols, "ClotureePar", "");
                     d.DossierArchive = Texte(bdd, r, cols, "DossierArchive", "");
                     d.MisAJourLe = Date(bdd, r, cols, "MisAJourLe") ?? DateTime.MinValue;
+                    d.AuteurEmail = Texte(bdd, r, cols, "AuteurEmail", "");
+                    d.DerniereAction = Texte(bdd, r, cols, "DerniereAction", "");
+                    d.DerniereActionPar = Texte(bdd, r, cols, "DerniereActionPar", "");
+                    d.DerniereActionLe = Date(bdd, r, cols, "DerniereActionLe");
                     toutes.Add(d);
                 }
             }
@@ -445,23 +466,138 @@ namespace AskThem.Services
 
         // ------------------------------------------------------------------ vue lisible
 
-        private static readonly XLColor Bleu = XLColor.FromHtml("#2F6FB3");
-        private static readonly XLColor Vert = XLColor.FromHtml("#5B9B3C");
         private static readonly XLColor Gris = XLColor.FromHtml("#A6A6A6");
+        private static readonly XLColor Orange = XLColor.FromHtml("#ED7D31");
 
-        private const int ColGantt = 13;
-        private const int SemainesAvant = 20;
-        private const int SemainesApres = 4;
+        /// <summary>
+        /// Couleurs des demandeurs : nettement distinctes, et aucune ne se confond avec le gris
+        /// d'une demande sans suite.
+        /// </summary>
+        private static readonly string[] Palette =
+        {
+            "#2F6FB3", "#E8833A", "#3E9651", "#C83E4D", "#7A5195", "#1B9AAA",
+            "#B5892B", "#D45087", "#5B6E1E", "#8C564B", "#3366CC", "#A05195"
+        };
+
+        private const int ColGantt = 14;
+
+        /// <summary>Jours ouvrés montrés avant aujourd'hui, et après.</summary>
+        private const int JoursAvant = 50;
+        private const int JoursApres = 10;
+
+        private const int LigneEntete = 5;
+
+        /// <summary>
+        /// La couleur de chaque demandeur, attribuée une fois pour toutes dans l'onglet masqué
+        /// « BDD Utilisateurs » : un nouveau venu reçoit la suivante, et personne ne change de
+        /// couleur quand la liste s'allonge.
+        /// </summary>
+        private static Dictionary<string, XLColor> Couleurs(XLWorkbook wb, List<DemandeSuivie> toutes)
+        {
+            IXLWorksheet u;
+            if (!wb.TryGetWorksheet(NomUtilisateurs, out u))
+            {
+                u = wb.Worksheets.Add(NomUtilisateurs);
+                u.Cell(1, 1).Value = "Auteur";
+                u.Cell(1, 2).Value = "Nom";
+                u.Cell(1, 3).Value = "Couleur";
+                u.Row(1).Style.Font.Bold = true;
+            }
+            u.Unprotect(Protection);
+
+            Dictionary<string, XLColor> couleurs = new Dictionary<string, XLColor>(StringComparer.OrdinalIgnoreCase);
+            Dictionary<string, int> lignes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+            int derniere = u.LastRowUsed() == null ? 1 : u.LastRowUsed().RowNumber();
+            for (int r = 2; r <= derniere; r++)
+            {
+                string auteur = u.Cell(r, 1).GetString().Trim();
+                if (auteur == "") continue;
+                lignes[auteur] = r;
+                try { couleurs[auteur] = XLColor.FromHtml(u.Cell(r, 3).GetString().Trim()); }
+                catch (Exception) { couleurs[auteur] = XLColor.FromHtml(Palette[(r - 2) % Palette.Length]); }
+            }
+
+            foreach (DemandeSuivie d in toutes)
+            {
+                if (string.IsNullOrWhiteSpace(d.Auteur)) continue;
+                int ligne;
+                if (!lignes.TryGetValue(d.Auteur, out ligne))
+                {
+                    derniere++;
+                    ligne = derniere;
+                    lignes[d.Auteur] = ligne;
+                    string html = Palette[(ligne - 2) % Palette.Length];
+                    u.Cell(ligne, 1).Value = d.Auteur;
+                    u.Cell(ligne, 3).Value = html;
+                    couleurs[d.Auteur] = XLColor.FromHtml(html);
+                }
+                if (!string.IsNullOrWhiteSpace(d.AuteurNom)) u.Cell(ligne, 2).Value = d.AuteurNom;
+            }
+
+            u.Protect(Protection, XLProtectionAlgorithm.Algorithm.SHA512, XLSheetProtectionElements.SelectEverything);
+            u.Visibility = XLWorksheetVisibility.Hidden;
+            return couleurs;
+        }
+
+        /// <summary>La même couleur, éclaircie : fond de cellule, ou barre d'une demande close.</summary>
+        private static XLColor Pale(XLColor c, double part)
+        {
+            System.Drawing.Color b = c.Color;
+            return XLColor.FromArgb((int)(b.R + (255 - b.R) * part), (int)(b.G + (255 - b.G) * part), (int)(b.B + (255 - b.B) * part));
+        }
+
+        /// <summary>Les jours ouvrés montrés dans le Gantt, du plus ancien au plus récent.</summary>
+        private static List<DateTime> JoursOuvres()
+        {
+            List<DateTime> jours = new List<DateTime>();
+            DateTime j = DateTime.Today;
+            while (!Ouvre(j)) j = j.AddDays(-1);
+            for (int n = 0; n < JoursAvant; n++)
+            {
+                j = j.AddDays(-1);
+                while (!Ouvre(j)) j = j.AddDays(-1);
+            }
+            int apres = 0;
+            while (true)
+            {
+                if (Ouvre(j))
+                {
+                    jours.Add(j);
+                    if (j > DateTime.Today) apres++;
+                    if (apres >= JoursApres) break;
+                }
+                j = j.AddDays(1);
+            }
+            return jours;
+        }
+
+        private static bool Ouvre(DateTime j)
+        {
+            return j.DayOfWeek != DayOfWeek.Saturday && j.DayOfWeek != DayOfWeek.Sunday;
+        }
+
+        /// <summary>Jours ouvrés écoulés entre deux dates.</summary>
+        private static int Ouvres(DateTime debut, DateTime fin)
+        {
+            int n = 0;
+            for (DateTime j = debut.Date.AddDays(1); j <= fin.Date; j = j.AddDays(1))
+                if (Ouvre(j)) n++;
+            return n;
+        }
+
+        private static readonly string[] InitialesJours = { "D", "L", "M", "M", "J", "V", "S" };
 
         /// <summary>
         /// Reconstruit l'onglet visible d'un type à partir de son onglet de données : rien n'y
         /// est saisi, tout y est déduit, et il est protégé.
         /// </summary>
-        private static void Construire(XLWorkbook wb, string type, List<DemandeSuivie> toutes)
+        private static void Construire(XLWorkbook wb, string type, List<DemandeSuivie> toutes,
+                                       Dictionary<string, XLColor> couleurs)
         {
             IXLWorksheet ws = wb.Worksheet(type);
             ws.Unprotect(Protection);
             ws.Clear();
+            foreach (IXLRange fusion in new List<IXLRange>(ws.MergedRanges)) fusion.Unmerge();
             ws.ConditionalFormats.RemoveAll();
             if (ws.AutoFilter != null && ws.AutoFilter.IsEnabled) ws.AutoFilter.Clear();
 
@@ -471,6 +607,7 @@ namespace AskThem.Services
             lignes.Sort(Ordre);
 
             int attente = 0, repondues = 0, sansSuite = 0, nonEnvoyees = 0, preparees = 0;
+            List<string> auteurs = new List<string>();
             foreach (DemandeSuivie d in lignes)
             {
                 if (d.Statut == DemandeSuivie.Envoyee) attente++;
@@ -478,9 +615,10 @@ namespace AskThem.Services
                 else if (d.Statut == DemandeSuivie.SansSuite) sansSuite++;
                 else if (d.Statut == DemandeSuivie.NonEnvoyee) nonEnvoyees++;
                 else preparees++;
+                if (!string.IsNullOrWhiteSpace(d.Auteur) && !auteurs.Contains(d.Auteur)) auteurs.Add(d.Auteur);
             }
 
-            // --- titre et compteurs ---
+            // --- titre, compteurs, légende des demandeurs ---
             ws.Cell(1, 1).Value = Titre(type) + " — suivi";
             ws.Cell(1, 1).Style.Font.Bold = true;
             ws.Cell(1, 1).Style.Font.FontSize = 15;
@@ -492,47 +630,70 @@ namespace AskThem.Services
                                 + "     Jamais envoyées : " + nonEnvoyees;
             ws.Cell(2, 1).Style.Font.FontColor = XLColor.FromHtml("#404040");
 
+            // La légende tient dans une seule cellule, qui déborde sur les voisines vides : un
+            // nom long n'y est jamais tronqué, quelle que soit la largeur des colonnes.
+            ws.Cell(3, 1).Value = "Demandeurs :";
+            ws.Cell(3, 1).Style.Font.Bold = true;
+            IXLRichText legende = ws.Cell(3, 2).GetRichText();
+            foreach (string a in auteurs)
+            {
+                DemandeSuivie exemple = lignes.Find(delegate (DemandeSuivie x) { return string.Equals(x.Auteur, a, StringComparison.OrdinalIgnoreCase); });
+                XLColor c = couleurs.ContainsKey(a) ? couleurs[a] : Gris;
+                legende.AddText("■ ").SetFontColor(c).SetBold(true).SetFontSize(13);
+                legende.AddText((exemple != null ? exemple.Demandeur : a) + "      ").SetBold(true).SetFontColor(XLColor.FromHtml("#404040"));
+            }
+            IXLCell lecture = ws.Cell(3, ColGantt);
+            lecture.Value = "Barre pleine : en attente de réponse — barre claire : réponse reçue — gris : sans suite.";
+            lecture.Style.Font.FontColor = XLColor.FromHtml("#7F7F7F");
+            lecture.Style.Font.Italic = true;
+
             // --- en-têtes ---
             string[] entetes = { "Statut", "Fournisseur", "Réf. commande", "Articles", "Liste des articles",
-                                 "Demandé par", "Préparée le", "Envoyée le", "Réponse le", "Jours", "Prochain rappel", "Dossier" };
-            int ligneEntete = 4;
-            for (int c = 0; c < entetes.Length; c++) ws.Cell(ligneEntete, c + 1).Value = entetes[c];
+                                 "Demandé par", "Préparée le", "Envoyée le", "Réponse le", "Jours ouvrés",
+                                 "Prochain rappel", "Dernière action", "Dossier" };
+            for (int c = 0; c < entetes.Length; c++) ws.Cell(LigneEntete, c + 1).Value = entetes[c];
 
-            DateTime lundi = Lundi(DateTime.Today);
-            DateTime premiere = lundi.AddDays(-7 * SemainesAvant);
-            int nbSemaines = SemainesAvant + SemainesApres + 1;
-            for (int s = 0; s < nbSemaines; s++)
+            // --- calendrier : un jour ouvré par colonne, la semaine au-dessus ---
+            List<DateTime> jours = JoursOuvres();
+            int debutSemaine = -1;
+            for (int i = 0; i < jours.Count; i++)
             {
-                DateTime debut = premiere.AddDays(7 * s);
-                IXLCell haut = ws.Cell(ligneEntete - 1, ColGantt + s);
-                haut.Value = debut.ToString("dd.MM");
-                haut.Style.Font.FontSize = 7;
-                haut.Style.Alignment.TextRotation = 90;
-                haut.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
-                IXLCell sem = ws.Cell(ligneEntete, ColGantt + s);
-                sem.Value = "S" + ISOWeek.GetWeekOfYear(debut);
-                sem.Style.Font.FontSize = 8;
-                sem.Style.Alignment.TextRotation = 90;
-                if (debut == lundi)
+                DateTime j = jours[i];
+                IXLCell jour = ws.Cell(LigneEntete, ColGantt + i);
+                jour.Value = InitialesJours[(int)j.DayOfWeek] + " " + j.Day;
+                jour.Style.Font.FontSize = 7;
+                jour.Style.Alignment.TextRotation = 90;
+                jour.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+                if (j == DateTime.Today)
                 {
-                    sem.Style.Fill.BackgroundColor = XLColor.FromHtml("#F4B183");
-                    haut.Style.Fill.BackgroundColor = XLColor.FromHtml("#F4B183");
+                    jour.Style.Fill.BackgroundColor = XLColor.FromHtml("#F4B183");
+                    jour.Style.Font.Bold = true;
                 }
-                ws.Column(ColGantt + s).Width = 2.6;
-            }
+                ws.Column(ColGantt + i).Width = 2.3;
 
-            IXLRange entete = ws.Range(ligneEntete, 1, ligneEntete, ColGantt + nbSemaines - 1);
+                bool nouvelleSemaine = i == 0 || j.DayOfWeek == DayOfWeek.Monday || (j - jours[i - 1]).TotalDays > 3;
+                if (nouvelleSemaine)
+                {
+                    if (debutSemaine >= 0) Semaine(ws, debutSemaine, i - 1, jours);
+                    debutSemaine = i;
+                }
+            }
+            if (debutSemaine >= 0) Semaine(ws, debutSemaine, jours.Count - 1, jours);
+
+            int derniereColonne = ColGantt + jours.Count - 1;
+            IXLRange entete = ws.Range(LigneEntete, 1, LigneEntete, derniereColonne);
             entete.Style.Font.Bold = true;
             entete.Style.Fill.BackgroundColor = XLColor.FromHtml("#DDE5EE");
             entete.Style.Border.BottomBorder = XLBorderStyleValues.Thin;
-            ws.Range(ligneEntete, 1, ligneEntete, entetes.Length).Style.Alignment.WrapText = true;
-            ws.Row(ligneEntete).Height = 30;
-            ws.Row(ligneEntete - 1).Height = 30;
+            ws.Range(LigneEntete, 1, LigneEntete, entetes.Length).Style.Alignment.WrapText = true;
+            ws.Row(LigneEntete).Height = 34;
 
             // --- lignes ---
-            int r = ligneEntete + 1;
+            int r = LigneEntete + 1;
             foreach (DemandeSuivie d in lignes)
             {
+                XLColor couleur = couleurs.ContainsKey(d.Auteur ?? "") ? couleurs[d.Auteur] : Gris;
+
                 ws.Cell(r, 1).Value = d.Statut;
                 ws.Cell(r, 1).Style.Fill.BackgroundColor = CouleurStatut(d.Statut);
                 ws.Cell(r, 2).Value = d.Fournisseur;
@@ -540,43 +701,47 @@ namespace AskThem.Services
                 ws.Cell(r, 4).Value = d.NbArticles;
                 ws.Cell(r, 5).Value = DemandeSuivie.ListeCourte(new List<string>(
                     (d.Articles ?? "").Split(new string[] { ", " }, StringSplitOptions.RemoveEmptyEntries)), 8);
-                ws.Cell(r, 6).Value = string.IsNullOrWhiteSpace(d.AuteurNom) ? d.Auteur : d.AuteurNom;
+                ws.Cell(r, 6).Value = d.Demandeur;
+                ws.Cell(r, 6).Style.Fill.BackgroundColor = Pale(couleur, 0.75);
+                ws.Cell(r, 6).Style.Border.LeftBorder = XLBorderStyleValues.Thick;
+                ws.Cell(r, 6).Style.Border.LeftBorderColor = couleur;
                 DateCellule(ws.Cell(r, 7), d.CreeeLe == DateTime.MinValue ? (DateTime?)null : d.CreeeLe);
                 DateCellule(ws.Cell(r, 8), d.EnvoyeeLe);
                 DateCellule(ws.Cell(r, 9), d.ReponseLe);
                 if (d.EnvoyeeLe.HasValue)
-                {
-                    DateTime fin = d.ReponseLe ?? d.ClotureLe ?? DateTime.Today;
-                    ws.Cell(r, 10).Value = Math.Max(0, (int)(fin.Date - d.EnvoyeeLe.Value.Date).TotalDays);
-                }
+                    ws.Cell(r, 10).Value = Ouvres(d.EnvoyeeLe.Value, d.ReponseLe ?? d.ClotureLe ?? DateTime.Today);
                 if (d.EnAttente) DateCellule(ws.Cell(r, 11), d.ProchainRappel);
+                if (!string.IsNullOrWhiteSpace(d.DerniereAction))
+                    ws.Cell(r, 12).Value = d.DerniereAction
+                        + (string.IsNullOrWhiteSpace(d.DerniereActionPar) ? "" : " — " + d.DerniereActionPar)
+                        + (d.DerniereActionLe.HasValue ? ", " + d.DerniereActionLe.Value.ToString("dd.MM") : "");
                 if (!string.IsNullOrWhiteSpace(d.DossierArchive))
                 {
-                    ws.Cell(r, 12).Value = "Ouvrir";
-                    try { ws.Cell(r, 12).SetHyperlink(new XLHyperlink(new Uri(d.DossierArchive))); }
-                    catch (Exception) { ws.Cell(r, 12).Value = d.DossierArchive; }
+                    ws.Cell(r, 13).Value = "Ouvrir";
+                    try { ws.Cell(r, 13).SetHyperlink(new XLHyperlink(new Uri(d.DossierArchive))); }
+                    catch (Exception) { ws.Cell(r, 13).Value = d.DossierArchive; }
                 }
 
                 if (d.Statut == DemandeSuivie.NonEnvoyee)
-                    ws.Range(r, 2, r, 12).Style.Font.FontColor = XLColor.FromHtml("#8C8C8C");
+                    ws.Range(r, 2, r, 13).Style.Font.FontColor = XLColor.FromHtml("#8C8C8C");
 
-                // --- Gantt : de l'envoi à la réponse, ou jusqu'à aujourd'hui ---
+                // --- Gantt : de l'envoi à la réponse, ou jusqu'à aujourd'hui, jour par jour ---
                 if (d.EnvoyeeLe.HasValue)
                 {
                     DateTime debut = d.EnvoyeeLe.Value.Date;
                     DateTime fin = (d.ReponseLe ?? d.ClotureLe ?? DateTime.Today).Date;
-                    XLColor couleur = d.Statut == DemandeSuivie.Repondue ? Vert
-                                    : d.Statut == DemandeSuivie.SansSuite ? Gris : Bleu;
-                    for (int s = 0; s < nbSemaines; s++)
-                    {
-                        DateTime semDebut = premiere.AddDays(7 * s);
-                        DateTime semFin = semDebut.AddDays(6);
-                        if (semFin >= debut && semDebut <= fin)
-                            ws.Cell(r, ColGantt + s).Style.Fill.BackgroundColor = couleur;
-                    }
+                    XLColor barre = d.Statut == DemandeSuivie.SansSuite ? Gris
+                                  : d.Statut == DemandeSuivie.Repondue ? Pale(couleur, 0.55) : couleur;
+                    for (int i = 0; i < jours.Count; i++)
+                        if (jours[i] >= debut && jours[i] <= fin)
+                            ws.Cell(r, ColGantt + i).Style.Fill.BackgroundColor = barre;
                 }
-                ws.Cell(r, ColGantt + SemainesAvant).Style.Border.LeftBorder = XLBorderStyleValues.Thin;
-                ws.Cell(r, ColGantt + SemainesAvant).Style.Border.LeftBorderColor = XLColor.FromHtml("#ED7D31");
+                int aujourdhui = jours.IndexOf(DateTime.Today);
+                if (aujourdhui >= 0)
+                {
+                    ws.Cell(r, ColGantt + aujourdhui).Style.Border.LeftBorder = XLBorderStyleValues.Thin;
+                    ws.Cell(r, ColGantt + aujourdhui).Style.Border.LeftBorderColor = Orange;
+                }
                 r++;
             }
 
@@ -587,32 +752,47 @@ namespace AskThem.Services
             }
 
             // --- mise en forme ---
-            double[] largeurs = { 14, 26, 18, 8, 44, 20, 16, 16, 16, 7, 14, 9 };
+            double[] largeurs = { 14, 24, 16, 8, 40, 18, 12, 12, 12, 8, 12, 26, 9 };
             for (int c = 0; c < largeurs.Length; c++) ws.Column(c + 1).Width = largeurs[c];
-            int derniere = Math.Max(r - 1, ligneEntete);
-            ws.Range(ligneEntete + 1, 1, derniere, entetes.Length).Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
-            ws.Range(ligneEntete + 1, 5, derniere, 5).Style.Alignment.WrapText = true;
+            int derniere = Math.Max(r - 1, LigneEntete);
+            ws.Range(LigneEntete + 1, 1, derniere, entetes.Length).Style.Alignment.Vertical = XLAlignmentVerticalValues.Top;
+            ws.Range(LigneEntete + 1, 5, derniere, 5).Style.Alignment.WrapText = true;
+            ws.Range(LigneEntete + 1, 12, derniere, 12).Style.Alignment.WrapText = true;
             if (lignes.Count > 0)
             {
-                ws.Range(ligneEntete, 1, derniere, entetes.Length).SetAutoFilter();
-                IXLRange tableau = ws.Range(ligneEntete, 1, derniere, ColGantt + nbSemaines - 1);
+                ws.Range(LigneEntete, 1, derniere, entetes.Length).SetAutoFilter();
+                IXLRange tableau = ws.Range(LigneEntete, 1, derniere, derniereColonne);
                 tableau.Style.Border.InsideBorder = XLBorderStyleValues.Hair;
                 tableau.Style.Border.InsideBorderColor = XLColor.FromHtml("#D9D9D9");
                 tableau.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
             }
-            ws.SheetView.FreezeRows(ligneEntete);
+            ws.SheetView.FreezeRows(LigneEntete);
             ws.SheetView.FreezeColumns(2);
 
             // À l'impression : tout le tableau, Gantt compris, sur la largeur d'une page.
             ws.PageSetup.PageOrientation = XLPageOrientation.Landscape;
-            ws.PageSetup.PaperSize = XLPaperSize.A4Paper;
+            ws.PageSetup.PaperSize = XLPaperSize.A3Paper;
             ws.PageSetup.FitToPages(1, 0);
-            ws.PageSetup.SetRowsToRepeatAtTop(ligneEntete - 1, ligneEntete);
+            ws.PageSetup.SetRowsToRepeatAtTop(LigneEntete - 1, LigneEntete);
             ws.PageSetup.Margins.Left = 0.4;
             ws.PageSetup.Margins.Right = 0.4;
 
             ws.Protect(Protection, XLProtectionAlgorithm.Algorithm.SHA512,
                        XLSheetProtectionElements.SelectEverything | XLSheetProtectionElements.AutoFilter);
+        }
+
+        /// <summary>Le libellé d'une semaine, au-dessus de ses jours : « S41 · 06.10 ».</summary>
+        private static void Semaine(IXLWorksheet ws, int de, int a, List<DateTime> jours)
+        {
+            IXLRange plage = ws.Range(LigneEntete - 1, ColGantt + de, LigneEntete - 1, ColGantt + a);
+            plage.Merge();
+            plage.FirstCell().Value = "S" + ISOWeek.GetWeekOfYear(jours[de]) + " · " + jours[de].ToString("dd.MM");
+            plage.Style.Font.FontSize = 7;
+            plage.Style.Font.Bold = true;
+            plage.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Center;
+            plage.Style.Fill.BackgroundColor = XLColor.FromHtml("#EEF2F6");
+            plage.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+            plage.Style.Border.OutsideBorderColor = XLColor.FromHtml("#B8C4CC");
         }
 
         private static void ProtegerClasseur(XLWorkbook wb)
@@ -679,12 +859,6 @@ namespace AskThem.Services
             cell.Value = date.Value.Date;
             cell.Style.DateFormat.Format = "dd.mm.yyyy";
             cell.Style.Alignment.Horizontal = XLAlignmentHorizontalValues.Left;
-        }
-
-        private static DateTime Lundi(DateTime jour)
-        {
-            int ecart = ((int)jour.DayOfWeek + 6) % 7;
-            return jour.Date.AddDays(-ecart);
         }
 
         /// <summary>

@@ -181,11 +181,22 @@ namespace AskThem.Services
             bool change = nouveaux.Count > 0;
             if (change)
             {
+                // Un collègue a pu agir sur la demande entre-temps : on part de ce que la base
+                // en sait, et l'on n'y ajoute que ce que l'envoi apprend.
+                DemandeSuivie actuelle = BaseSuivi.Trouver(config, d.Id);
+                if (actuelle != null)
+                {
+                    actuelle.EnvoyeeLe = d.EnvoyeeLe;
+                    actuelle.SujetEnvoye = d.SujetEnvoye;
+                    actuelle.DestinatairesEnvoyes = d.DestinatairesEnvoyes;
+                    d = actuelle;
+                    f.Demande = d;
+                }
                 d.MessagesEnvoyes = f.Envoyes.Count;
                 if (d.Statut == DemandeSuivie.Preparee || d.Statut == DemandeSuivie.NonEnvoyee)
                 {
                     d.Statut = DemandeSuivie.Envoyee;
-                    int jours = config != null && config.RappelJours > 0 ? config.RappelJours : 7;
+                    int jours = PreferencesUtilisateur.DelaiRappel(config);
                     d.ProchainRappel = d.EnvoyeeLe.Value.Date.AddDays(jours);
                 }
                 Dire(journal, "Envoi constaté : « " + f.NomCible + " » est parti ("
@@ -285,7 +296,7 @@ namespace AskThem.Services
             d.EnvoyeeLe = f.PrepareeLe;
             d.MessagesEnvoyes = confirmes;
             d.DossierArchive = cible;
-            int jours = config != null && config.RappelJours > 0 ? config.RappelJours : 7;
+            int jours = PreferencesUtilisateur.DelaiRappel(config);
             d.ProchainRappel = DateTime.Today.AddDays(jours);
             BaseSuivi.Enregistrer(d);
 

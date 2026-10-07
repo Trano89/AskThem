@@ -108,6 +108,97 @@ namespace AskThem.Services
             return html.Substring(ouverture + 1, fermeture - ouverture - 1);
         }
 
+        /// <summary>Adresse SMTP de l'utilisateur d'Outlook, ou "".</summary>
+        public static string AdresseUtilisateur()
+        {
+            try
+            {
+                if (!EnvoiOutlook.OutlookOuvert()) return "";
+                Type t = Type.GetTypeFromProgID("Outlook.Application");
+                if (t == null) return "";
+                dynamic outlook = Activator.CreateInstance(t);
+                string adresse = AdresseDe(outlook.Session.CurrentUser.AddressEntry);
+                if (adresse != "") return adresse;
+                try { return ((string)outlook.Session.Accounts.Item(1).SmtpAddress ?? "").Trim(); }
+                catch (Exception) { return ""; }
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// L'adresse d'un collègue retrouvée dans le carnet d'adresses à partir de son nom ou
+        /// de son identifiant Windows, ou "".
+        /// </summary>
+        public static string ResoudreAdresse(string nomOuIdentifiant)
+        {
+            if (string.IsNullOrWhiteSpace(nomOuIdentifiant)) return "";
+            if (nomOuIdentifiant.Contains("@")) return nomOuIdentifiant.Trim();
+            try
+            {
+                Type t = Type.GetTypeFromProgID("Outlook.Application");
+                if (t == null) return "";
+                dynamic outlook = Activator.CreateInstance(t);
+                dynamic r = outlook.Session.CreateRecipient(nomOuIdentifiant.Trim());
+                if (!(bool)r.Resolve()) return "";
+                return AdresseDe(r.AddressEntry);
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
+        private static string AdresseDe(dynamic entree)
+        {
+            try
+            {
+                if (entree == null) return "";
+                string type = (string)entree.Type;
+                if (string.Equals(type, "EX", StringComparison.OrdinalIgnoreCase))
+                {
+                    dynamic exchange = entree.GetExchangeUser();
+                    if (exchange != null) return ((string)exchange.PrimarySmtpAddress ?? "").Trim();
+                }
+                string adresse = (string)entree.Address;
+                return adresse != null && adresse.Contains("@") ? adresse.Trim() : "";
+            }
+            catch (Exception)
+            {
+                return "";
+            }
+        }
+
+        /// <summary>
+        /// Envoie aussitôt un message d'information, sans l'afficher. Réservé aux avis qu'AskThem
+        /// adresse à un collègue : jamais aux fournisseurs, dont les messages passent toujours
+        /// par la relecture de l'utilisateur.
+        /// </summary>
+        public static bool EnvoyerAvis(string a, string sujet, string html, out string message)
+        {
+            message = "";
+            try
+            {
+                Type t = Type.GetTypeFromProgID("Outlook.Application");
+                if (t == null) { message = "Outlook n'est pas disponible sur ce poste."; return false; }
+                dynamic outlook = Activator.CreateInstance(t);
+                dynamic mail = outlook.CreateItem(0);
+                mail.To = a;
+                mail.Subject = sujet;
+                mail.HTMLBody = html;
+                mail.Send();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                message = ex.Message;
+                LogService.Write("Avis non envoyé à " + a + " : " + ex.Message);
+                return false;
+            }
+        }
+
         /// <summary>Nom de l'utilisateur tel qu'Outlook le connaît, ou "".</summary>
         public static string NomUtilisateur()
         {

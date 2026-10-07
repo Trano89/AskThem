@@ -42,6 +42,9 @@ namespace AskThem.Models
         /// <summary>Nom affiché du demandeur, pour la lecture.</summary>
         public string AuteurNom { get; set; }
 
+        /// <summary>Adresse du demandeur : c'est là qu'on le prévient quand un collègue agit sur sa demande.</summary>
+        public string AuteurEmail { get; set; }
+
         public string Poste { get; set; }
 
         // ---- La demande ----
@@ -75,6 +78,11 @@ namespace AskThem.Models
         /// <summary>Où la demande est archivée sur le réseau, une fois partie.</summary>
         public string DossierArchive { get; set; }
 
+        /// <summary>Dernière action de suivi — « Réponse reçue », « Rappel repoussé »… —, par qui, et quand.</summary>
+        public string DerniereAction { get; set; }
+        public string DerniereActionPar { get; set; }
+        public DateTime? DerniereActionLe { get; set; }
+
         public DateTime MisAJourLe { get; set; }
 
         public DemandeSuivie()
@@ -84,6 +92,7 @@ namespace AskThem.Models
             Statut = Preparee;
             Auteur = "";
             AuteurNom = "";
+            AuteurEmail = "";
             Poste = "";
             Fournisseur = "";
             Destinataires = "";
@@ -93,6 +102,20 @@ namespace AskThem.Models
             DestinatairesEnvoyes = "";
             ClotureePar = "";
             DossierArchive = "";
+            DerniereAction = "";
+            DerniereActionPar = "";
+        }
+
+        /// <summary>Vrai si cette demande appartient à cet utilisateur.</summary>
+        public bool EstA(string utilisateur)
+        {
+            return string.Equals(Auteur, utilisateur, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Le nom à afficher pour le demandeur.</summary>
+        public string Demandeur
+        {
+            get { return string.IsNullOrWhiteSpace(AuteurNom) ? Auteur : AuteurNom; }
         }
 
         /// <summary>Vrai tant qu'une réponse est attendue : la barre du Gantt court encore.</summary>

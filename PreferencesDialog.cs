@@ -9,7 +9,7 @@ using AskThem.Services;
 namespace AskThem
 {
     /// <summary>
-    /// Préférences de l'utilisateur : le texte des emails.
+    /// Préférences de l'utilisateur : le texte des emails, et le délai des rappels.
     ///
     /// Chacun écrit ses messages à sa façon. Le texte se modifie en clair, un aperçu montre
     /// le message tel que le fournisseur le recevra, et un bouton ramène au texte d'origine.
@@ -28,10 +28,13 @@ namespace AskThem
         private TextBox txtTexte;
         private WebBrowser apercu;
         private Timer minuterie;
+        private NumericUpDown numRappel;
+        private readonly AppConfig _config;
 
         public PreferencesDialog(AppConfig config)
         {
             _demanderLivraison = config == null || config.DemanderLivraison;
+            _config = config;
 
             Dictionary<NatureTexte, string> perso = TextesEmail.Personnalises();
             foreach (NatureTexte n in Enum.GetValues(typeof(NatureTexte)))
@@ -192,13 +195,23 @@ namespace AskThem
                 btnEnregistrer.Location = new Point(btnAnnuler.Left - btnEnregistrer.Width - 8, 10);
             };
 
+            // --- onglets : les textes, les rappels ---
+            TabPage pageTextes = new TabPage("Textes des emails");
+            pageTextes.Padding = new Padding(12, 10, 12, 8);
+            pageTextes.Controls.Add(milieu);
+            pageTextes.Controls.Add(choix);
+            pageTextes.Controls.Add(explication);
+            pageTextes.Controls.Add(titre);
+
+            TabControl onglets = new TabControl();
+            onglets.Dock = DockStyle.Fill;
+            onglets.TabPages.Add(pageTextes);
+            onglets.TabPages.Add(PageRappels());
+
             Panel corps = new Panel();
             corps.Dock = DockStyle.Fill;
-            corps.Padding = new Padding(20, 14, 20, 8);
-            corps.Controls.Add(milieu);
-            corps.Controls.Add(choix);
-            corps.Controls.Add(explication);
-            corps.Controls.Add(titre);
+            corps.Padding = new Padding(16, 12, 16, 8);
+            corps.Controls.Add(onglets);
             corps.Controls.Add(bas);
 
             Controls.Add(corps);
@@ -208,6 +221,66 @@ namespace AskThem
             minuterie = new Timer();
             minuterie.Interval = 400;
             minuterie.Tick += delegate { minuterie.Stop(); Apercu(); };
+        }
+
+        /// <summary>Le délai des rappels, propre à cet utilisateur.</summary>
+        private TabPage PageRappels()
+        {
+            TabPage page = new TabPage("Rappels");
+            page.Padding = new Padding(20, 18, 20, 8);
+
+            Label titre = new Label();
+            titre.Text = "Rappel « Avez-vous reçu une réponse ? »";
+            titre.Font = new Font(AppFont.Family, 14F, FontStyle.Bold);
+            titre.AutoSize = true;
+            titre.Location = new Point(20, 18);
+
+            Label explication = new Label();
+            explication.Text = "Après l'envoi d'une demande, AskThem vous demande si le fournisseur a répondu. "
+                             + "« Pas encore » repose la question après le même délai." + System.Environment.NewLine
+                             + "Ce réglage vaut pour vous seul, sur tous vos postes, et reste en place lors des mises à jour.";
+            explication.ForeColor = Color.FromArgb(90, 97, 105);
+            explication.Location = new Point(20, 58);
+            explication.Size = new Size(820, 44);
+
+            Label lbl = new Label();
+            lbl.Text = "Délai avant rappel :";
+            lbl.AutoSize = true;
+            lbl.Location = new Point(20, 124);
+
+            numRappel = new NumericUpDown();
+            numRappel.Minimum = 1;
+            numRappel.Maximum = 90;
+            numRappel.Width = 70;
+            numRappel.Location = new Point(lbl.Left + AppFont.Width(lbl.Text, 16), 120);
+            numRappel.Value = Math.Max(1, Math.Min(90, PreferencesUtilisateur.DelaiRappel(_config)));
+
+            Label jours = new Label();
+            jours.Text = "jours";
+            jours.AutoSize = true;
+            jours.Location = new Point(numRappel.Right + 8, 124);
+
+            Button origine = new Button();
+            origine.Text = "Rétablir " + PreferencesUtilisateur.RappelParDefaut + " jours";
+            origine.Size = new Size(AppFont.Width(origine.Text, 36), 30);
+            origine.Location = new Point(jours.Left + 60, 118);
+            origine.Click += delegate { numRappel.Value = PreferencesUtilisateur.RappelParDefaut; };
+
+            Label note = new Label();
+            note.Text = "Les rappels déjà programmés gardent leur date ; le nouveau délai vaut pour les prochains envois "
+                      + "et pour chaque « Pas encore ».";
+            note.ForeColor = Color.FromArgb(120, 127, 135);
+            note.Location = new Point(20, 168);
+            note.Size = new Size(820, 40);
+
+            page.Controls.Add(titre);
+            page.Controls.Add(explication);
+            page.Controls.Add(lbl);
+            page.Controls.Add(numRappel);
+            page.Controls.Add(jours);
+            page.Controls.Add(origine);
+            page.Controls.Add(note);
+            return page;
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
@@ -299,6 +372,14 @@ namespace AskThem
 
             string message;
             if (!TextesEmail.Enregistrer(_textes, out message))
+            {
+                MessageBox.Show(this, message, "Préférences", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                return;
+            }
+
+            PreferencesUtilisateur prefs = PreferencesUtilisateur.Lire();
+            prefs.RappelJours = (int)numRappel.Value;
+            if (!prefs.Enregistrer(out message))
             {
                 MessageBox.Show(this, message, "Préférences", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
