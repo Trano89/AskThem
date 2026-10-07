@@ -279,7 +279,9 @@ namespace AskThem.Services
                     // Un plan ou un modèle retouché dans le coffre après son dépôt est à
                     // republier : sans cela, les postes sans SolidWorks enverraient
                     // indéfiniment l'ancienne révision.
-                    else if (Incomplet(d, c) || ModifieDepuisDepot(d, c)) c.Verdict = ARemplacer;
+                    else if (Incomplet(d, c)
+                             || (ModifieDepuisDepot(d, c) && !SourcesVerifiees.Constate(numero, c.Empreinte)))
+                        c.Verdict = ARemplacer;
 
                     // Un plan sans aucune cote tolérancée ne donnera jamais de contrôle : une
                     // fois constaté, on ne le rouvre plus à chaque campagne.
@@ -343,19 +345,40 @@ namespace AskThem.Services
 
         /// <summary>
         /// Les plans dont on a constaté qu'ils ne donnent aucun contrôle, tels qu'ils étaient.
-        ///
-        /// Retenu sur le poste, avec l'empreinte des sources : un plan modifié depuis est
-        /// réexaminé, un plan inchangé ne l'est plus.
+        /// Un plan modifié depuis est réexaminé, un plan inchangé ne l'est plus.
         /// </summary>
-        public static class ControlesImpossibles
+        public static readonly Constats ControlesImpossibles = new Constats("controles-impossibles.json");
+
+        /// <summary>
+        /// Les articles dont les sources, plus récentes que leur dépôt, ont été rouvertes et
+        /// trouvées dans la même révision, à la même date, que dans l'inventaire.
+        ///
+        /// Le recensement ne lit pas la révision — il faudrait ouvrir chaque fichier. Il
+        /// repère une source modifiée depuis le dépôt ; la production juge sur la révision.
+        /// Sans ce constat, un plan simplement réenregistré serait rouvert à chaque campagne.
+        /// </summary>
+        public static readonly Constats SourcesVerifiees = new Constats("sources-verifiees.json");
+
+        /// <summary>
+        /// Constats retenus sur le poste, chacun avec l'empreinte des sources qu'il concerne :
+        /// une source modifiée depuis invalide le constat.
+        /// </summary>
+        public sealed class Constats
         {
-            private static string Chemin()
+            private readonly string _fichier;
+
+            public Constats(string fichier)
             {
-                return Path.Combine(System.Environment.GetFolderPath(
-                    System.Environment.SpecialFolder.LocalApplicationData), "AskThem", "controles-impossibles.json");
+                _fichier = fichier;
             }
 
-            private static Dictionary<string, string> Lire()
+            private string Chemin()
+            {
+                return Path.Combine(System.Environment.GetFolderPath(
+                    System.Environment.SpecialFolder.LocalApplicationData), "AskThem", _fichier);
+            }
+
+            private Dictionary<string, string> Lire()
             {
                 try
                 {
@@ -370,14 +393,14 @@ namespace AskThem.Services
                 return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             }
 
-            public static bool Constate(string numero, string empreinte)
+            public bool Constate(string numero, string empreinte)
             {
                 if (string.IsNullOrWhiteSpace(empreinte)) return false;
                 string connue;
                 return Lire().TryGetValue(numero, out connue) && connue == empreinte;
             }
 
-            public static void Retenir(string numero, string empreinte)
+            public void Retenir(string numero, string empreinte)
             {
                 if (string.IsNullOrWhiteSpace(numero) || string.IsNullOrWhiteSpace(empreinte)) return;
                 try
@@ -655,6 +678,10 @@ namespace AskThem.Services
                     case ResultatPublication.Publie: bilan.Produits++; break;
                     case ResultatPublication.Remplace: bilan.Remplaces++; break;
                     case ResultatPublication.Inchange:
+                        // Même révision, même date : les sources ont été réenregistrées sans
+                        // changer de révision. On le retient, pour ne pas les rouvrir à chaque
+                        // campagne tant qu'elles ne bougent plus.
+                        SourcesVerifiees.Retenir(c.NoArticle, c.Empreinte);
                         if (controleDepose) bilan.Produits++; else bilan.AJour++;
                         break;
                     case ResultatPublication.RefuseNonLibere: bilan.NonLiberes++; break;

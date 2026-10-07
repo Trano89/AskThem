@@ -257,33 +257,48 @@ namespace AskThem.Services
         }
 
         /// <summary>
-        /// Vrai si l'inventaire porte déjà exactement ce document.
-        ///
-        /// Trois choses doivent coïncider : le contenu, la révision et sa date. Un contenu
-        /// identique sous une révision annoncée différemment doit être republié — c'est ainsi
-        /// que la métadonnée se corrige, sans créer de nouvelle version.
+        /// Vrai si l'inventaire porte déjà ce document dans cette révision, à cette date.
         /// </summary>
         private bool DejaEnPlace(DocumentsArticle d, string kind, string chemin,
                                  string revision, string dateRevision)
         {
             DocumentArticle distant = d.De(kind);
-            if (distant == null || string.IsNullOrWhiteSpace(distant.Sha256)) return false;
-
-            string local = InventoryApiService.Empreinte(chemin);
-            if (local == "" || !string.Equals(local, distant.Sha256, StringComparison.OrdinalIgnoreCase))
-                return false;
+            if (distant == null) return false;
 
             string revLocale = revision == null ? "" : revision.Trim();
             string revDistante = distant.Revision == null ? "" : distant.Revision.Trim();
+            string dateLocale = Jour(dateRevision);
+            string dateDistante = Jour(distant.RevisionDate);
+
+            // Sans révision lisible, rien ne permet de situer le document : seul un contenu
+            // identique dit qu'il est déjà en place.
+            if (revLocale == "")
+            {
+                if (revDistante != "" || string.IsNullOrWhiteSpace(distant.Sha256)) return false;
+                string local = InventoryApiService.Empreinte(chemin);
+                return local != "" && string.Equals(local, distant.Sha256, StringComparison.OrdinalIgnoreCase);
+            }
+
+            // Le document vaut par sa révision et sa date, pas par ses octets : SolidWorks
+            // horodate chaque export, si bien que deux exports de la même révision ne sont
+            // jamais identiques. Comparer le contenu faisait déposer une nouvelle version à
+            // chaque envoi.
             if (!string.Equals(revLocale, revDistante, StringComparison.OrdinalIgnoreCase)) return false;
 
-            string dateLocale = dateRevision == null ? "" : dateRevision.Trim();
-            string dateDistante = distant.RevisionDate == null ? "" : distant.RevisionDate.Trim();
-
-            // Une date locale absente ne justifie pas de republier : on n'a rien de mieux à
-            // proposer que ce qui est déjà en place.
+            // Une date locale absente — pièce non réalisée — ne justifie pas de republier :
+            // on n'a rien de mieux à proposer que ce qui est déjà en place. Une date connue
+            // que l'inventaire n'a pas, ou pas la même, se dépose : c'est ainsi qu'elle y entre.
             if (dateLocale == "") return true;
             return string.Equals(dateLocale, dateDistante, StringComparison.Ordinal);
+        }
+
+        /// <summary>La date seule, AAAA-MM-JJ, quelle que soit la forme rendue par le serveur.</summary>
+        private static string Jour(string date)
+        {
+            if (string.IsNullOrWhiteSpace(date)) return "";
+            string t = date.Trim();
+            if (t.Length >= 10 && char.IsDigit(t[0]) && t[4] == '-' && t[7] == '-') return t.Substring(0, 10);
+            return t;
         }
 
         /// <summary>Dépose le seul formulaire de contrôle, sous sa nature propre.</summary>
