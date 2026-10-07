@@ -1,4 +1,5 @@
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -65,7 +66,10 @@ namespace AskThem.Services
         /// <summary>Vrai si cette requête est permise.</summary>
         public bool EstAutorisee(HttpMethod methode, Uri adresse)
         {
-            if (methode == HttpMethod.Get || methode == HttpMethod.Head) return true;
+            // Les lectures restent sur le serveur de l'inventaire : ce canal porte le cookie
+            // de session, et n'a rien à demander ailleurs.
+            if (methode == HttpMethod.Get || methode == HttpMethod.Head)
+                return adresse == null || !adresse.IsAbsoluteUri || MemeServeur(adresse);
             if (adresse == null) return false;
 
             if (methode == HttpMethod.Post
@@ -106,6 +110,51 @@ namespace AskThem.Services
             return FormeDocument.IsMatch(chemin.Substring(prefixe.Length));
         }
 
+        /// <summary>Même schéma, même hôte, même port que l'adresse de connexion.</summary>
+        private bool MemeServeur(Uri adresse)
+        {
+            Uri connexion;
+            if (!Uri.TryCreate(_urlConnexion, UriKind.Absolute, out connexion)) return false;
+            return string.Equals(adresse.Scheme, connexion.Scheme, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(adresse.Host, connexion.Host, StringComparison.OrdinalIgnoreCase)
+                && adresse.Port == connexion.Port;
+        }
+
+        private static bool EstLecture(HttpMethod methode)
+        {
+            return methode == HttpMethod.Get || methode == HttpMethod.Head;
+        }
+
+        private static bool EstRedirection(HttpResponseMessage reponse)
+        {
+            if (reponse == null || reponse.Headers.Location == null) return false;
+            int code = (int)reponse.StatusCode;
+            return code == 301 || code == 302 || code == 303 || code == 307 || code == 308;
+        }
+
+        /// <summary>
+        /// La requête suivante d'une redirection, vérifiée comme la première.
+        ///
+        /// Les redirections ne sont plus suivies par le transport : il les suivait SOUS le
+        /// garde-fou, si bien qu'une réponse 307 renvoyait un dépôt, ou le mot de passe de la
+        /// connexion, vers une adresse que personne n'avait contrôlée. Seules les lectures
+        /// sont suivies, ici, et chaque étape repasse par Verifier.
+        /// </summary>
+        private HttpRequestMessage Suivante(HttpRequestMessage precedente, HttpResponseMessage reponse)
+        {
+            Uri cible = reponse.Headers.Location;
+            if (!cible.IsAbsoluteUri) cible = new Uri(precedente.RequestUri, cible);
+
+            HttpRequestMessage suivante = new HttpRequestMessage(precedente.Method, cible);
+            foreach (System.Collections.Generic.KeyValuePair<string, System.Collections.Generic.IEnumerable<string>> h
+                     in precedente.Headers)
+                suivante.Headers.TryAddWithoutValidation(h.Key, h.Value);
+            Verifier(suivante);
+            return suivante;
+        }
+
+        private const int SautsMax = 5;
+
         private void Verifier(HttpRequestMessage requete)
         {
             if (EstAutorisee(requete.Method, requete.RequestUri)) return;
@@ -119,13 +168,29 @@ namespace AskThem.Services
         protected override HttpResponseMessage Send(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Verifier(request);
-            return base.Send(request, cancellationToken);
+            HttpResponseMessage reponse = base.Send(request, cancellationToken);
+            for (int saut = 0; saut < SautsMax && EstLecture(request.Method) && EstRedirection(reponse); saut++)
+            {
+                HttpRequestMessage suivante = Suivante(request, reponse);
+                reponse.Dispose();
+                request = suivante;
+                reponse = base.Send(request, cancellationToken);
+            }
+            return reponse;
         }
 
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Verifier(request);
-            return base.SendAsync(request, cancellationToken);
+            HttpResponseMessage reponse = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            for (int saut = 0; saut < SautsMax && EstLecture(request.Method) && EstRedirection(reponse); saut++)
+            {
+                HttpRequestMessage suivante = Suivante(request, reponse);
+                reponse.Dispose();
+                request = suivante;
+                reponse = await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            }
+            return reponse;
         }
     }
 }

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.ComTypes;
+using System.Threading;
 using AskThem.Models;
 using SolidWorks.Interop.sldworks;
 using SolidWorks.Interop.swconst;
@@ -38,6 +40,22 @@ namespace AskThem.Services
         private ISldWorks _sw;
         private bool _startedByUs;
         private PropertyNames _names;
+
+        /// <summary>Processus de l'instance pilotée, pour s'assurer qu'elle est bien fermée.</summary>
+        private int _pid;
+        private Process _processus;
+
+        /// <summary>
+        /// Documents que l'utilisateur avait déjà ouverts dans sa session : OpenDoc6 rend sa
+        /// fenêtre à lui, et la fermer lui ferait perdre ses modifications en cours.
+        /// </summary>
+        private readonly HashSet<string> _ouvertsParAutrui = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        [DllImport("ole32.dll")]
+        private static extern int GetRunningObjectTable(int reserve, out IRunningObjectTable table);
+
+        [DllImport("ole32.dll")]
+        private static extern int CreateBindCtx(int reserve, out IBindCtx contexte);
 
         /// <summary>Vrai si une session SolidWorks etait deja ouverte et qu'on s'y est rattache.</summary>
         public bool AttachedToExistingSession { get { return _sw != null && !_startedByUs; } }
@@ -147,17 +165,54 @@ namespace AskThem.Services
         /// <summary>Démarre ou récupère l'instance SolidWorks. Lève une exception si impossible.</summary>
         public void Connect()
         {
+            Connect(false);
+        }
+
+        /// <summary>
+        /// Démarre ou récupère l'instance SolidWorks.
+        /// </summary>
+        /// <param name="instanceDediee">
+        /// Vrai pour une campagne : si l'utilisateur a une session ouverte, AskThem démarre la
+        /// sienne à côté et s'y rattache par son numéro de processus. CreateInstance seul ne
+        /// le permet pas — il rend toujours la session déjà enregistrée, celle de
+        /// l'utilisateur, si bien que la « seconde instance » démarrait sans jamais servir.
+        /// </param>
+        public void Connect(bool instanceDediee)
+        {
             Type t = Type.GetTypeFromProgID("SldWorks.Application");
             if (t == null)
                 throw new Exception("SolidWorks n'est pas installé sur ce poste.");
 
-            // SolidWorks est un serveur COM a instance unique : si une session est deja
-            // ouverte, CreateInstance s'y rattache au lieu d'en demarrer une nouvelle.
-            // Cette session appartient a l'utilisateur : on ne la masque pas et on ne la ferme pas.
             bool dejaOuverte = IsSolidWorksRunning();
 
-            _sw = (ISldWorks)Activator.CreateInstance(t);
-            _startedByUs = !dejaOuverte;
+            if (instanceDediee && dejaOuverte)
+            {
+                string motif;
+                Process p = DemarrerNouvelleInstance(out motif);
+                if (p == null) throw new Exception(motif);
+
+                ISldWorks dediee = InstanceDuProcessus(p.Id, TimeSpan.FromMinutes(3));
+                if (dediee == null)
+                {
+                    try { if (!p.HasExited) p.Kill(); }
+                    catch (Exception) { }
+                    throw new Exception("La seconde instance de SolidWorks a démarré mais ne répond pas.");
+                }
+                _sw = dediee;
+                _processus = p;
+                _startedByUs = true;
+            }
+            else
+            {
+                // SolidWorks est un serveur COM a instance unique : si une session est deja
+                // ouverte, CreateInstance s'y rattache au lieu d'en demarrer une nouvelle.
+                // Cette session appartient a l'utilisateur : on ne la masque pas et on ne la ferme pas.
+                _sw = (ISldWorks)Activator.CreateInstance(t);
+                _startedByUs = !dejaOuverte;
+            }
+
+            try { _pid = _sw.GetProcessID(); }
+            catch (Exception) { _pid = 0; }
 
             if (_startedByUs)
             {
@@ -167,8 +222,77 @@ namespace AskThem.Services
             _sw.CommandInProgress = true;
         }
 
+        /// <summary>
+        /// L'instance SolidWorks d'un processus donné, lue dans la table des objets actifs.
+        ///
+        /// Chaque session s'y inscrit sous « SolidWorks_PID_&lt;numéro&gt; » une fois prête :
+        /// c'est le seul moyen de désigner une session précise quand plusieurs tournent.
+        /// </summary>
+        private static ISldWorks InstanceDuProcessus(int pid, TimeSpan delai)
+        {
+            string nom = "SolidWorks_PID_" + pid;
+            DateTime limite = DateTime.Now + delai;
+            while (DateTime.Now < limite)
+            {
+                object app = DepuisTableDesObjets(nom);
+                ISldWorks sw = app as ISldWorks;
+                if (sw != null) return sw;
+                Thread.Sleep(2000);
+            }
+            return null;
+        }
+
+        private static object DepuisTableDesObjets(string nom)
+        {
+            IRunningObjectTable table = null;
+            IEnumMoniker liste = null;
+            IBindCtx contexte = null;
+            try
+            {
+                if (GetRunningObjectTable(0, out table) != 0 || table == null) return null;
+                if (CreateBindCtx(0, out contexte) != 0 || contexte == null) return null;
+
+                table.EnumRunning(out liste);
+                IMoniker[] un = new IMoniker[1];
+                while (liste.Next(1, un, IntPtr.Zero) == 0)
+                {
+                    IMoniker moniker = un[0];
+                    try
+                    {
+                        string affiche = null;
+                        try { moniker.GetDisplayName(contexte, null, out affiche); }
+                        catch (Exception) { }
+
+                        // Le nom affiché est « !SolidWorks_PID_1234 » : la fin doit coïncider,
+                        // sans quoi le processus 1234 répondrait pour 12345.
+                        if (affiche != null && affiche.EndsWith(nom, StringComparison.OrdinalIgnoreCase))
+                        {
+                            object instance;
+                            table.GetObject(moniker, out instance);
+                            return instance;
+                        }
+                    }
+                    finally
+                    {
+                        if (moniker != null) Marshal.ReleaseComObject(moniker);
+                    }
+                }
+            }
+            catch (Exception) { }
+            finally
+            {
+                if (liste != null) Marshal.ReleaseComObject(liste);
+                if (contexte != null) Marshal.ReleaseComObject(contexte);
+                if (table != null) Marshal.ReleaseComObject(table);
+            }
+            return null;
+        }
+
         public void Dispose()
         {
+            bool aFermer = _sw != null && _startedByUs;
+            int pid = _pid;
+            Process processus = _processus;
             try
             {
                 if (_sw != null)
@@ -183,8 +307,37 @@ namespace AskThem.Services
             finally
             {
                 _sw = null;
+                _processus = null;
+                _pid = 0;
+                _ouvertsParAutrui.Clear();
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
+            }
+
+            // ExitApp rend la main avant que le processus ait disparu. La connexion suivante
+            // — le lot d'après — le voyait encore, s'y rattachait comme à la session de
+            // l'utilisateur, et l'instance n'était plus jamais refermée.
+            if (aFermer) AttendreFin(pid, processus);
+        }
+
+        private static void AttendreFin(int pid, Process processus)
+        {
+            try
+            {
+                Process p = processus != null ? processus : (pid > 0 ? Process.GetProcessById(pid) : null);
+                if (p == null) return;
+                if (p.WaitForExit(120000)) return;
+
+                // Une instance que nous avons démarrée et qui ne se ferme pas : ses documents
+                // sont ouverts en lecture seule, l'arrêter ne perd rien.
+                LogService.Write("SolidWorks (processus " + p.Id + ") ne s'est pas fermé : arrêt forcé.");
+                p.Kill();
+                p.WaitForExit(10000);
+            }
+            catch (ArgumentException) { }   // déjà terminé
+            catch (Exception ex)
+            {
+                LogService.Write("Fermeture de SolidWorks non vérifiée : " + ex.Message);
             }
         }
 
@@ -202,27 +355,46 @@ namespace AskThem.Services
             else if (ext == ".SLDASM") docType = (int)swDocumentTypes_e.swDocASSEMBLY;
             else docType = (int)swDocumentTypes_e.swDocDRAWING;
 
+            // Déjà ouvert dans la session de l'utilisateur : on s'en sert, mais on ne le
+            // refermera pas.
+            bool dejaOuvert = false;
+            try { dejaOuvert = _sw.GetOpenDocumentByName(path) != null; }
+            catch (Exception) { }
+
+            // Lecture seule : AskThem n'enregistre jamais un document du coffre, il l'exporte.
             int errors = 0;
             int warnings = 0;
             ModelDoc2 doc = _sw.OpenDoc6(
                 path,
                 docType,
-                (int)swOpenDocOptions_e.swOpenDocOptions_Silent,
+                (int)swOpenDocOptions_e.swOpenDocOptions_Silent | (int)swOpenDocOptions_e.swOpenDocOptions_ReadOnly,
                 "",
                 ref errors,
                 ref warnings);
 
             if (doc == null)
                 throw new Exception("Impossible d'ouvrir : " + Path.GetFileName(path) + " (code " + errors + ")");
+            if (dejaOuvert) _ouvertsParAutrui.Add(Path.GetFullPath(path));
             return doc;
         }
 
-        /// <summary>Referme un document et libère l'objet COM.</summary>
+        /// <summary>Referme un document et libère l'objet COM — sauf s'il était déjà ouvert par l'utilisateur.</summary>
         public void CloseDocument(ModelDoc2 doc)
         {
             if (doc == null) return;
             string title = doc.GetTitle();
+            string chemin = "";
+            try { chemin = doc.GetPathName(); }
+            catch (Exception) { }
             Marshal.ReleaseComObject(doc);
+
+            if (!string.IsNullOrEmpty(chemin))
+            {
+                string complet = chemin;
+                try { complet = Path.GetFullPath(chemin); }
+                catch (Exception) { }
+                if (_ouvertsParAutrui.Remove(complet)) return;
+            }
             _sw.CloseDoc(title);
         }
 
@@ -362,23 +534,39 @@ namespace AskThem.Services
         /// <summary>Exporte un document 3D déjà ouvert en STEP AP203. Retourne le chemin créé.</summary>
         public string ExportStep(ModelDoc2 doc, string outputFolder, string baseName)
         {
-            // AP203 : la valeur 203 correspond au protocole d'application AP203.
+            // AP203 : la valeur 203 correspond au protocole d'application AP203. C'est une
+            // option du système, enregistrée pour l'utilisateur : on rend ensuite celle qu'il
+            // avait, sans quoi tous ses exports STEP manuels sortiraient ensuite en AP203.
+            int avant = 0;
+            try { avant = _sw.GetUserPreferenceIntegerValue((int)swUserPreferenceIntegerValue_e.swStepAP); }
+            catch (Exception) { avant = 0; }
             _sw.SetUserPreferenceIntegerValue((int)swUserPreferenceIntegerValue_e.swStepAP, 203);
 
-            string target = Path.Combine(outputFolder, baseName + ".STEP");
-            int errors = 0;
-            int warnings = 0;
-            bool ok = doc.Extension.SaveAs(
-                target,
-                (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
-                (int)swSaveAsOptions_e.swSaveAsOptions_Silent,
-                null,
-                ref errors,
-                ref warnings);
+            try
+            {
+                string target = Path.Combine(outputFolder, baseName + ".STEP");
+                int errors = 0;
+                int warnings = 0;
+                bool ok = doc.Extension.SaveAs(
+                    target,
+                    (int)swSaveAsVersion_e.swSaveAsCurrentVersion,
+                    (int)swSaveAsOptions_e.swSaveAsOptions_Silent,
+                    null,
+                    ref errors,
+                    ref warnings);
 
-            if (!ok)
-                throw new Exception("Échec de l'export STEP (code " + errors + ").");
-            return target;
+                if (!ok || !File.Exists(target))
+                    throw new Exception("Échec de l'export STEP (code " + errors + ").");
+                return target;
+            }
+            finally
+            {
+                if (avant > 0 && avant != 203)
+                {
+                    try { _sw.SetUserPreferenceIntegerValue((int)swUserPreferenceIntegerValue_e.swStepAP, avant); }
+                    catch (Exception) { }
+                }
+            }
         }
 
         /// <summary>Exporte un dessin déjà ouvert en PDF (toutes les feuilles) et en DXF.</summary>

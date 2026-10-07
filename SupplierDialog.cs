@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using System.IO;
 using System.Windows.Forms;
 using AskThem.Models;
 using AskThem.Services;
@@ -32,11 +33,48 @@ namespace AskThem
         /// <summary>Horodatage du fichier partagé à l'ouverture, pour repérer un conflit.</summary>
         private readonly DateTime _ouvertLe;
 
+        /// <summary>Motif pour lequel la liste ne peut pas être enregistrée, ou "".</summary>
+        private readonly string _lectureSeule = "";
+
         public SupplierDialog(AppConfig config, List<Supplier> suppliers)
         {
-            _ouvertLe = SupplierService.DerniereEcriture(config);
             _config = config;
-            _suppliers = Copy(suppliers);
+
+            // La liste est relue ici, au moment où l'horodatage est pris : celle qu'on nous
+            // passe date du démarrage. Comparer l'horodatage d'aujourd'hui à une liste
+            // d'hier laissait passer l'écrasement des ajouts d'un collègue — et, si le partage
+            // était injoignable au démarrage, le remplacement de toute la liste par une liste
+            // vide augmentée d'un seul fournisseur.
+            _ouvertLe = SupplierService.DerniereEcriture(config);
+            string chemin = SupplierService.GetFilePath(config);
+            string message;
+            bool present = false;
+            try { present = chemin != null && File.Exists(chemin); }
+            catch (Exception) { present = false; }
+
+            if (present)
+            {
+                List<Supplier> relue = SupplierService.Load(config, out message);
+                if (relue.Count == 0 && message.StartsWith("Liste fournisseurs illisible", StringComparison.Ordinal))
+                {
+                    _lectureSeule = message;
+                    _suppliers = Copy(suppliers);
+                }
+                else
+                {
+                    _suppliers = Copy(relue);
+                }
+            }
+            else
+            {
+                bool dossierJoignable = false;
+                try { dossierJoignable = chemin != null && Directory.Exists(Path.GetDirectoryName(chemin)); }
+                catch (Exception) { dossierJoignable = false; }
+                if (!dossierJoignable)
+                    _lectureSeule = "Le partage de la liste des fournisseurs est injoignable : "
+                                  + (chemin == null ? "aucun chemin configuré." : Path.GetDirectoryName(chemin));
+                _suppliers = Copy(suppliers);
+            }
 
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
@@ -496,6 +534,14 @@ namespace AskThem
                         MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return;
                 }
+            }
+
+            if (_lectureSeule != "")
+            {
+                MessageBox.Show(this, _lectureSeule + Environment.NewLine + Environment.NewLine
+                  + "Enregistrer remplacerait la liste partagée par celle-ci, incomplète. "
+                  + "Rien n'est enregistré.", "Fournisseurs", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return;
             }
 
             // La liste est partagee : l'enregistrement reecrit tout le fichier. Si un collegue

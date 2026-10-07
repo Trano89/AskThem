@@ -222,6 +222,13 @@ namespace AskThem.Models
         public string Reference { get; set; }
         public int ArticleId { get; set; }
         public bool Trouve { get; set; }
+
+        /// <summary>
+        /// Vrai si l'inventaire n'a pas pu être lu pour cet article : on ne sait pas s'il
+        /// existe. À ne pas confondre avec un article inconnu.
+        /// </summary>
+        public bool Illisible { get; set; }
+
         public List<DocumentArticle> Documents { get; set; }
 
         public DocumentsArticle()

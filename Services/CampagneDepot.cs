@@ -270,9 +270,21 @@ namespace AskThem.Services
                 if (_inventaire != null)
                 {
                     DocumentsArticle d = _inventaire.Pour(numero);
-                    if (d == null || !d.Trouve) c.Verdict = HorsInventaire;
+                    if (d != null && d.Illisible) c.Verdict = InventaireIllisible;
+                    else if (d == null || !d.Trouve) c.Verdict = HorsInventaire;
                     else if (d.Documents.Count == 0) c.Verdict = AProduire;
-                    else if (d.De(TypeDocument.Controle) == null && c.Plan != null) c.Verdict = SansControle;
+
+                    // Un document par nature, et pas « au moins un document » : un dépôt
+                    // interrompu laissait un article sans STEP marqué « à jour » pour toujours.
+                    // Un plan ou un modèle retouché dans le coffre après son dépôt est à
+                    // republier : sans cela, les postes sans SolidWorks enverraient
+                    // indéfiniment l'ancienne révision.
+                    else if (Incomplet(d, c) || ModifieDepuisDepot(d, c)) c.Verdict = ARemplacer;
+
+                    // Un plan sans aucune cote tolérancée ne donnera jamais de contrôle : une
+                    // fois constaté, on ne le rouvre plus à chaque campagne.
+                    else if (_controleCfg != null && c.Plan != null && d.De(TypeDocument.Controle) == null
+                             && !ControlesImpossibles.Constate(numero, c.Empreinte)) c.Verdict = SansControle;
                     else c.Verdict = AJour;
                     candidats.Add(c);
                     continue;
@@ -290,6 +302,95 @@ namespace AskThem.Services
             return candidats;
         }
 
+        /// <summary>Vrai s'il manque à l'inventaire une nature de document que le coffre sait produire.</summary>
+        private static bool Incomplet(DocumentsArticle d, Candidat c)
+        {
+            if (c.Plan != null && d.De(TypeDocument.Plan) == null) return true;
+            if (c.Modele != null && d.De(TypeDocument.Modele) == null) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// Vrai si un fichier source du coffre est plus récent que les documents déposés.
+        ///
+        /// Le même critère que l'empreinte de la base sur le partage : la date de modification
+        /// des sources. Une minute de marge absorbe l'écart entre les horloges.
+        /// </summary>
+        private static bool ModifieDepuisDepot(DocumentsArticle d, Candidat c)
+        {
+            DateTime depot = DateTime.MaxValue;
+            foreach (string kind in new string[] { TypeDocument.Plan, TypeDocument.Modele })
+            {
+                DocumentArticle doc = d.De(kind);
+                if (doc == null || doc.UploadedAt == default(DateTime)) continue;
+                DateTime utc = doc.UploadedAt.ToUniversalTime();
+                if (utc < depot) depot = utc;
+            }
+            if (depot == DateTime.MaxValue) return false;
+
+            foreach (string source in new string[] { c.Plan, c.Modele })
+            {
+                if (string.IsNullOrWhiteSpace(source)) continue;
+                try
+                {
+                    FileInfo fi = new FileInfo(source);
+                    if (fi.Exists && fi.LastWriteTimeUtc > depot.AddMinutes(1)) return true;
+                }
+                catch (Exception) { }
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Les plans dont on a constaté qu'ils ne donnent aucun contrôle, tels qu'ils étaient.
+        ///
+        /// Retenu sur le poste, avec l'empreinte des sources : un plan modifié depuis est
+        /// réexaminé, un plan inchangé ne l'est plus.
+        /// </summary>
+        public static class ControlesImpossibles
+        {
+            private static string Chemin()
+            {
+                return Path.Combine(System.Environment.GetFolderPath(
+                    System.Environment.SpecialFolder.LocalApplicationData), "AskThem", "controles-impossibles.json");
+            }
+
+            private static Dictionary<string, string> Lire()
+            {
+                try
+                {
+                    if (File.Exists(Chemin()))
+                    {
+                        Dictionary<string, string> d = JsonSerializer.Deserialize<Dictionary<string, string>>(
+                            File.ReadAllText(Chemin(), Encoding.UTF8));
+                        if (d != null) return new Dictionary<string, string>(d, StringComparer.OrdinalIgnoreCase);
+                    }
+                }
+                catch (Exception) { }
+                return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            }
+
+            public static bool Constate(string numero, string empreinte)
+            {
+                if (string.IsNullOrWhiteSpace(empreinte)) return false;
+                string connue;
+                return Lire().TryGetValue(numero, out connue) && connue == empreinte;
+            }
+
+            public static void Retenir(string numero, string empreinte)
+            {
+                if (string.IsNullOrWhiteSpace(numero) || string.IsNullOrWhiteSpace(empreinte)) return;
+                try
+                {
+                    Dictionary<string, string> d = Lire();
+                    d[numero] = empreinte;
+                    Directory.CreateDirectory(Path.GetDirectoryName(Chemin()));
+                    File.WriteAllText(Chemin(), JsonSerializer.Serialize(d), Encoding.UTF8);
+                }
+                catch (Exception) { }
+            }
+        }
+
         /// <summary>Verdicts possibles d'un recensement.</summary>
         public const string AJour = "à jour";
         public const string AProduire = "à produire";
@@ -297,6 +398,9 @@ namespace AskThem.Services
         public const string SansControle = "sans contrôle";
         public const string SansSource = "sans source";
         public const string HorsInventaire = "hors inventaire";
+
+        /// <summary>L'inventaire n'a pas répondu pour cet article : ni à faire, ni à créer.</summary>
+        public const string InventaireIllisible = "inventaire illisible";
 
         /// <summary>
         /// Vrai si ce verdict désigne du travail à faire.
@@ -391,7 +495,9 @@ namespace AskThem.Services
 
                 try
                 {
-                    exporter.Connect();
+                    // Une instance à part si l'utilisateur travaille dans la sienne : la
+                    // campagne ouvre et ferme des centaines de documents.
+                    exporter.Connect(true);
                     connecte = true;
 
                     for (int i = depart; i < fin && !Annule(); i++)
@@ -487,7 +593,7 @@ namespace AskThem.Services
                     fiche.Etat = m.State;
                     dateRevision = DateRevision.Normaliser(m.ReleaseDate, _journal);
                     produits.AddRange(exporter.ExportDrawing(doc, dossier, c.NoArticle));
-                    fiche.Controle = ExtraireControle(doc, c.NoArticle, m);
+                    fiche.Controle = ExtraireControle(doc, c.NoArticle, m, c.Empreinte);
                 }
                 finally { exporter.CloseDocument(doc); }
             }
@@ -529,18 +635,34 @@ namespace AskThem.Services
             {
                 // Chaque document part nu, sous sa nature. Aucune archive n'est constituée :
                 // les ZIP naissent au moment d'une demande, et n'y survivent pas.
-                _inventaire.Publier(c.NoArticle, fiche.Revision, dateRevision, fiche.Etat,
-                                    produits, _journal);
+                ResultatPublication ri = _inventaire.Publier(c.NoArticle, fiche.Revision, dateRevision,
+                                                             fiche.Etat, produits, _journal);
 
-                if (fiche.Controle != null)
+                bool controleDepose = false;
+                if (fiche.Controle != null
+                    && (ri == ResultatPublication.Publie || ri == ResultatPublication.Remplace
+                        || ri == ResultatPublication.Inchange))
                 {
                     string cf = ProduireControle(fiche, dossier);
                     if (cf != null)
-                        _inventaire.PublierControle(c.NoArticle, fiche.Revision, dateRevision,
-                                                    cf, _journal);
+                        controleDepose = _inventaire.PublierControle(c.NoArticle, fiche.Revision, dateRevision,
+                                                                     cf, _journal);
                 }
 
-                bilan.Produits++;
+                // Compté pour ce qui s'est réellement passé : refus et échecs compris.
+                switch (ri)
+                {
+                    case ResultatPublication.Publie: bilan.Produits++; break;
+                    case ResultatPublication.Remplace: bilan.Remplaces++; break;
+                    case ResultatPublication.Inchange:
+                        if (controleDepose) bilan.Produits++; else bilan.AJour++;
+                        break;
+                    case ResultatPublication.RefuseNonLibere: bilan.NonLiberes++; break;
+                    default:
+                        bilan.Echecs++;
+                        Dire(c.NoArticle + " : échec de publication dans l'inventaire.");
+                        break;
+                }
                 Nettoyer(dossier);
                 return;
             }
@@ -591,7 +713,7 @@ namespace AskThem.Services
         /// article sans contrôle vaut mieux qu'une campagne arrêtée.
         /// </summary>
         private ControleFabrication ExtraireControle(ModelDoc2 plan, string noArticle,
-                                                     SolidWorksExporter.DocMetadata m)
+                                                     SolidWorksExporter.DocMetadata m, string empreinte)
         {
             if (_controleCfg == null) return null;
             try
@@ -610,6 +732,9 @@ namespace AskThem.Services
 
                 if (controle != null && controle.Caracteristiques != null
                     && controle.Caracteristiques.Count > 0) return controle;
+
+                // Lu sans erreur, mais rien à contrôler : c'est un état du plan, pas un échec.
+                ControlesImpossibles.Retenir(noArticle, empreinte);
                 return null;
             }
             catch (Exception ex)

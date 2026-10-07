@@ -47,6 +47,9 @@ namespace AskThem
         private readonly Func<Dictionary<string, string>> _pdm;
 
         private int _etape;
+
+        /// <summary>Type pour lequel la case de contrôle a été réglée.</summary>
+        private RequestType? _typeControle;
         private readonly DemandeEnCours _demande = new DemandeEnCours();
         private readonly BindingList<PartLine> _lignes = new BindingList<PartLine>();
 
@@ -191,6 +194,13 @@ namespace AskThem
             _fournisseurs = fournisseurs != null ? fournisseurs : new List<Supplier>();
             _inventaire = inventaire;
             _pdm = pdm;
+
+            // Les réglages retenus d'une session à l'autre valent aussi pour le mode guidé :
+            // partir de valeurs écrites en dur annulait, dès le premier passage, le choix
+            // enregistré par l'utilisateur dans la vue complète.
+            _demande.Export3D = _config.Export3D;
+            _demande.Export2D = _config.Export2D;
+            _demande.DemanderLivraison = _config.DemanderLivraison;
 
             Font = AppFont.Get();
             Dock = DockStyle.Fill;
@@ -390,6 +400,9 @@ namespace AskThem
         /// <summary>Reprend ce qui est affiché, pour que la vue complète le retrouve.</summary>
         public void Synchroniser()
         {
+            // L'article en cours de saisie doit entrer dans la ligne avant d'être recueilli.
+            try { if (grille != null && !grille.IsDisposed) grille.EndEdit(); }
+            catch (Exception) { }
             Recolter();
         }
 
@@ -476,8 +489,19 @@ namespace AskThem
             if (_demande.Type == RequestType.CommandeCatalogue && surMesure.Count > 0)
                 return Quelques(surMesure) + " ne sont pas des articles de catalogue.";
 
-            if (_demande.Type == RequestType.Fabrication && catalogue.Count > 0)
-                return Quelques(catalogue) + " sont des articles de catalogue, qui ne se fabriquent pas.";
+            // Même critère que la vue complète au lancement : la règle du type. Le mode guidé
+            // en jugeait sur « catalogue ou non », et acceptait des articles que la génération
+            // refusait ensuite, une fois toutes les étapes remplies.
+            if (_demande.Type == RequestType.Fabrication)
+            {
+                List<string> nonFabricables = new List<string>();
+                foreach (PartLine l in _demande.Lignes)
+                    if (!ValidationArticle.RegleDe(_config, l.PartNumber).AllowFabrication)
+                        nonFabricables.Add(l.PartNumber);
+                if (nonFabricables.Count > 0)
+                    return Quelques(nonFabricables) + " ne se fabriquent pas : retirez-les, "
+                         + "ou faites-en une demande d'offre.";
+            }
 
             return null;
         }
@@ -682,6 +706,10 @@ namespace AskThem
             grille.DataError += new DataGridViewDataErrorEventHandler(Grille_Erreur);
             grille.CellValidating += new DataGridViewCellValidatingEventHandler(Grille_Validation);
             grille.CellEndEdit += new DataGridViewCellEventHandler(Grille_FinSaisie);
+            // L'étape est reconstruite à chaque passage : sans le retrait préalable, chaque
+            // visite ajoutait un abonnement de plus, et chaque modification de la liste
+            // déclenchait autant de mises à jour.
+            _lignes.ListChanged -= new ListChangedEventHandler(Lignes_Change);
             _lignes.ListChanged += new ListChangedEventHandler(Lignes_Change);
 
             Button btnRecherche = GrandBouton("Rechercher un article…", 260);
@@ -807,7 +835,23 @@ namespace AskThem
         private void Coller_Click(object sender, EventArgs e)
         {
             int avant = _lignes.Count;
-            int n = ClipboardImporter.ImportFromClipboard(_lignes);
+            int n;
+            try
+            {
+                n = ClipboardImporter.ImportFromClipboard(_lignes);
+            }
+            catch (Exception ex)
+            {
+                // Excel retient parfois le presse-papiers un instant : ce n'est pas une panne.
+                Prevenir("Le presse-papiers est momentanément indisponible (" + ex.Message + "). Réessayez.");
+                return;
+            }
+
+            // Mise en forme des numéros comme à l'import de la vue complète ; format et type
+            // sont vérifiés au lancement, pour les deux vues à la fois.
+            for (int i = avant; i < _lignes.Count; i++)
+                _lignes[i].PartNumber = PartNumberFormat.Normalize(_lignes[i].PartNumber, _config.PartNumberPatterns);
+
             if (n == 0 && _lignes.Count == avant)
             {
                 Prevenir("Le presse-papiers ne contient aucun numéro d'article reconnaissable.");
@@ -980,7 +1024,12 @@ namespace AskThem
             // du formulaire des que la demande passait par l'assistant.
             bool fabrication = _demande.Type == RequestType.Fabrication && !catalogue;
             chkControle.Enabled = fabrication;
-            chkControle.Checked = fabrication;
+
+            // Cochée d'office quand on arrive en fabrication ; ensuite, c'est le choix de
+            // l'utilisateur qui compte. Chaque retour à cette étape la recochait.
+            bool typeChange = !_typeControle.HasValue || _typeControle.Value != _demande.Type;
+            _typeControle = _demande.Type;
+            chkControle.Checked = fabrication && (typeChange || _demande.ControleFabrication);
 
             voletAvance = new Panel();
             voletAvance.Dock = DockStyle.Bottom;
@@ -1014,6 +1063,19 @@ namespace AskThem
 
         private void Parcourir_Click(object sender, EventArgs e)
         {
+            // Un document déjà choisi peut être retiré : il restait sinon attaché à toutes les
+            // demandes suivantes.
+            if (txtPo.Text.Trim() != "")
+            {
+                DialogResult choix = MessageBox.Show(FindForm(),
+                    "Document joint : " + Path.GetFileName(txtPo.Text.Trim()) + Environment.NewLine + Environment.NewLine
+                  + "Oui : choisir un autre fichier." + Environment.NewLine
+                  + "Non : retirer ce document de la demande.",
+                    "AskThem", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (choix == DialogResult.Cancel) return;
+                if (choix == DialogResult.No) { txtPo.Text = ""; return; }
+            }
+
             using (OpenFileDialog dlg = new OpenFileDialog())
             {
                 dlg.Filter = "Document PDF (*.pdf)|*.pdf";

@@ -68,6 +68,22 @@ namespace AskThem
         /// <summary>Laisse passer la fermeture demandée par la mise à jour, elle est voulue.</summary>
         private bool _fermetureAutorisee;
         private volatile bool _stopMailWatch;
+
+        /// <summary>
+        /// Numéro du traitement qui occupe la fenêtre.
+        ///
+        /// Le suivi des emails rend la main à l'utilisateur et continue sur son fil : un
+        /// second traitement peut donc démarrer avant la fin du premier. Sans ce numéro, la
+        /// fin du premier libérait l'interface au beau milieu du second.
+        /// </summary>
+        private volatile int _generation;
+
+        /// <summary>Le traitement que porte le fil courant.</summary>
+        [ThreadStatic]
+        private static int _generationDuFil;
+
+        /// <summary>Type pour lequel les cases ont été réglées : on ne les force qu'à un changement.</summary>
+        private RequestType? _typeApplique;
         private UpdateService.UpdateInfo _update;
         private RequestType _optType = RequestType.Offre;
 
@@ -308,7 +324,7 @@ namespace AskThem
         private void BtnBaseArticles_Click(object sender, EventArgs e)
         {
             if (_busy) return;
-            SetBusy(true);
+            int generation = Occuper();
             Log("Analyse du coffre avant recensement…");
 
             // SolidWorks en COM exige un thread STA : la campagne en ouvre des centaines de
@@ -330,7 +346,7 @@ namespace AskThem
                 }
                 finally
                 {
-                    SetBusy(false);
+                    Liberer(generation);
                 }
             });
             fil.SetApartmentState(ApartmentState.STA);
@@ -452,8 +468,8 @@ namespace AskThem
             if (fournisseur != null) _optSupplierName = fournisseur.Name;
 
             PartLine cible = ligne;
-            SetBusy(true);
-            Thread worker = new Thread(delegate() { RunControleSeul(cible); });
+            int generation = Occuper();
+            Thread worker = new Thread(delegate() { RunControleSeul(cible, generation); });
             worker.IsBackground = true;
             worker.SetApartmentState(ApartmentState.STA);
             worker.Start();
@@ -463,7 +479,7 @@ namespace AskThem
         /// Controle a la demande : sa propre session SolidWorks, son propre dossier, hors
         /// de toute demande. Le fichier est ecrit dans le dossier de sortie local.
         /// </summary>
-        private void RunControleSeul(PartLine ligne)
+        private void RunControleSeul(PartLine ligne, int generation)
         {
             string pdf = null;
             SolidWorksExporter exporter = new SolidWorksExporter(_config.Properties);
@@ -491,10 +507,12 @@ namespace AskThem
                 {
                     doc = exporter.OpenDocument(ligne.DrawingPath);
                     SolidWorksExporter.DocMetadata m = exporter.ReadMetadata(doc);
-                    if (ligne.DrawingRevision == "") ligne.DrawingRevision = m.Revision;
-                    if (ligne.Description == "") ligne.Description = m.Description;
-                    if (ligne.Material == "") ligne.Material = m.Material;
-                    if (ligne.Treatment == "") ligne.Treatment = m.Treatment;
+                    // Le plan fait foi : la ligne a pu porter un autre article auparavant, et
+                    // le formulaire imprimerait sa révision.
+                    ligne.DrawingRevision = m.Revision;
+                    ligne.Description = m.Description;
+                    ligne.Material = m.Material;
+                    ligne.Treatment = m.Treatment;
 
                     int avant = ligne.ExportedFiles.Count;
                     pdf = GenererControle(doc, ligne, dossier);
@@ -513,7 +531,7 @@ namespace AskThem
             finally
             {
                 exporter.Dispose();
-                SetBusy(false);
+                Liberer(generation);
             }
 
             if (pdf != null) OuvrirFichier(pdf);
@@ -1224,6 +1242,11 @@ namespace AskThem
         /// <summary>Ce que la vue complète contient, sous la forme que l'assistant attend.</summary>
         private DemandeEnCours DemandeCourante()
         {
+            // Une cellule en cours de saisie n'est pas encore dans la ligne : sans cela,
+            // l'article qu'on vient de taper disparaissait au passage dans l'autre vue.
+            try { grid.EndEdit(); }
+            catch (Exception) { }
+
             DemandeEnCours d = new DemandeEnCours();
             d.Type = CurrentType;
             d.Destinataire = SelectedSupplier;
@@ -1274,13 +1297,19 @@ namespace AskThem
 
             if (d.Destinataire != null)
             {
-                for (int i = 0; i < cboSupplier.Items.Count; i++)
+                // Le fournisseur même d'abord, son nom ensuite : deux fiches peuvent porter le
+                // même nom avec des adresses différentes, et la première trouvée n'est pas
+                // forcément celle qu'on a choisie.
+                int trouve = -1;
+                for (int i = 0; i < cboSupplier.Items.Count && trouve < 0; i++)
+                    if (ReferenceEquals(cboSupplier.Items[i], d.Destinataire)) trouve = i;
+                for (int i = 0; i < cboSupplier.Items.Count && trouve < 0; i++)
                 {
                     Supplier s = cboSupplier.Items[i] as Supplier;
-                    if (s != null && ReferenceEquals(s, d.Destinataire)) { cboSupplier.SelectedIndex = i; break; }
                     if (s != null && string.Equals(s.Name, d.Destinataire.Name, StringComparison.OrdinalIgnoreCase))
-                    { cboSupplier.SelectedIndex = i; break; }
+                        trouve = i;
                 }
+                if (trouve >= 0) cboSupplier.SelectedIndex = trouve;
             }
 
             _lines.Clear();
@@ -1294,7 +1323,7 @@ namespace AskThem
             txtConditions.Text = d.Commentaire;
             chk3D.Checked = d.Export3D;
             chk2D.Checked = d.Export2D;
-            chkControleFabrication.Checked = d.ControleFabrication;
+            chkControleFabrication.Checked = d.ControleFabrication && d.Type == RequestType.Fabrication;
             chkLivraison.Checked = d.DemanderLivraison;
 
             RefreshGrid();
@@ -1305,6 +1334,9 @@ namespace AskThem
             base.OnShown(e);
             PerformLayout();
             AppliquerSeparateurs();
+
+            string majEchouee = UpdateService.EchecPrecedent();
+            if (majEchouee != "") Log(majEchouee);
 
             // Les demandes envoyées depuis la dernière session rejoignent l'archive. Un poste
             // éteint, un partage momentanément injoignable ou un envoi différé ne font perdre
@@ -1468,8 +1500,13 @@ namespace AskThem
             // Le controle n'accompagne qu'une fabrication : sur une offre la piece n'est pas
             // encore commandee, et un article de catalogue ne se controle pas sur plan. Une
             // seule affectation, sinon la suivante annule la precedente.
+            // On ne force la case qu'à un changement de type : un collage ou un import
+            // rappellent cette méthode, et la recochaient derrière l'utilisateur.
+            bool typeChange = !_typeApplique.HasValue || _typeApplique.Value != type;
+            _typeApplique = type;
             chkControleFabrication.Enabled = (type == RequestType.Fabrication);
-            chkControleFabrication.Checked = (type == RequestType.Fabrication);
+            if (typeChange || type != RequestType.Fabrication)
+                chkControleFabrication.Checked = (type == RequestType.Fabrication);
 
             // Le document joint change de nature selon le mode : bon de commande en
             // fabrication, demande de PO en offre. Il reste facultatif en offre.
@@ -1558,11 +1595,16 @@ namespace AskThem
         /// <summary>Télécharge et redémarre. Un échec laisse l'application en place.</summary>
         private void LancerMiseAJour()
         {
-            // La mise a jour ferme volontairement la fenetre : on lui ouvre le passage, sinon
-            // le garde-fou de fermeture la retiendrait.
-            _fermetureAutorisee = true;
             UpdateService.UpdateInfo info = _update;
             if (info == null || !info.Available) return;
+
+            // Redémarrer pendant un traitement tuerait le fil qui pilote SolidWorks.
+            if (_busy)
+            {
+                MessageBox.Show(this, "Un traitement est en cours : la mise à jour s'installera "
+                    + "quand il sera terminé.", "Mise à jour", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                return;
+            }
 
             try
             {
@@ -1570,10 +1612,16 @@ namespace AskThem
                 btnUpdate.Enabled = false;
                 Log("Téléchargement de la version " + info.LatestVersion + "…");
                 UpdateService.DownloadAndRestart(info);
+
+                // La mise a jour ferme volontairement la fenetre : on lui ouvre le passage
+                // a ce moment seulement. Ouvert plus tot, un echec le laissait ouvert pour
+                // toute la session, et la fenetre se fermait ensuite en plein traitement.
+                _fermetureAutorisee = true;
                 Close();
             }
             catch (Exception ex)
             {
+                _fermetureAutorisee = false;
                 Cursor = Cursors.Default;
                 btnUpdate.Enabled = true;
                 Log("ERREUR mise à jour : " + ex.Message);
@@ -1653,6 +1701,24 @@ namespace AskThem
 
         private void BtnPo_Click(object sender, EventArgs e)
         {
+            // Un document déjà choisi peut être retiré : il restait sinon attaché à toutes les
+            // demandes suivantes, et le bon de commande d'un fournisseur partait chez un autre.
+            if (txtPo.Text.Trim() != "")
+            {
+                DialogResult choix = MessageBox.Show(this,
+                    "Document joint : " + Path.GetFileName(txtPo.Text.Trim()) + Environment.NewLine + Environment.NewLine
+                  + "Oui : choisir un autre fichier." + Environment.NewLine
+                  + "Non : retirer ce document de la demande.",
+                    "AskThem", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (choix == DialogResult.Cancel) return;
+                if (choix == DialogResult.No)
+                {
+                    txtPo.Text = "";
+                    Log("Document joint retiré.");
+                    return;
+                }
+            }
+
             using (OpenFileDialog dlg = new OpenFileDialog())
             {
                 dlg.Title = CurrentType == RequestType.Offre
@@ -1794,7 +1860,8 @@ namespace AskThem
             {
                 dlg.ShowDialog(this);
             }
-            _config = ConfigService.Load();
+            // Le dialogue modifie et enregistre cette configuration-ci : la recharger dans un
+            // nouvel objet laissait le mode guidé travailler sur l'ancien.
             LancerVerificationInventaire();
         }
 
@@ -1979,6 +2046,47 @@ namespace AskThem
                 return false;
             }
 
+            // 2 bis) Format et type : contrôlés ici, au seul passage obligé des deux vues. Le
+            // mode guidé ajoutait des articles collés ou recherchés sans ces contrôles, que
+            // la vue complète faisait à l'import : un assemblage ou un numéro sans tirets
+            // partait alors chez le fournisseur.
+            List<string> formatInconnu = new List<string>();
+            List<string> sansDemande = new List<string>();
+            foreach (PartLine l in _lines)
+            {
+                string normalise = PartNumberFormat.Normalize(l.PartNumber, _config.PartNumberPatterns);
+                if (!PartNumberFormat.IsValid(normalise, _config.PartNumberPatterns))
+                {
+                    formatInconnu.Add(l.PartNumber);
+                    continue;
+                }
+                l.PartNumber = normalise;
+                ArticleTypeRule regle = RuleFor(normalise);
+                if (!regle.Allowed) sansDemande.Add(normalise + " — " + regle.Label);
+            }
+            if (formatInconnu.Count > 0 || sansDemande.Count > 0)
+            {
+                StringBuilder sb = new StringBuilder();
+                if (formatInconnu.Count > 0)
+                {
+                    sb.AppendLine(formatInconnu.Count + " numéro(s) au format non reconnu :");
+                    sb.AppendLine(Summarize(formatInconnu));
+                    sb.AppendLine("Format attendu : " + PartNumberFormat.Describe(_config.PartNumberPatterns));
+                    sb.AppendLine();
+                }
+                if (sansDemande.Count > 0)
+                {
+                    sb.AppendLine(sansDemande.Count + " article(s) d'un type sans demande possible :");
+                    sb.AppendLine(Summarize(sansDemande));
+                    sb.AppendLine();
+                }
+                sb.Append("Corrigez ou retirez ces articles.");
+                MessageBox.Show(sb.ToString(), "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                grid.Refresh();
+                return false;
+            }
+            grid.Refresh();
+
             // 3) Quantité 1 minimale.
             for (int i = 0; i < _lines.Count; i++)
             {
@@ -2128,18 +2236,18 @@ namespace AskThem
             progress.Value = 0;
 
             _cancelRequested = false;
-            _stopMailWatch = true;
-            SetBusy(true);
+            int generation = Occuper();
 
             // SolidWorks en COM exige un thread STA.
-            Thread worker = new Thread(new ThreadStart(RunProcess));
+            Thread worker = new Thread(delegate () { RunProcess(generation); });
             worker.SetApartmentState(ApartmentState.STA);
             worker.IsBackground = true;
             worker.Start();
         }
 
-        private void RunProcess()
+        private void RunProcess(int generation)
         {
+            _generationDuFil = generation;
             try
             {
                 if (_generateMode) RunGenerate();
@@ -2156,9 +2264,8 @@ namespace AskThem
             }
             finally
             {
-                RefreshGrid();
-                SetBusy(false);
-                UiInvoke(delegate { lblProgress.Text = "Prêt."; });
+                if (generation == _generation) RefreshGrid();
+                Liberer(generation);
             }
         }
 
@@ -2198,13 +2305,13 @@ namespace AskThem
                 line.Model3DPath = PdmSearchService.Find3DInIndex(_pdmIndex, line.PartNumber);
                 line.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, line.PartNumber);
 
-                InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
-                if (inv != null)
-                {
-                    line.OldRef = inv.OldRef;
-                    line.SupplierRef = inv.SupplierRef;
-                    line.PdmSupplier = inv.Supplier;
-                }
+                // Une vérification ne joint rien : le plan « disponible » est celui du coffre.
+                // Sans cela, l'avertissement annonçait sans plan tous les articles vérifiés.
+                line.PlanDisponible = line.DrawingPath != null;
+
+                line.SupplierRef = "";
+                line.PdmSupplier = "";
+                RenseignerDepuisInventaire(line);
 
                 if (line.Model3DPath != null && line.DrawingPath != null) { line.Status = "OK"; ok++; }
                 else if (line.Model3DPath != null) { line.Status = "Manquant 2D"; warn++; }
@@ -2302,20 +2409,10 @@ namespace AskThem
         /// </summary>
         private void TraiterArticleCatalogue(PartLine ligne)
         {
-            ligne.ExportedFiles.Clear();
-            ligne.ZipPath = null;
+            // Ce qui venait d'un traitement précédent — références d'un autre fournisseur
+            // comprises — n'a plus cours et ne doit pas se glisser dans le message.
+            ligne.OublierResultats();
             ligne.TypeCode = PartNumberFormat.TypeCode(ligne.PartNumber);
-
-            // Le coffre n'est pas consulté : ce qui en venait lors d'un traitement précédent
-            // n'a plus cours et ne doit pas se glisser dans le message.
-            ligne.DrawingRevision = "";
-            ligne.Revision = "";
-            ligne.RealizedDate = "";
-            ligne.Material = "";
-            ligne.Treatment = "";
-            ligne.State = "";
-            ligne.Model3DPath = null;
-            ligne.DrawingPath = null;
 
             InventoryService.Entry inv = InventoryService.Lookup(_inventaire, ligne.PartNumber);
             if (inv == null)
@@ -2696,6 +2793,7 @@ namespace AskThem
                     catch (Exception ex)
                     {
                         ligne.Status = "Erreur";
+                        AbandonnerPieces(ligne);
                         Log("ERREUR " + ligne.PartNumber + " : " + ex.Message);
                     }
                     finally
@@ -2746,6 +2844,7 @@ namespace AskThem
                     {
                         // Un échec unitaire n'interrompt jamais le lot.
                         line.Status = "Erreur";
+                        AbandonnerPieces(line);
                         Log("ERREUR " + line.PartNumber + " : " + ex.Message);
                     }
                     finally
@@ -2763,16 +2862,25 @@ namespace AskThem
             }
             }
 
+            // Joint séparément au premier message : le fournisseur doit le voir sans ouvrir
+            // d'archive, et il n'a pas à le recevoir en plusieurs exemplaires.
+            string cheminPo = poArchive != null ? poArchive : _optPoPath;
+            bool poJoignable = cheminPo != "" && File.Exists(cheminPo);
+            if (poJoignable) Log("Bon de commande joint : " + Path.GetFileName(cheminPo));
+
             // --- Étape 6 : répartition des archives sur un ou plusieurs messages ---
+            // Le bon de commande occupe déjà une place dans le premier message.
             List<LotEnvoi> lots = RepartitionEnvois.Repartir(
-                _work, _config.ZipThresholdMb, _config.MaxAttachments, LogFromWorker);
+                _work, _config.ZipThresholdMb, _config.MaxAttachments,
+                poJoignable ? RepartitionEnvois.TailleMb(cheminPo) : 0, poJoignable ? 1 : 0,
+                LogFromWorker);
 
             double totalMb = 0;
             int nbArchives = 0;
             foreach (LotEnvoi lot in lots)
             {
                 totalMb += lot.TailleMb;
-                nbArchives += lot.PiecesJointes.Count;
+                nbArchives += Archives(lot);
             }
 
             if (lots.Count > 1)
@@ -2785,12 +2893,6 @@ namespace AskThem
             {
                 Log(nbArchives + " archive(s) par article jointe(s), " + totalMb.ToString("0.0") + " Mo au total.");
             }
-
-            // Joint séparément au premier message : le fournisseur doit le voir sans ouvrir
-            // d'archive, et il n'a pas à le recevoir en plusieurs exemplaires.
-            string cheminPo = poArchive != null ? poArchive : _optPoPath;
-            bool poJoignable = cheminPo != "" && File.Exists(cheminPo);
-            if (poJoignable) Log("Bon de commande joint : " + Path.GetFileName(cheminPo));
 
             // --- Avertissement groupé, avant de préparer les emails ---
             WarnAboutIssues();
@@ -2811,7 +2913,7 @@ namespace AskThem
                                        + Numerotation(i + 1, lots.Count);
                         string body = EmailBuilder.BuildBody(_optType, lot.Lignes, _optProject, _optDeadline,
                                                              _optConditions, i == 0 ? nomPo : "", _optCatalogue,
-                                                             lot.PiecesJointes.Count, _optLivraison);
+                                                             Archives(lot), _optLivraison);
 
                         List<string> pieces = new List<string>(lot.PiecesJointes);
                         if (poJoignable && i == 0) pieces.Add(cheminPo);
@@ -2855,16 +2957,33 @@ namespace AskThem
                   + outputFolder + ", et ne sera pas archivée.");
             }
 
+            // La session d'inventaire se ferme ici, avant le suivi : celui-ci rend la main, et
+            // le traitement suivant ouvrira la sienne dans le même champ.
+            if (_depotInv != null) { _depotInv.Dispose(); _depotInv = null; }
+
             // --- Étape 10 : bilan ---
             ShowSummary(outputFolder);
 
             // --- Étape 11 : suivi silencieux des emails, interface déjà rendue ---
+            // Rien de partagé n'est touché à partir d'ici : un nouveau traitement peut
+            // démarrer pendant que celui-ci suit encore ses messages.
             WatchMails(mailsOuverts, cheminsMsg, outputFolder);
 
             // --- Étape 12 : si l'envoi a eu lieu pendant le suivi, la demande rejoint l'archive ---
             ArchiveEnAttente.Reprendre(_config, LogFromWorker);
+        }
 
-            if (_depotInv != null) { _depotInv.Dispose(); _depotInv = null; }
+        /// <summary>
+        /// Archives ZIP d'un message. Les formulaires de contrôle voyagent hors archive : les
+        /// compter faisait annoncer « une archive par article » à un message qui n'en portait
+        /// aucune.
+        /// </summary>
+        private static int Archives(LotEnvoi lot)
+        {
+            int n = 0;
+            foreach (string piece in lot.PiecesJointes)
+                if (string.Equals(Path.GetExtension(piece), ".zip", StringComparison.OrdinalIgnoreCase)) n++;
+            return n;
         }
 
         /// <summary>Suffixe de sujet quand la demande part en plusieurs messages.</summary>
@@ -2888,12 +3007,10 @@ namespace AskThem
                                     string folder3D, string folder2D, string folderZip,
                                     string folderControles)
         {
-            line.ExportedFiles.Clear();
-            line.ZipPath = null;
-            // Sans remise à zéro, un article traité une première fois garderait son formulaire
-            // et son drapeau : le contrôle d'un fournisseur pourrait partir chez un autre.
-            line.ControlePath = null;
-            line.PlanDisponible = false;
+            // Sans remise à zéro, un article traité une première fois garderait son formulaire,
+            // ses références et sa date : le contrôle ou la référence d'un fournisseur
+            // pourraient partir chez un autre.
+            line.OublierResultats();
             line.TypeCode = PartNumberFormat.TypeCode(line.PartNumber);
 
             // Le type de l'article décide de ce qu'on livre : un article catalogue
@@ -2993,18 +3110,7 @@ namespace AskThem
             }
 
             // --- Ce que l'inventaire sait de cet article ---
-            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
-            if (inv != null)
-            {
-                line.OldRef = inv.OldRef;
-
-                // La reference du DESTINATAIRE, pas celle du premier fournisseur rendu par
-                // l'API : le message imprime cette valeur sous « Votre reference », et celle
-                // d'un concurrent n'a aucun sens pour celui qui la lit.
-                InventoryService.Fournisseur chez = inv.Chez(_optFournisseurInventaire, _optSupplierName);
-                if (line.SupplierRef == "" && chez != null) line.SupplierRef = chez.Reference;
-                if (line.PdmSupplier == "" && chez != null) line.PdmSupplier = chez.Nom;
-            }
+            RenseignerDepuisInventaire(line);
 
             // --- Ce qui vient d'etre produit est publie pour les postes non equipes ---
             PublierAuDepot(line);
@@ -3046,24 +3152,35 @@ namespace AskThem
             DocumentsArticle d = _depotInv.Pour(line.PartNumber);
             if (d == null || !d.Trouve) return false;
 
-            Directory.CreateDirectory(_folderDepot);
+            // Un dossier par article : les documents portent le nom donné au dépôt, et deux
+            // articles déposés sous « Plan.pdf » s'écrasaient l'un l'autre — le ZIP du premier
+            // emportait alors le plan du second.
+            string dossierArticle = Path.Combine(_folderDepot, SafeName(line.PartNumber));
+            Directory.CreateDirectory(dossierArticle);
             line.SourceDocuments = "Inventaire";
 
             DocumentArticle plan = d.De(TypeDocument.Plan);
             if (plan != null) line.DrawingRevision = plan.Revision;
 
-            // Le plan se reconnait a la nature declaree par l'inventaire, pas a l'extension
-            // du fichier rapatrie : c'est l'inventaire qui sait ce qu'est chaque document.
-            if (d.De(TypeDocument.Plan) != null) line.PlanDisponible = true;
+            // On livre ce que l'utilisateur a demandé, comme sur un poste équipé.
+            ArticleTypeRule regle = RuleFor(line.PartNumber);
+            bool livrer3D = _opt3D && regle.Export3D;
+            bool livrer2D = _opt2D && regle.Export2D;
 
-            foreach (string f in _depotInv.TelechargerPour(line.PartNumber, _folderDepot, LogFromWorker))
-                line.ExportedFiles.Add(f);
+            // Le plan se reconnait a la nature declaree par l'inventaire, pas a l'extension
+            // du fichier rapatrie — et ne compte que s'il est effectivement arrive : un
+            // telechargement en echec doit faire dire « sans plan » avant l'envoi.
+            List<string> natures = new List<string>();
+            List<string> recus = _depotInv.TelechargerPour(line.PartNumber, dossierArticle, LogFromWorker,
+                                                          livrer3D, livrer2D, natures);
+            line.ExportedFiles.AddRange(recus);
+            if (natures.Contains(TypeDocument.Plan)) line.PlanDisponible = true;
 
             // Le formulaire ne part qu'avec une fabrication, et seulement si l'utilisateur
             // l'a demande.
             if (_optControle && _optType == RequestType.Fabrication)
             {
-                string cf = _depotInv.TelechargerControle(line.PartNumber, _folderDepot, LogFromWorker);
+                string cf = _depotInv.TelechargerControle(line.PartNumber, dossierArticle, LogFromWorker);
                 if (cf != null)
                 {
                     line.ControlePath = cf;
@@ -3071,15 +3188,7 @@ namespace AskThem
                 }
             }
 
-            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
-            if (inv != null)
-            {
-                line.OldRef = inv.OldRef;
-                InventoryService.Fournisseur chez = inv.Chez(_optFournisseurInventaire, _optSupplierName);
-                if (string.IsNullOrWhiteSpace(line.SupplierRef) && chez != null) line.SupplierRef = chez.Reference;
-                if (string.IsNullOrWhiteSpace(line.PdmSupplier) && chez != null) line.PdmSupplier = chez.Nom;
-                if (string.IsNullOrWhiteSpace(line.Description)) line.Description = inv.Designation;
-            }
+            RenseignerDepuisInventaire(line);
 
             if (line.ExportedFiles.Count == 0)
             {
@@ -3159,6 +3268,14 @@ namespace AskThem
 
             if (_depotInv != null)
             {
+                // Meme filtre que la base sur le partage et que la campagne : une reference de
+                // projet ou un article non gere n'entre pas dans la base de production.
+                if (!Codification.EstDeProduction(line.PartNumber))
+                {
+                    Log("Inventaire : " + line.PartNumber + " NON publié — référence hors de la base de production.");
+                    return;
+                }
+
                 // Les documents partent nus dans l'inventaire, chacun sous sa nature. Le
                 // formulaire de controle a la sienne, et se depose a part.
                 //
@@ -3177,14 +3294,56 @@ namespace AskThem
 
                 _depotInv.Publier(line.PartNumber, fiche.Revision, dateRev, fiche.Etat,
                                   line.ExportedFiles, LogFromWorker);
-                if (!string.IsNullOrWhiteSpace(line.ControlePath))
-                    _depotInv.PublierControle(line.PartNumber, fiche.Revision, dateRev,
-                                              line.ControlePath, LogFromWorker);
+
+                // Le formulaire de la demande porte le fournisseur, la commande et la quantite :
+                // depose tel quel, il repartirait chez un autre sous-traitant avec les donnees
+                // de celui-ci. On depose une version neutre, et seulement si l'etat est libere.
+                if (fiche.Controle != null && _depotInv.EstLibere(fiche.Etat))
+                {
+                    string neutre = ControleNeutre(fiche.Controle);
+                    if (neutre != null)
+                        _depotInv.PublierControle(line.PartNumber, fiche.Revision, dateRev, neutre, LogFromWorker);
+                }
                 return;
             }
 
             ResultatPublication r = _depot.Publier(fiche, line.ExportedFiles, _optCompression);
             Log(MessageDePublication(line.PartNumber, fiche, r));
+        }
+
+        /// <summary>
+        /// Le formulaire de contrôle tel que la base doit le garder : sans destinataire, sans
+        /// commande, sans quantité, sans chemin du coffre. Null s'il n'a pas pu être produit.
+        /// </summary>
+        private string ControleNeutre(ControleFabrication controle)
+        {
+            if (controle == null || _generateurPdf == null) return null;
+
+            string fournisseur = controle.Fournisseur;
+            string commande = controle.NumeroCommande;
+            int quantite = controle.QuantiteLot;
+            string source = controle.CheminSourcePlan;
+            try
+            {
+                controle.Fournisseur = "";
+                controle.NumeroCommande = "";
+                controle.QuantiteLot = 0;
+                controle.CheminSourcePlan = "";
+                string dossier = Path.Combine(_folderDepot, "controles_neutres");
+                return _generateurPdf.Generer(controle, dossier);
+            }
+            catch (Exception ex)
+            {
+                Log("Contrôle neutre non produit pour " + controle.NumeroPlan + " : " + ex.Message);
+                return null;
+            }
+            finally
+            {
+                controle.Fournisseur = fournisseur;
+                controle.NumeroCommande = commande;
+                controle.QuantiteLot = quantite;
+                controle.CheminSourcePlan = source;
+            }
         }
 
         /// <summary>Ce qu'on écrit au journal pour une tentative de publication.</summary>
@@ -3225,10 +3384,7 @@ namespace AskThem
         /// </summary>
         private void TraiterArticleDepuisDepot(PartLine line, string folderZip)
         {
-            line.ExportedFiles.Clear();
-            line.ZipPath = null;
-            line.ControlePath = null;
-            line.PlanDisponible = false;
+            line.OublierResultats();
             line.TypeCode = PartNumberFormat.TypeCode(line.PartNumber);
 
             // La base de l'inventaire prime : c'est elle qui porte les droits et la nature
@@ -3253,13 +3409,24 @@ namespace AskThem
                 line.State = fiche.Etat;
                 line.SourceDocuments = "Base articles";
 
+                // On livre ce que l'utilisateur a demandé, comme sur un poste équipé.
+                ArticleTypeRule regle = RuleFor(line.PartNumber);
+                bool livrer3D = _opt3D && regle.Export3D;
+                bool livrer2D = _opt2D && regle.Export2D;
+
                 foreach (string extrait in _depot.ExtraireVers(line.PartNumber, _folderDepot))
                 {
-                    line.ExportedFiles.Add(extrait);
                     string ext = Path.GetExtension(extrait);
-                    if (string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase)
-                        && !Path.GetFileName(extrait).StartsWith("CF_", StringComparison.OrdinalIgnoreCase))
-                        line.PlanDisponible = true;
+                    bool modele = string.Equals(ext, ".step", StringComparison.OrdinalIgnoreCase)
+                               || string.Equals(ext, ".stp", StringComparison.OrdinalIgnoreCase);
+                    bool planPdf = string.Equals(ext, ".pdf", StringComparison.OrdinalIgnoreCase)
+                               && !Path.GetFileName(extrait).StartsWith("CF_", StringComparison.OrdinalIgnoreCase);
+                    bool planDxf = string.Equals(ext, ".dxf", StringComparison.OrdinalIgnoreCase);
+                    if (modele && !livrer3D) continue;
+                    if ((planPdf || planDxf) && !livrer2D) continue;
+
+                    line.ExportedFiles.Add(extrait);
+                    if (planPdf) line.PlanDisponible = true;
                 }
 
                 // Le contrôle ne concerne que la fabrication, et se regénère au nom du
@@ -3289,15 +3456,7 @@ namespace AskThem
             }
 
             // Ce que l'inventaire sait de cet article : accessible depuis n'importe quel poste.
-            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
-            if (inv != null)
-            {
-                line.OldRef = inv.OldRef;
-                InventoryService.Fournisseur chez = inv.Chez(_optFournisseurInventaire, _optSupplierName);
-                if (string.IsNullOrWhiteSpace(line.SupplierRef) && chez != null) line.SupplierRef = chez.Reference;
-                if (string.IsNullOrWhiteSpace(line.PdmSupplier) && chez != null) line.PdmSupplier = chez.Nom;
-                if (string.IsNullOrWhiteSpace(line.Description)) line.Description = inv.Designation;
-            }
+            RenseignerDepuisInventaire(line);
 
             if (line.ExportedFiles.Count > 0)
             {
@@ -3312,6 +3471,47 @@ namespace AskThem
                     Log("ERREUR archive " + line.PartNumber + " : " + ex.Message);
                 }
             }
+        }
+
+        /// <summary>
+        /// Ce que l'inventaire sait de l'article, et surtout la référence du DESTINATAIRE.
+        ///
+        /// Le message imprime cette valeur sous « Votre référence » : celle d'un autre
+        /// fournisseur n'a aucun sens pour celui qui la lit. La carte PDM peut porter la
+        /// référence d'un fournisseur imposé ; elle ne vaut que si c'est bien lui qu'on
+        /// sollicite. Les quatre chemins — vérification, poste équipé, inventaire, partage —
+        /// passent ici, pour ne plus pouvoir diverger.
+        /// </summary>
+        private void RenseignerDepuisInventaire(PartLine line)
+        {
+            if (!string.IsNullOrWhiteSpace(line.PdmSupplier) && !SameSupplier(line.PdmSupplier, _optSupplierName))
+                line.SupplierRef = "";
+
+            InventoryService.Entry inv = InventoryService.Lookup(_inventaire, line.PartNumber);
+            if (inv == null) return;
+
+            line.OldRef = inv.OldRef;
+            if (string.IsNullOrWhiteSpace(line.Description)) line.Description = inv.Designation;
+
+            InventoryService.Fournisseur chez = inv.Chez(_optFournisseurInventaire, _optSupplierName);
+            if (chez != null && !string.IsNullOrWhiteSpace(chez.Reference)) line.SupplierRef = chez.Reference;
+
+            // Sans le destinataire parmi les fournisseurs déclarés, on retient celui de
+            // l'inventaire : c'est lui qui fera dire « fournisseur imposé » si l'article l'est.
+            if (string.IsNullOrWhiteSpace(line.PdmSupplier))
+                line.PdmSupplier = chez != null ? chez.Nom : inv.Supplier;
+        }
+
+        /// <summary>
+        /// Un article en erreur ne part avec aucune pièce : un plan sans son modèle, ou un
+        /// formulaire de contrôle sans le plan auquel il renvoie, induirait le fournisseur en
+        /// erreur. L'avertissement groupé le signale avant l'envoi.
+        /// </summary>
+        private static void AbandonnerPieces(PartLine line)
+        {
+            line.ZipPath = null;
+            line.ControlePath = null;
+            line.PlanDisponible = false;
         }
 
         /// <summary>
@@ -3345,6 +3545,8 @@ namespace AskThem
             List<string> enDeveloppement = new List<string>();
             List<string> mauvaisFournisseur = new List<string>();
             List<string> sansReference = new List<string>();
+            List<string> introuvables = new List<string>();
+            List<string> enErreur = new List<string>();
             int etatsLus = 0;
             int referencesLues = 0;
 
@@ -3353,7 +3555,19 @@ namespace AskThem
             foreach (PartLine l in _work)
             {
                 if (string.IsNullOrWhiteSpace(l.Status)) continue;   // non traité
-                if (l.Status == "Introuvable") continue;             // déjà compté ailleurs
+
+                // En vérification, le journal les compte déjà. Avant un envoi, ils partiraient
+                // dans le tableau sans aucune pièce : l'utilisateur doit le savoir.
+                if (l.Status == "Introuvable")
+                {
+                    if (_generateMode) introuvables.Add(l.PartNumber);
+                    continue;
+                }
+                if (l.Status == "Erreur")
+                {
+                    if (_generateMode) enErreur.Add(l.PartNumber);
+                    continue;
+                }
                 if (!string.IsNullOrWhiteSpace(l.State)) etatsLus++;
                 if (IsInDevelopment(l)) enDeveloppement.Add(l.PartNumber + " — " + l.State.Trim());
 
@@ -3391,9 +3605,24 @@ namespace AskThem
             }
 
             if (sansPlan.Count == 0 && enDeveloppement.Count == 0
-                && mauvaisFournisseur.Count == 0 && sansReference.Count == 0) return;
+                && mauvaisFournisseur.Count == 0 && sansReference.Count == 0
+                && introuvables.Count == 0 && enErreur.Count == 0) return;
 
             StringBuilder sb = new StringBuilder();
+            if (introuvables.Count > 0)
+            {
+                sb.AppendLine("Introuvables dans le coffre — " + introuvables.Count + " article(s) :");
+                sb.AppendLine(Summarize(introuvables));
+                sb.AppendLine("Ils figurent dans le message, sans aucune pièce jointe.");
+                sb.AppendLine();
+            }
+            if (enErreur.Count > 0)
+            {
+                sb.AppendLine("En erreur — " + enErreur.Count + " article(s) :");
+                sb.AppendLine(Summarize(enErreur));
+                sb.AppendLine("Ils partent sans pièce jointe : voir le journal.");
+                sb.AppendLine();
+            }
             if (mauvaisFournisseur.Count > 0)
             {
                 sb.AppendLine("Fournisseur imposé par le PDM — " + mauvaisFournisseur.Count + " article(s) :");
@@ -3549,8 +3778,7 @@ namespace AskThem
         {
             if (mails == null || mails.Count == 0)
             {
-                SetBusy(false);
-                UiInvoke(delegate { lblProgress.Text = "Prêt."; });
+                Liberer(_generationDuFil);
                 return;
             }
 
@@ -3558,8 +3786,14 @@ namespace AskThem
             // de le rendre accessible, c'est-à-dire quand il est fermé ou envoyé.
             List<int> actifs = new List<int>();
             int[] echecs = new int[mails.Count];
+
+            // Le dernier objet lu de chaque message. Un message envoyé n'est plus lisible :
+            // c'est donc pendant le suivi, et non après, qu'il faut relever ce que
+            // l'utilisateur a retouché.
+            string[] sujets = new string[mails.Count];
             for (int i = 0; i < mails.Count; i++)
             {
+                sujets[i] = OutlookService.LireSujet(mails[i]);
                 if (OutlookService.SaveMessage(mails[i], chemins[i]))
                 {
                     actifs.Add(i);
@@ -3572,11 +3806,13 @@ namespace AskThem
             }
 
             // L'interface est rendue à l'utilisateur : le suivi ne le bloque pas.
-            SetBusy(false);
-            UiInvoke(delegate { lblProgress.Text = "Prêt."; });
-            if (actifs.Count == 0) return;
+            Liberer(_generationDuFil);
 
-            _stopMailWatch = false;
+            // Un Outlook occupé — un carnet d'adresses ou un choix de pièce jointe ouvert —
+            // refuse les appels comme le ferait un message fermé. On ne conclut donc à la
+            // fermeture qu'après une minute de refus continus.
+            const int RefusAvantFermeture = 15;
+
             DateTime limite = DateTime.Now.AddMinutes(30);
             while (DateTime.Now < limite && !_stopMailWatch && actifs.Count > 0)
             {
@@ -3589,12 +3825,14 @@ namespace AskThem
                     if (OutlookService.SaveMessage(mails[i], chemins[i]))
                     {
                         echecs[i] = 0;
+                        string sujet = OutlookService.LireSujet(mails[i]);
+                        if (!string.IsNullOrWhiteSpace(sujet)) sujets[i] = sujet;
                     }
                     else
                     {
                         // Message fermé ou envoyé : la dernière version reste enregistrée.
                         echecs[i]++;
-                        if (echecs[i] >= 2)
+                        if (echecs[i] >= RefusAvantFermeture)
                         {
                             Log("Email archivé dans son état final : " + chemins[i]);
                             actifs.RemoveAt(k);
@@ -3604,16 +3842,18 @@ namespace AskThem
             }
 
             foreach (int i in actifs)
+            {
+                string sujet = OutlookService.LireSujet(mails[i]);
+                if (!string.IsNullOrWhiteSpace(sujet)) sujets[i] = sujet;
                 Log("Email archivé dans son état final : " + chemins[i]);
+            }
 
             // L'objet a pu être retouché : c'est sa dernière version qu'on retrouvera dans
-            // les éléments envoyés, donc celle qu'il faut retenir pour constater l'envoi.
+            // les éléments envoyés, donc celle qu'il faut retenir pour constater l'envoi. Un
+            // message déjà parti garde l'objet relevé avant son envoi.
             List<string> sujetsFinaux = new List<string>();
-            foreach (object mail in mails)
-            {
-                string sujet = OutlookService.LireSujet(mail);
+            foreach (string sujet in sujets)
                 if (!string.IsNullOrWhiteSpace(sujet)) sujetsFinaux.Add(sujet);
-            }
             if (sujetsFinaux.Count > 0) ArchiveEnAttente.MettreAJourSujets(dossier, sujetsFinaux);
         }
 
@@ -3736,6 +3976,25 @@ namespace AskThem
         }
 
         /// <summary>Active ou désactive l'interface pendant un traitement.</summary>
+        /// <summary>Occupe la fenêtre pour un nouveau traitement, et renvoie son numéro.</summary>
+        private int Occuper()
+        {
+            int generation = Interlocked.Increment(ref _generationCompteur);
+            _generation = generation;
+            SetBusy(true);
+            return generation;
+        }
+
+        private int _generationCompteur;
+
+        /// <summary>Rend la main, sauf si un traitement plus récent occupe déjà la fenêtre.</summary>
+        private void Liberer(int generation)
+        {
+            if (generation != _generation) return;
+            SetBusy(false);
+            UiInvoke(delegate { lblProgress.Text = "Prêt."; });
+        }
+
         private void SetBusy(bool busy)
         {
             _busy = busy;

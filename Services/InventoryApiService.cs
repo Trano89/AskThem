@@ -63,12 +63,18 @@ namespace AskThem.Services
                 HttpClientHandler handler = new HttpClientHandler();
                 handler.CookieContainer = _cookies;
                 handler.UseCookies = true;
-                handler.AllowAutoRedirect = true;
+
+                // Le transport ne suit aucune redirection : il le ferait sous le garde-fou.
+                // C'est le garde-fou qui suit celles des lectures, en les vérifiant.
+                handler.AllowAutoRedirect = false;
 
                 // Toutes les requêtes passent par le garde-fou : rien ne peut écrire.
                 _urlConnexion = _base + "/auth/login";
                 _client = new HttpClient(new ReadOnlyGuard(handler, _urlConnexion));
-                _client.Timeout = TimeSpan.FromSeconds(30);
+
+                // Un compte en lecture télécharge aussi des modèles STEP de plusieurs dizaines
+                // de Mo : trente secondes n'y suffisaient pas sur une liaison lente.
+                _client.Timeout = TimeSpan.FromMinutes(5);
                 _client.DefaultRequestHeaders.Add("User-Agent", "AskThem");
 
                 string corps = JsonSerializer.Serialize(new Dictionary<string, string> {
@@ -94,7 +100,7 @@ namespace AskThem.Services
                     HttpClientHandler ouvert = new HttpClientHandler();
                     ouvert.CookieContainer = _cookies;
                     ouvert.UseCookies = true;
-                    ouvert.AllowAutoRedirect = true;
+                    ouvert.AllowAutoRedirect = false;
 
                     HttpClient ancien = _client;
                     _client = new HttpClient(new ReadOnlyGuard(ouvert, _urlConnexion, _base, true));
@@ -105,7 +111,9 @@ namespace AskThem.Services
                 }
 
                 message = "Connecté à l'inventaire en tant que " + user
-                        + (PeutDeposerDocuments ? " (dépôt de documents autorisé)." : ".");
+                        + (PeutDeposerDocuments ? " (dépôt de documents autorisé)."
+                           : DroitsIllisibles ? " — droits illisibles, dépôt de documents désactivé pour cette session."
+                           : ".");
                 return true;
             }
             catch (Exception ex)
@@ -336,14 +344,28 @@ namespace AskThem.Services
         // Documents d'article
         // ==================================================================
 
+        /// <summary>
+        /// Vrai si le serveur n'a pas pu dire quels droits porte le compte.
+        ///
+        /// À distinguer d'un compte sans droit de dépôt : on le dit, au lieu de laisser
+        /// croire à l'utilisateur que son compte a perdu ses droits.
+        /// </summary>
+        public bool DroitsIllisibles { get; private set; }
+
         /// <summary>Droits du compte connecté, tels que le serveur les déclare.</summary>
         private List<string> LirePermissions()
         {
             List<string> droits = new List<string>();
+            DroitsIllisibles = false;
             try
             {
                 HttpResponseMessage rep = Get("/auth/me");
-                if (!rep.IsSuccessStatusCode) return droits;
+                if (!rep.IsSuccessStatusCode)
+                {
+                    DroitsIllisibles = true;
+                    LogService.Write("Droits de l'inventaire illisibles (" + (int)rep.StatusCode + ").");
+                    return droits;
+                }
 
                 using (JsonDocument doc = JsonDocument.Parse(
                            rep.Content.ReadAsStringAsync().GetAwaiter().GetResult()))
@@ -362,6 +384,7 @@ namespace AskThem.Services
             }
             catch (Exception ex)
             {
+                DroitsIllisibles = true;
                 LogService.Write("Droits de l'inventaire illisibles : " + ex.Message);
             }
             return droits;
@@ -386,6 +409,30 @@ namespace AskThem.Services
             for (int depart = 0; depart < references.Count; depart += parLot)
             {
                 List<string> lot = references.GetRange(depart, Math.Min(parLot, references.Count - depart));
+                string echec;
+                if (!LireLot(lot, table, out echec) && !LireLot(lot, table, out echec))
+                {
+                    message = echec;
+                    // Un lot illisible n'est pas un lot d'articles inconnus : sans cette
+                    // marque, une campagne les donnait « à créer » dans l'inventaire.
+                    foreach (string r in lot)
+                    {
+                        if (string.IsNullOrWhiteSpace(r) || table.ContainsKey(r.Trim())) continue;
+                        DocumentsArticle inconnu = new DocumentsArticle();
+                        inconnu.Reference = r.Trim();
+                        inconnu.Illisible = true;
+                        table[inconnu.Reference] = inconnu;
+                    }
+                }
+            }
+            return table;
+        }
+
+        /// <summary>Lit un lot du résumé. Faux si le serveur n'a pas répondu correctement.</summary>
+        private bool LireLot(List<string> lot, Dictionary<string, DocumentsArticle> table, out string message)
+        {
+            message = "";
+            {
                 try
                 {
                     HttpResponseMessage rep = Get("/articles/documents/summary?refs="
@@ -393,27 +440,32 @@ namespace AskThem.Services
                     if (!rep.IsSuccessStatusCode)
                     {
                         message = "Documents illisibles (" + (int)rep.StatusCode + ").";
-                        continue;
+                        return false;
                     }
 
                     using (JsonDocument doc = JsonDocument.Parse(
                                rep.Content.ReadAsStringAsync().GetAwaiter().GetResult()))
                     {
                         JsonElement res;
-                        if (!doc.RootElement.TryGetProperty("results", out res)) continue;
+                        if (!doc.RootElement.TryGetProperty("results", out res))
+                        {
+                            message = "Documents illisibles : réponse sans résultats.";
+                            return false;
+                        }
                         foreach (JsonElement x in res.EnumerateArray())
                         {
                             DocumentsArticle d = LireDocumentsArticle(x);
                             if (d != null && d.Reference != "") table[d.Reference] = d;
                         }
                     }
+                    return true;
                 }
                 catch (Exception ex)
                 {
                     message = "Documents illisibles : " + ex.Message;
+                    return false;
                 }
             }
-            return table;
         }
 
         private DocumentsArticle LireDocumentsArticle(JsonElement x)

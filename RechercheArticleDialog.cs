@@ -48,6 +48,7 @@ namespace AskThem
             StartPosition = FormStartPosition.CenterParent;
             ShowInTaskbar = false;
             AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
             ClientSize = new Size(1100, 580);
             MinimumSize = new Size(760, 420);
 

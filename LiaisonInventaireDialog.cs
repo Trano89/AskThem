@@ -42,6 +42,7 @@ namespace AskThem
             MaximizeBox = false;
             ShowInTaskbar = false;
             AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
             ClientSize = new Size(520, 420);
             MinimumSize = new Size(420, 320);
 

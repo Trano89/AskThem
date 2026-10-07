@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
@@ -34,6 +35,9 @@ namespace AskThem.Services
             public string DownloadUrl = "";
             public string PageUrl = "";
             public string Message = "";
+
+            /// <summary>Modèles d'email publiés avec la version : nom du fichier, adresse.</summary>
+            public Dictionary<string, string> Modeles = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>Version de l'exécutable en cours, sans métadonnée de compilation.</summary>
@@ -124,10 +128,14 @@ namespace AskThem.Services
                                 if (!asset.TryGetProperty("name", out nom)) continue;
                                 if (!asset.TryGetProperty("browser_download_url", out url)) continue;
                                 string n = nom.GetString();
-                                if (n != null && n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+                                if (n == null) continue;
+                                if (n.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
                                 {
-                                    r.DownloadUrl = url.GetString();
-                                    break;
+                                    if (r.DownloadUrl == "") r.DownloadUrl = url.GetString();
+                                }
+                                else if (n.EndsWith(".html", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    r.Modeles[n] = url.GetString();
                                 }
                             }
                         }
@@ -182,17 +190,73 @@ namespace AskThem.Services
                 throw new Exception("Le fichier téléchargé est incomplet.");
             }
 
+            // Les modèles d'email suivent l'exécutable. Ceux du dossier templates priment sur
+            // les modèles intégrés : restés anciens, ils privaient la nouvelle version de ses
+            // propres textes — la case « délai et frais de livraison » n'y avait aucun effet.
+            // Ils ne remplacent les anciens qu'une fois l'exécutable remplacé, pour qu'un
+            // échec ne laisse pas des modèles nouveaux à une version qui ne les comprend pas.
+            string dossierModeles = Path.Combine(dossier, "templates");
+            bool avecModeles = false;
+            if (info.Modeles.Count > 0 && Directory.Exists(dossierModeles))
+            {
+                foreach (KeyValuePair<string, string> m in info.Modeles)
+                {
+                    string nom = Path.GetFileName(m.Key);
+                    if (string.IsNullOrWhiteSpace(nom) || nom.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) continue;
+                    string cible = Path.Combine(dossierModeles, nom + ".nouveau");
+                    try
+                    {
+                        TelechargerVers(m.Value, info.CurrentVersion, cible);
+                        avecModeles = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Supprimer(cible);
+                        LogService.Write("Modèle " + nom + " non téléchargé : " + ex.Message);
+                    }
+                }
+            }
+
             // Nom imprévisible : un fichier au nom fixe dans %TEMP% pourrait être
             // remplacé entre son écriture et son exécution.
             string script = Path.Combine(Path.GetTempPath(),
                 "askthem_maj_" + Guid.NewGuid().ToString("N") + ".cmd");
-            File.WriteAllText(script, ScriptRemplacement(nouveau, exeActuel), Encoding.Default);
+
+            // Le script ne contient aucun chemin : ils lui sont passés en arguments. Écrits
+            // dans le fichier, ils étaient lus par cmd dans la page de code OEM, et un chemin
+            // accentué (C:\Users\Hélène\…) faisait échouer le remplacement sans un mot.
+            File.WriteAllText(script, ScriptRemplacement(), Encoding.ASCII);
 
             ProcessStartInfo psi = new ProcessStartInfo(script);
+            psi.Arguments = Q + nouveau + Q + " " + Q + exeActuel + Q + " " + Q + (avecModeles ? dossierModeles : "") + Q;
             psi.CreateNoWindow = true;
             psi.UseShellExecute = false;
             psi.WorkingDirectory = Path.GetTempPath();
             Process.Start(psi);
+        }
+
+        /// <summary>
+        /// Message si la dernière mise à jour n'a pas pu remplacer l'exécutable, sinon "".
+        ///
+        /// Le script relance alors l'ancienne version, en silence : sans ce rappel,
+        /// l'utilisateur croirait sa version à jour.
+        /// </summary>
+        public static string EchecPrecedent()
+        {
+            try
+            {
+                string exe = Environment.ProcessPath;
+                if (string.IsNullOrWhiteSpace(exe)) return "";
+                string reste = exe + ".nouveau";
+                if (!File.Exists(reste)) return "";
+                Supprimer(reste);
+                return "La dernière mise à jour n'a pas pu remplacer " + exe
+                     + " (fichier verrouillé ?) : la version " + CurrentVersion() + " est toujours en service.";
+            }
+            catch (Exception)
+            {
+                return "";
+            }
         }
 
         /// <summary>Échoue tôt et clairement si le dossier n'est pas inscriptible.</summary>
@@ -214,11 +278,16 @@ namespace AskThem.Services
 
         private static void Telecharger(UpdateInfo info, string cible)
         {
+            TelechargerVers(info.DownloadUrl, info.CurrentVersion, cible);
+        }
+
+        private static void TelechargerVers(string adresse, string version, string cible)
+        {
             using (HttpClient client = new HttpClient())
             {
                 client.Timeout = TimeSpan.FromMinutes(15);
-                HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Get, info.DownloadUrl);
-                req.Headers.Add("User-Agent", "AskThem/" + info.CurrentVersion);
+                HttpRequestMessage req = new HttpRequestMessage(HttpMethod.Get, adresse);
+                req.Headers.Add("User-Agent", "AskThem/" + version);
                 HttpResponseMessage rep = client.Send(req);
                 rep.EnsureSuccessStatusCode();
                 using (Stream source = rep.Content.ReadAsStream())
@@ -236,39 +305,42 @@ namespace AskThem.Services
         }
 
         /// <summary>
-        /// Script de remplacement. Les chemins passent par des variables entre
-        /// guillemets : ils supportent espaces et parenthèses. Le nombre de tentatives
-        /// est borné, pour ne jamais boucler indéfiniment si le fichier reste verrouillé.
+        /// Script de remplacement, sans aucun chemin écrit dedans :
+        ///   %1 le nouvel exécutable, %2 l'exécutable à remplacer, %3 le dossier des modèles
+        ///   (vide s'il n'y en a pas à remplacer).
+        /// Les arguments arrivent en Unicode : accents, espaces et parenthèses passent. Le
+        /// nombre de tentatives est borné. En cas d'échec, l'ancienne version est relancée —
+        /// la fenêtre du script est invisible, un message n'y serait lu par personne — et
+        /// AskThem le signale au démarrage suivant.
         /// </summary>
-        private static string ScriptRemplacement(string source, string destination)
+        private static string ScriptRemplacement()
         {
             string[] lignes = new string[] {
                 "@echo off",
                 "setlocal",
-                "set " + Q + "SRC=" + source + Q,
-                "set " + Q + "DST=" + destination + Q,
                 "set /a N=0",
                 ":attente",
                 "set /a N+=1",
-                "move /y " + Q + "%SRC%" + Q + " " + Q + "%DST%" + Q + " >nul 2>&1",
+                "move /y " + Q + "%~1" + Q + " " + Q + "%~2" + Q + " >nul 2>&1",
                 "if not errorlevel 1 goto ok",
                 "if %N% GEQ 40 goto echec",
                 "ping 127.0.0.1 -n 2 >nul",
                 "goto attente",
                 ":ok",
-                "start " + Q + Q + " " + Q + "%DST%" + Q,
-                "goto fin",
+                "if " + Q + "%~3" + Q + "==" + Q + Q + " goto relance",
+                "if not exist " + Q + "%~3\\ancien" + Q + " mkdir " + Q + "%~3\\ancien" + Q + " >nul 2>&1",
+                "for %%F in (" + Q + "%~3\\*.html.nouveau" + Q + ") do (",
+                "  if exist " + Q + "%~3\\%%~nF" + Q + " copy /y " + Q + "%~3\\%%~nF" + Q + " " + Q + "%~3\\ancien\\%%~nF" + Q + " >nul 2>&1",
+                "  move /y " + Q + "%%F" + Q + " " + Q + "%~3\\%%~nF" + Q + " >nul 2>&1",
+                ")",
+                "goto relance",
                 ":echec",
-                "echo La mise a jour n'a pas pu remplacer :",
-                "echo   %DST%",
-                "echo Le fichier telecharge est conserve ici :",
-                "echo   %SRC%",
-                "echo Fermez AskThem, puis renommez ce fichier a la main.",
-                "pause",
-                ":fin",
+                "if not " + Q + "%~3" + Q + "==" + Q + Q + " del /q " + Q + "%~3\\*.html.nouveau" + Q + " >nul 2>&1",
+                ":relance",
+                "start " + Q + Q + " " + Q + "%~2" + Q,
                 "del " + Q + "%~f0" + Q
             };
-            return string.Join(Environment.NewLine, lignes) + Environment.NewLine;
+            return string.Join("\r\n", lignes) + "\r\n";
         }
     }
 }

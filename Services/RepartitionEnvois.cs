@@ -44,6 +44,18 @@ namespace AskThem.Services
         public static List<LotEnvoi> Repartir(List<PartLine> lignes, double limiteMb,
                                               int maxPieces, Action<string> journal)
         {
+            return Repartir(lignes, limiteMb, maxPieces, 0, 0, journal);
+        }
+
+        /// <param name="reserveMb">Poids déjà porté par le premier message hors des articles.</param>
+        /// <param name="reservePieces">
+        /// Pièces déjà portées par le premier message : le bon de commande, joint à part. Sans
+        /// cette réserve, il s'ajoutait à un premier message déjà rempli jusqu'aux limites, et
+        /// c'est celui-là que le serveur refusait.
+        /// </param>
+        public static List<LotEnvoi> Repartir(List<PartLine> lignes, double limiteMb, int maxPieces,
+                                              double reserveMb, int reservePieces, Action<string> journal)
+        {
             List<LotEnvoi> lots = new List<LotEnvoi>();
             if (lignes == null || lignes.Count == 0) return lots;
 
@@ -108,8 +120,11 @@ namespace AskThem.Services
                     continue;
                 }
 
-                bool tropLourd = courant.TailleMb + poids > limiteMb;
-                bool tropNombreux = courant.PiecesJointes.Count + pieces.Count > maxPieces;
+                bool premier = ReferenceEquals(courant, lots[0]);
+                double dejaMb = courant.TailleMb + (premier ? reserveMb : 0);
+                int dejaPieces = courant.PiecesJointes.Count + (premier ? reservePieces : 0);
+                bool tropLourd = dejaMb + poids > limiteMb;
+                bool tropNombreux = dejaPieces + pieces.Count > maxPieces;
                 if (courant.PiecesJointes.Count > 0 && (tropLourd || tropNombreux))
                 {
                     courant = new LotEnvoi();

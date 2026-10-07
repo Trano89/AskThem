@@ -39,6 +39,9 @@ namespace AskThem
 
         private volatile bool _annule;
         private volatile bool _occupe;
+
+        /// <summary>La fenêtre se fermera dès que la campagne interrompue aura rendu SolidWorks.</summary>
+        private bool _fermerEnFin;
         private Thread _fil;
         private List<CampagneDepot.Candidat> _candidats;
         private string _dernierRapport = "";
@@ -56,6 +59,7 @@ namespace AskThem
             MaximizeBox = false;
             ShowInTaskbar = false;
             AutoScaleMode = AutoScaleMode.Dpi;
+            AutoScaleDimensions = new SizeF(96F, 96F);
             ClientSize = new Size(720, 562);
             MinimumSize = new Size(700, 520);
             BackColor = Color.White;
@@ -156,7 +160,7 @@ namespace AskThem
             txtJournal.Anchor = AnchorStyles.Top | AnchorStyles.Bottom
                               | AnchorStyles.Left | AnchorStyles.Right;
 
-            btnFermer = Bouton("Fermer", 600, 520);
+            btnFermer = Bouton("Fermer", 568, 520);   // 720 - 140 - 12 : il débordait de 20 px
             btnFermer.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
             btnFermer.Click += new EventHandler(Fermer_Click);
 
@@ -296,6 +300,12 @@ namespace AskThem
             btnProduire.Text = occupe ? "Interrompre" : "Produire et publier";
             btnFermer.Enabled = !occupe;
             if (!occupe) _annule = false;
+
+            if (!occupe && _fermerEnFin)
+            {
+                _fermerEnFin = false;
+                BeginInvoke(new Action(Close));
+            }
         }
 
         // ------------------------------------------------------------------ recensement
@@ -423,46 +433,22 @@ namespace AskThem
                 return;
             }
 
-            // SolidWorks deja ouvert : on ne refuse plus, on demarre une instance a part.
-            // La session de travail de l'utilisateur n'est ainsi jamais touchee.
-            if (SolidWorksExporter.IsSolidWorksRunning())
-            {
-                if (MessageBox.Show(this,
-                        "Une session SolidWorks est ouverte sur ce poste." + Environment.NewLine
-                      + Environment.NewLine
-                      + "AskThem va démarrer une seconde instance, réservée à la campagne : "
-                      + "votre travail en cours n'y sera pas touché." + Environment.NewLine
-                      + Environment.NewLine
-                      + "Le démarrage prend un moment. Continuer ?",
-                        "AskThem", MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes)
-                    return;
-
-                Journal("Démarrage d'une seconde instance de SolidWorks pour la campagne…");
-                Cursor = Cursors.WaitCursor;
-                string motif;
-                System.Diagnostics.Process nouvelle;
-                try { nouvelle = SolidWorksExporter.DemarrerNouvelleInstance(out motif); }
-                finally { Cursor = Cursors.Default; }
-
-                if (nouvelle == null)
-                {
-                    Journal("Seconde instance impossible : " + motif);
-                    MessageBox.Show(this,
-                        "La seconde instance de SolidWorks n'a pas pu démarrer :" + Environment.NewLine
-                      + motif + Environment.NewLine + Environment.NewLine
-                      + "Fermez SolidWorks, puis relancez la production.",
-                        "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                    return;
-                }
-                Journal("Seconde instance démarrée (processus " + nouvelle.Id + ").");
-            }
-
             int limite = (int)numMax.Value;
             string combien = limite > 0 && limite < aFaire ? limite.ToString() : aFaire.ToString();
 
+            // SolidWorks deja ouvert : la campagne demarre sa propre instance, a cote, et la
+            // referme a chaque lot. La session de travail de l'utilisateur n'est jamais touchee.
+            // L'instance n'est demarree qu'une fois la campagne confirmee, sur le fil de la
+            // campagne : la demarrer ici figeait la fenetre, et un refus la laissait tourner.
+            string session = SolidWorksExporter.IsSolidWorksRunning()
+                ? "Une session SolidWorks est ouverte : AskThem démarrera une instance à part, "
+                  + "réservée à la campagne. Votre travail en cours n'y sera pas touché."
+                  + Environment.NewLine + Environment.NewLine
+                : "";
+
             if (MessageBox.Show(this,
                     combien + " article(s) vont être produits et publiés dans la base." + Environment.NewLine
-                  + Environment.NewLine
+                  + Environment.NewLine + session
                   + "SolidWorks va s'ouvrir et se fermer plusieurs fois. L'opération peut durer "
                   + "longtemps ; elle est interruptible et reprend là où elle s'est arrêtée."
                   + Environment.NewLine + Environment.NewLine + "Lancer maintenant ?",
@@ -614,14 +600,17 @@ namespace AskThem
                 }
                 _annule = true;
 
-                // On attend reellement la fin : rendre la main pendant qu'un fil pilote encore
-                // SolidWorks permettrait de lancer une demande sur la meme instance COM, que
-                // la campagne refermerait en plein milieu.
+                // On attend reellement la fin, sans figer la fenetre : elle se fermera d'elle-
+                // meme quand le fil aura rendu SolidWorks. Fermer avant permettait de lancer
+                // une demande sur la meme instance COM, que la campagne refermait en plein
+                // milieu — et l'ancienne attente de trois minutes finissait par fermer quand meme.
                 if (_fil != null && _fil.IsAlive)
                 {
-                    Cursor = Cursors.WaitCursor;
-                    try { _fil.Join(TimeSpan.FromMinutes(3)); }
-                    finally { Cursor = Cursors.Default; }
+                    _fermerEnFin = true;
+                    lblTitre.Text = "Base articles — fermeture après l'article en cours";
+                    Journal("Fermeture demandée : la fenêtre se fermera dès que SolidWorks sera rendu.");
+                    e.Cancel = true;
+                    return;
                 }
             }
             base.OnFormClosing(e);

@@ -238,7 +238,7 @@ seul endroit.
 
 | | Ce qu'elle fait | Fichiers joints |
 |---|---|---|
-| **Demande d'offre** | Consulter sur le prix, avec jusqu'à trois paliers de quantité. Pièces sur mesure **ou** articles de catalogue. | 3D, plan, contrôle de fabrication — rien sur du catalogue |
+| **Demande d'offre** | Consulter sur le prix, avec jusqu'à trois paliers de quantité. Pièces sur mesure **ou** articles de catalogue. | 3D, plan — rien sur du catalogue |
 | **Demande de fabrication** | Confier la fabrication. Bon de commande PDF obligatoire. | 3D, plan, contrôle de fabrication |
 | **Commande catalogue** | Commander des articles de catalogue sur leur référence chez le fournisseur. | aucun |
 

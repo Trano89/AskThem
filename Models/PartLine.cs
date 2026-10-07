@@ -123,6 +123,39 @@ namespace AskThem.Models
             }
         }
 
+        /// <summary>
+        /// Efface tout ce que le programme a renseigné, pour ne garder que la saisie.
+        ///
+        /// La même ligne sert d'une demande à l'autre, et son numéro peut changer entre deux.
+        /// Sans cela, une valeur lue pour l'article précédent — sa référence chez un autre
+        /// fournisseur, sa révision, sa date de réalisation — partirait avec le nouveau.
+        /// </summary>
+        public void OublierResultats()
+        {
+            Description = "";
+            Revision = "";
+            DrawingRevision = "";
+            RealizedDate = "";
+            Material = "";
+            Treatment = "";
+            State = "";
+            PdmSupplier = "";
+            SupplierRef = "";
+            ManufacturerRef = "";
+            OldRef = "";
+            TypeCode = "";
+            Status = "";
+            Model3DPath = null;
+            DrawingPath = null;
+            if (ExportedFiles == null) ExportedFiles = new List<string>();
+            else ExportedFiles.Clear();
+            ZipPath = null;
+            PlanDisponible = false;
+            SourceDocuments = "";
+            ReleaseDate = "";
+            ControlePath = null;
+        }
+
         public PartLine()
         {
             PartNumber = "";
@@ -147,6 +180,8 @@ namespace AskThem.Models
             DrawingPath = null;
             ExportedFiles = new List<string>();
             ZipPath = null;
+            SourceDocuments = "";
+            ReleaseDate = "";
         }
     }
 }

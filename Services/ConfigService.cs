@@ -35,7 +35,18 @@ namespace AskThem.Services
             }
             catch (Exception ex)
             {
-                LogService.Write("Configuration illisible, valeurs par défaut appliquées : " + ex.Message);
+                // Le fichier illisible est mis de côté avant d'être remplacé par les valeurs
+                // par défaut : une virgule de trop ou une barre oblique non doublée ne doit
+                // pas coûter tous les réglages de l'utilisateur.
+                string copie = "";
+                try
+                {
+                    copie = GetConfigPath() + ".illisible-" + DateTime.Now.ToString("yyyyMMdd-HHmmss");
+                    File.Copy(GetConfigPath(), copie, true);
+                }
+                catch (Exception) { copie = ""; }
+                LogService.Write("Configuration illisible, valeurs par défaut appliquées : " + ex.Message
+                               + (copie == "" ? "" : " — l'ancien fichier est conservé : " + copie));
                 config = null;
             }
 
@@ -90,7 +101,13 @@ namespace AskThem.Services
             {
                 JsonSerializerOptions options = new JsonSerializerOptions();
                 options.WriteIndented = true;
-                File.WriteAllText(GetConfigPath(), JsonSerializer.Serialize(config, options));
+
+                // Écriture complète à côté, puis remplacement d'un seul geste : une seconde
+                // instance qui lirait au même moment ne voit jamais un fichier à moitié écrit.
+                string chemin = GetConfigPath();
+                string temporaire = chemin + ".tmp";
+                File.WriteAllText(temporaire, JsonSerializer.Serialize(config, options));
+                File.Move(temporaire, chemin, true);
             }
             catch (Exception ex)
             {

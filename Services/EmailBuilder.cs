@@ -227,6 +227,28 @@ namespace AskThem.Services
             + "afin de garantir que les dernières mises à jour sont bien prises en compte.</div>";
 
         /// <summary>Charge le modèle HTML ; si le fichier est absent, utilise le modèle intégré.</summary>
+        private static readonly HashSet<string> _perimesSignales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Le premier jeton attendu qu'un modèle ne porte pas, ou "".</summary>
+        private static string JetonManquant(string modele, RequestType type, bool catalogue)
+        {
+            List<string> attendus = new List<string> { "{{TABLEAU}}", "{{LIVRAISON}}" };
+            if (!catalogue && type != RequestType.CommandeCatalogue) attendus.Add("{{FICHIERS}}");
+            foreach (string jeton in attendus)
+                if (modele.IndexOf(jeton, StringComparison.Ordinal) < 0) return jeton;
+            return "";
+        }
+
+        private static void SignalerPerime(string fichier, string jeton)
+        {
+            lock (_perimesSignales)
+            {
+                if (!_perimesSignales.Add(fichier)) return;
+            }
+            LogService.Write("Modèle " + fichier + " d'une version antérieure (sans " + jeton
+                           + ") : modèle intégré utilisé. Remplacez le fichier du dossier templates.");
+        }
+
         private static string LoadTemplate(RequestType type, bool catalogue)
         {
             string fileName;
@@ -237,7 +259,17 @@ namespace AskThem.Services
             string path = Path.Combine(AppContext.BaseDirectory, "templates", fileName);
             try
             {
-                if (File.Exists(path)) return File.ReadAllText(path);
+                if (File.Exists(path))
+                {
+                    string surDisque = File.ReadAllText(path);
+
+                    // Un modèle d'une version antérieure ne porte pas les jetons ajoutés
+                    // depuis : il primait quand même, et la phrase écrite en dur partait
+                    // quel que soit le réglage. On le reconnaît, et on prend l'intégré.
+                    string manque = JetonManquant(surDisque, type, catalogue);
+                    if (manque == "") return surDisque;
+                    SignalerPerime(fileName, manque);
+                }
             }
             catch (Exception ex)
             {

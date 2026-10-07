@@ -48,8 +48,16 @@ namespace AskThem.Services
             }
         }
 
+        /// <summary>
+        /// Plusieurs fils écrivent au journal en même temps — démarrage, traitement, suivi des
+        /// emails, campagne. Sans verrou, deux écritures simultanées se gênaient et l'une
+        /// d'elles disparaissait, parfois une ligne d'erreur qu'on ne trouve nulle part ailleurs.
+        /// </summary>
+        private static readonly object Verrou = new object();
+
         public static void Write(string message)
         {
+            lock (Verrou)
             try
             {
                 string folder = GetLogFolder();

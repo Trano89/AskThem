@@ -197,18 +197,35 @@ namespace AskThem.Inspection
             return sb.ToString();
         }
 
-        /// <summary>Vrai si le texte est un code de symbole, du type &lt;IGTOL-PERP&gt;.</summary>
+        /// <summary>
+        /// Vrai si le texte est un code de symbole, du type &lt;IGTOL-PERP&gt;, qui ouvre un cadre.
+        ///
+        /// Une seule balise, et pas un modificateur : une valeur comme
+        /// « &lt;MOD-DIAM&gt;0.05&lt;MOD-MMC&gt; » commence et finit aussi par un chevron, et était prise
+        /// pour un nouveau cadre — la tolérance de position disparaissait du formulaire.
+        /// </summary>
         public static bool EstUnCode(string texte)
+        {
+            if (!EstUneBalise(texte)) return false;
+            string interieur = texte.Trim().Trim('<', '>');
+            if (interieur.StartsWith("MOD-", StringComparison.OrdinalIgnoreCase)) return false;
+            return !Modificateurs.ContainsKey(NomCourt(texte));
+        }
+
+        /// <summary>Vrai si le texte est exactement une balise &lt;…&gt;, sans autre balise dedans.</summary>
+        private static bool EstUneBalise(string texte)
         {
             if (string.IsNullOrEmpty(texte)) return false;
             string t = texte.Trim();
-            return t.Length > 2 && t[0] == '<' && t[t.Length - 1] == '>';
+            if (t.Length <= 2 || t[0] != '<' || t[t.Length - 1] != '>') return false;
+            string interieur = t.Substring(1, t.Length - 2);
+            return interieur.IndexOf('<') < 0 && interieur.IndexOf('>') < 0;
         }
 
         /// <summary>« &lt;IGTOL-PERP&gt; » donne « PERP ». Chaîne vide si le format ne s'y prête pas.</summary>
         private static string NomCourt(string code)
         {
-            if (!EstUnCode(code)) return "";
+            if (!EstUneBalise(code)) return "";
             string interieur = code.Trim().Trim('<', '>');
             int tiret = interieur.IndexOf('-');
             return tiret >= 0 ? interieur.Substring(tiret + 1).Trim() : interieur.Trim();

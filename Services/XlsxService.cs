@@ -29,7 +29,8 @@ namespace AskThem.Services
         public static List<List<string>> ReadFirstSheet(string path)
         {
             List<List<string>> lignes = new List<List<string>>();
-            using (ZipArchive zip = ZipFile.OpenRead(path))
+            using (FileStream fichier = Quantite.OuvrirPartage(path))
+            using (ZipArchive zip = new ZipArchive(fichier, ZipArchiveMode.Read))
             {
                 List<string> partagees = ReadSharedStrings(zip);
                 ZipArchiveEntry feuille = FindFirstSheet(zip);

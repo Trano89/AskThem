@@ -33,7 +33,7 @@ namespace AskThem.Services
         /// <summary>Importe un fichier CSV et ajoute les lignes. Retourne le nombre ajouté.</summary>
         public static int Import(BindingList<PartLine> lines, string path, out int regroupees)
         {
-            string[] rows = File.ReadAllLines(path, Encoding.UTF8);
+            string[] rows = Quantite.LireLignes(path);
             List<List<string>> cellules = new List<List<string>>();
             foreach (string row in rows)
             {
@@ -53,7 +53,7 @@ namespace AskThem.Services
                 return XlsxService.ReadFirstSheet(path);
 
             List<List<string>> cellules = new List<List<string>>();
-            foreach (string row in File.ReadAllLines(path, Encoding.UTF8))
+            foreach (string row in Quantite.LireLignes(path))
             {
                 if (string.IsNullOrWhiteSpace(row)) continue;
                 cellules.Add(ParseLine(row));
@@ -255,20 +255,9 @@ namespace AskThem.Services
         private static int ParseQty(List<string> fields, int index, int defaultValue)
         {
             if (index < 0 || index >= fields.Count) return defaultValue;
-            string brut = fields[index] == null ? "" : fields[index].Trim();
-            if (brut == "") return defaultValue;
-
-            int value;
-            if (int.TryParse(brut, out value)) return value;
-
-            // Excel écrit volontiers les entiers sous forme décimale : 17 devient 17.0.
-            double d;
-            if (double.TryParse(brut, NumberStyles.Any, CultureInfo.InvariantCulture, out d)
-                || double.TryParse(brut, NumberStyles.Any, CultureInfo.CurrentCulture, out d))
-            {
-                return (int)Math.Round(d);
-            }
-            return defaultValue;
+            // Excel écrit volontiers les entiers sous forme décimale (17.0, 2,00) et les
+            // milliers avec une apostrophe : la lecture est commune à tous les imports.
+            return Quantite.Lire(fields[index], defaultValue);
         }
 
         private static bool IsHeader(string firstCell)

@@ -103,6 +103,20 @@ namespace AskThem.Services
         /// </summary>
         public List<string> TelechargerPour(string reference, string dossierCible, Action<string> journal)
         {
+            return TelechargerPour(reference, dossierCible, journal, true, true, null);
+        }
+
+        /// <summary>
+        /// Même chose, en ne retenant que ce que la demande doit livrer.
+        ///
+        /// Un utilisateur qui décoche le modèle 3D ne veut pas le voir partir, qu'il vienne du
+        /// coffre ou de l'inventaire. Les natures des fichiers rapatriés sont rendues dans le
+        /// même ordre : c'est l'inventaire qui sait ce qu'est chaque document, et seul un plan
+        /// réellement reçu compte comme plan joint.
+        /// </summary>
+        public List<string> TelechargerPour(string reference, string dossierCible, Action<string> journal,
+                                            bool avec3D, bool avec2D, List<string> natures)
+        {
             List<string> fichiers = new List<string>();
             DocumentsArticle d = Pour(reference);
             if (d == null || !Lisible) return fichiers;
@@ -110,10 +124,16 @@ namespace AskThem.Services
             foreach (DocumentArticle doc in d.Documents)
             {
                 if (!doc.IsCurrent || !TypeDocument.PourFournisseur(doc.Kind)) continue;
+                if (!avec3D && doc.Kind == TypeDocument.Modele) continue;
+                if (!avec2D && (doc.Kind == TypeDocument.Plan || doc.Kind == TypeDocument.PlanDxf)) continue;
 
                 string message;
                 string chemin = _api.Telecharger(d.ArticleId, doc, dossierCible, reference, out message);
-                if (chemin != null) fichiers.Add(chemin);
+                if (chemin != null)
+                {
+                    fichiers.Add(chemin);
+                    if (natures != null) natures.Add(doc.Kind);
+                }
                 else Dire(journal, reference + " : " + message);
             }
             return fichiers;
@@ -145,10 +165,10 @@ namespace AskThem.Services
         /// il deviendrait joignable par un acheteur qui n'a aucun moyen de savoir qu'il ne
         /// doit pas partir.
         /// </summary>
-        public void Publier(string reference, string revision, string etat,
-                            List<string> fichiers, Action<string> journal)
+        public ResultatPublication Publier(string reference, string revision, string etat,
+                                           List<string> fichiers, Action<string> journal)
         {
-            Publier(reference, revision, "", etat, fichiers, journal);
+            return Publier(reference, revision, "", etat, fichiers, journal);
         }
 
         /// <param name="dateRevision">
@@ -156,32 +176,43 @@ namespace AskThem.Services
         /// pas de façon lisible : mieux vaut « date inconnue » qu'une date inventée, qui
         /// fausserait l'ordre des révisions.
         /// </param>
-        public void Publier(string reference, string revision, string dateRevision, string etat,
-                            List<string> fichiers, Action<string> journal)
+        /// <returns>
+        /// Ce qui s'est passé, pour que l'appelant le compte juste : une campagne comptait
+        /// « publié » chaque article, refusé ou en échec compris.
+        /// </returns>
+        public ResultatPublication Publier(string reference, string revision, string dateRevision, string etat,
+                                           List<string> fichiers, Action<string> journal)
         {
-            if (!Lisible || fichiers == null || fichiers.Count == 0) return;
+            if (!Lisible) return ResultatPublication.DepotIndisponible;
+            if (fichiers == null || fichiers.Count == 0) return ResultatPublication.Echec;
 
             if (!PeutPublier)
             {
                 Dire(journal, "Documents non déposés pour " + reference
                             + " : votre compte n'a pas le droit de publier.");
-                return;
+                return ResultatPublication.Echec;
             }
 
             if (!EstLibere(etat))
             {
                 Dire(journal, "Documents non déposés pour " + reference
                             + " — état « " + etat + " » hors des états libérés.");
-                return;
+                return ResultatPublication.RefuseNonLibere;
             }
 
             DocumentsArticle d = Pour(reference);
+            if (d != null && d.Illisible)
+            {
+                Dire(journal, "Documents non déposés pour " + reference
+                            + " : l'inventaire n'a pas pu être lu pour cet article.");
+                return ResultatPublication.DepotIndisponible;
+            }
             if (d == null || !d.Trouve || d.ArticleId <= 0)
             {
                 Dire(journal, "ARTICLE INCONNU DE L'INVENTAIRE : " + reference
                             + ". Aucun document déposé — la fiche article est à créer côté "
                             + "inventaire, AskThem ne la crée jamais.");
-                return;
+                return ResultatPublication.Echec;
             }
 
             int deposes = 0, remplaces = 0, inchanges = 0, echecs = 0, epargnes = 0;
@@ -213,11 +244,16 @@ namespace AskThem.Services
                 }
             }
 
-            if (deposes + remplaces + inchanges + echecs + epargnes == 0) return;
+            if (deposes + remplaces + inchanges + echecs + epargnes == 0) return ResultatPublication.Echec;
 
             Dire(journal, "Inventaire : " + reference + " — " + deposes + " déposé(s), "
                         + remplaces + " remplacé(s), " + (inchanges + epargnes) + " déjà à jour"
                         + (echecs > 0 ? ", " + echecs + " échec(s)" : "") + ".");
+
+            if (echecs > 0) return ResultatPublication.Echec;
+            if (deposes > 0) return ResultatPublication.Publie;
+            if (remplaces > 0) return ResultatPublication.Remplace;
+            return ResultatPublication.Inchange;
         }
 
         /// <summary>
@@ -256,24 +292,29 @@ namespace AskThem.Services
             PublierControle(reference, revision, "", chemin, journal);
         }
 
-        public void PublierControle(string reference, string revision, string dateRevision,
+        /// <returns>Vrai si un formulaire a effectivement été déposé.</returns>
+        public bool PublierControle(string reference, string revision, string dateRevision,
                                     string chemin, Action<string> journal)
         {
-            if (!Lisible || !PeutPublier) return;
-            if (string.IsNullOrWhiteSpace(chemin) || !File.Exists(chemin)) return;
+            if (!Lisible || !PeutPublier) return false;
+            if (string.IsNullOrWhiteSpace(chemin) || !File.Exists(chemin)) return false;
 
             DocumentsArticle d = Pour(reference);
-            if (d == null || !d.Trouve || d.ArticleId <= 0) return;
-            if (DejaEnPlace(d, TypeDocument.Controle, chemin, revision, dateRevision)) return;
+            if (d == null || !d.Trouve || d.ArticleId <= 0) return false;
+            if (DejaEnPlace(d, TypeDocument.Controle, chemin, revision, dateRevision)) return false;
 
             string message;
             ResultatDepot r = _api.Deposer(d.ArticleId, TypeDocument.Controle, revision,
                                            dateRevision, chemin, out message);
             if (r == ResultatDepot.Depose || r == ResultatDepot.Remplace
                 || r == ResultatDepot.MetadonneeCorrigee)
+            {
                 Dire(journal, "Inventaire : contrôle de " + reference + " déposé.");
-            else if (r != ResultatDepot.Inchange)
+                return true;
+            }
+            if (r != ResultatDepot.Inchange)
                 Dire(journal, "Contrôle de " + reference + " non déposé : " + message);
+            return false;
         }
 
         // ------------------------------------------------------------------ utilitaires

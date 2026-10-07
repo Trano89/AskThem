@@ -623,6 +623,11 @@ namespace AskThem.Services
                     string manifeste = ZipService.LireEntree(archive, NomManifeste);
                     if (manifeste == null) continue;                             // rien à sortir
 
+                    // Le commentaire d'une archive ZIP est tronqué au-delà de 64 Ko, sans
+                    // erreur : un manifeste trop long y deviendrait illisible, et l'article
+                    // perdrait ses documents. Celui-là garde son entrée.
+                    if (Encoding.UTF8.GetByteCount(manifeste) > LimiteCommentaire) continue;
+
                     string temporaire = archive + ".tmp-" + Guid.NewGuid().ToString("N").Substring(0, 8);
 
                     using (ZipArchive source = ZipFile.OpenRead(archive))

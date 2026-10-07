@@ -45,9 +45,7 @@ namespace AskThem.Services
         private static int ParseQty(string[] cells, int index, int defaultValue)
         {
             if (cells.Length <= index) return defaultValue;
-            int value;
-            if (int.TryParse(cells[index].Trim(), out value)) return value;
-            return defaultValue;
+            return Quantite.Lire(cells[index], defaultValue);
         }
 
         private static bool IsHeader(string firstCell)

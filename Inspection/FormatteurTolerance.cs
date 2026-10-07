@@ -8,13 +8,17 @@ namespace AskThem.Inspection
     /// Met en forme la colonne Spécification du contrôle : une cote, son préfixe et sa
     /// tolérance sur une seule ligne, telle que le fournisseur la lira sur le plan.
     ///
-    /// Les valeurs arrivent en millimètres pour la cote (IDimension.GetValue3) et en
-    /// mètres pour les écarts (IDimension.GetToleranceValues) : la conversion est faite ici,
-    /// une fois pour toutes.
+    /// Les valeurs arrivent dans l'unité du document pour la cote (IDimension.GetValue3 :
+    /// millimètres, ou degrés pour un angle) et dans l'unité du système pour les écarts
+    /// (IDimension.GetToleranceValues : mètres, ou RADIANS pour un angle). La conversion est
+    /// faite ici, une fois pour toutes.
     /// </summary>
     public static class FormatteurTolerance
     {
         private const double M2MM = 1000.0;
+
+        /// <summary>Radians vers degrés, pour les écarts d'une cote angulaire.</summary>
+        private const double RAD2DEG = 180.0 / Math.PI;
 
         /// <summary>En deçà, un écart est tenu pour nul.</summary>
         private const double Epsilon = 0.0000005;
@@ -24,8 +28,8 @@ namespace AskThem.Inspection
         /// </summary>
         /// <param name="valeurMm">Valeur nominale, en millimètres.</param>
         /// <param name="typeTolerance">Membre de swTolType_e rendu par GetToleranceType().</param>
-        /// <param name="ecartMinM">Écart inférieur, en mètres.</param>
-        /// <param name="ecartMaxM">Écart supérieur, en mètres.</param>
+        /// <param name="ecartMinM">Écart inférieur, en mètres (en radians pour un angle).</param>
+        /// <param name="ecartMaxM">Écart supérieur, en mètres (en radians pour un angle).</param>
         /// <param name="prefixe">Préfixe de la cote, modificateurs déjà traduits.</param>
         /// <param name="suffixe">Suffixe de la cote.</param>
         /// <param name="ajustement">Classe d'ajustement ISO, du type « H11 », ou chaîne vide.</param>
@@ -39,27 +43,31 @@ namespace AskThem.Inspection
             suffixe = suffixe == null ? "" : suffixe.Trim();
             ajustement = ajustement == null ? "" : ajustement.Trim();
 
-            double min = ecartMinM * M2MM;
-            double max = ecartMaxM * M2MM;
+            // Un écart angulaire traité comme une longueur était multiplié par mille : ±0.5°
+            // devenait ±8.727° sur le formulaire, une tolérance dix-sept fois trop large.
+            double facteur = angulaire ? RAD2DEG : M2MM;
+            double min = ecartMinM * facteur;
+            double max = ecartMaxM * facteur;
+            string unite = angulaire ? "°" : "";
 
             // Le préfixe est collé à la valeur : Ø6, R0.3.
-            string nominal = prefixe + Nombre(valeurMm) + (angulaire ? "°" : "");
+            string nominal = prefixe + Nombre(valeurMm) + unite;
             string corps;
 
             switch ((swTolType_e)typeTolerance)
             {
                 case swTolType_e.swTolBILAT:
-                    corps = nominal + " (" + Signe(max) + " / " + Signe(min) + ")";
+                    corps = nominal + " (" + Signe(max) + unite + " / " + Signe(min) + unite + ")";
                     break;
 
                 case swTolType_e.swTolSYMMETRIC:
                     // Un seul écart est renseigné : celui qui n'est pas nul fait foi.
                     double ecart = Math.Abs(max) > Epsilon ? Math.Abs(max) : Math.Abs(min);
-                    corps = nominal + " ±" + Nombre(ecart) + (angulaire ? "°" : "");
+                    corps = nominal + " ±" + Nombre(ecart) + unite;
                     break;
 
                 case swTolType_e.swTolLIMIT:
-                    corps = prefixe + Nombre(valeurMm + max) + " / " + prefixe + Nombre(valeurMm + min);
+                    corps = prefixe + Nombre(valeurMm + max) + unite + " / " + prefixe + Nombre(valeurMm + min) + unite;
                     break;
 
                 case swTolType_e.swTolMIN:
@@ -78,7 +86,7 @@ namespace AskThem.Inspection
                 case swTolType_e.swTolFITTOLONLY:
                     corps = nominal
                         + (ajustement == "" ? "" : " " + ajustement)
-                        + " (" + Signe(max) + " / " + Signe(min) + ")";
+                        + " (" + Signe(max) + unite + " / " + Signe(min) + unite + ")";
                     break;
 
                 case swTolType_e.swTolBASIC:
