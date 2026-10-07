@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 
 namespace AskThem.Services
@@ -22,6 +23,16 @@ namespace AskThem.Services
 
         /// <summary>PR_SMTP_ADDRESS : l'adresse internet d'un destinataire, quel que soit son type.</summary>
         private const string ProprieteSmtp = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E";
+
+        /// <summary>
+        /// Vrai si Outlook est ouvert. Le suivi ne le démarre jamais lui-même : il le ferait
+        /// toutes les deux minutes, en arrière-plan, chez quelqu'un qui vient de le fermer.
+        /// </summary>
+        public static bool OutlookOuvert()
+        {
+            try { return Process.GetProcessesByName("OUTLOOK").Length > 0; }
+            catch (Exception) { return false; }
+        }
 
         public static bool EstEnvoye(string sujet, DateTime depuisLocal)
         {
@@ -46,7 +57,7 @@ namespace AskThem.Services
         /// <param name="destinataire">La ligne « À » de la demande. Vide : le sujet seul décide.</param>
         public static bool EstEnvoye(string sujet, DateTime depuisLocal, string destinataire)
         {
-            if (string.IsNullOrWhiteSpace(sujet)) return false;
+            if (string.IsNullOrWhiteSpace(sujet) || !OutlookOuvert()) return false;
 
             List<string> domaines = Domaines(destinataire);
             object outlook, espace = null, dossier = null, elements = null;
@@ -126,6 +137,155 @@ namespace AskThem.Services
                 Liberer(espace);
             }
             return false;
+        }
+
+        /// <summary>Un message retrouvé dans les éléments envoyés, tel qu'il est parti.</summary>
+        public sealed class MessageEnvoye
+        {
+            public DateTime EnvoyeLe;
+            public string Sujet = "";
+            public string Destinataires = "";
+        }
+
+        /// <summary>
+        /// Le message portant cette marque dans les éléments envoyés, ou null s'il n'est pas
+        /// (encore) parti.
+        ///
+        /// C'est la preuve de l'envoi : la marque est posée par AskThem sur le message qu'il
+        /// prépare, invisible du fournisseur, et Outlook la conserve sur la copie rangée dans
+        /// les éléments envoyés. Un brouillon abandonné ou supprimé n'y arrive jamais. Tous les
+        /// comptes du profil sont parcourus : une demande peut partir d'une boîte partagée.
+        ///
+        /// Le message est enregistré au passage : c'est lui, retouches comprises, qui rejoint
+        /// l'archive — et non le brouillon tel qu'AskThem l'avait préparé.
+        /// </summary>
+        public static MessageEnvoye Chercher(string marque, string enregistrerSous)
+        {
+            if (string.IsNullOrWhiteSpace(marque) || !OutlookOuvert()) return null;
+            string filtre = "@SQL=\"" + OutlookService.ProprieteMarque + "\" = '" + marque.Replace("'", "''") + "'";
+
+            object espace = null;
+            List<object> dossiers = new List<object>();
+            try
+            {
+                Type t = Type.GetTypeFromProgID("Outlook.Application");
+                if (t == null) return null;
+                object outlook = Activator.CreateInstance(t);
+                espace = ((dynamic)outlook).GetNamespace("MAPI");
+                dossiers = DossiersEnvoyes(espace);
+                foreach (object dossier in dossiers)
+                {
+                    MessageEnvoye m = ChercherDans(dossier, filtre, enregistrerSous);
+                    if (m != null) return m;
+                }
+            }
+            catch (Exception ex)
+            {
+                LogService.Write("Éléments envoyés illisibles : " + ex.Message);
+            }
+            finally
+            {
+                foreach (object d in dossiers) Liberer(d);
+                Liberer(espace);
+            }
+            return null;
+        }
+
+        /// <summary>Le dossier des éléments envoyés de chaque compte du profil.</summary>
+        private static List<object> DossiersEnvoyes(object espace)
+        {
+            List<object> dossiers = new List<object>();
+            object comptes = null;
+            try
+            {
+                comptes = ((dynamic)espace).Stores;
+                int n = (int)((dynamic)comptes).Count;
+                for (int i = 1; i <= n; i++)
+                {
+                    object compte = null;
+                    try
+                    {
+                        compte = ((dynamic)comptes).Item(i);
+                        object d = ((dynamic)compte).GetDefaultFolder(DossierEnvoyes);
+                        if (d != null) dossiers.Add(d);
+                    }
+                    catch (Exception) { }   // archive, dossiers publics : pas d'éléments envoyés
+                    finally { Liberer(compte); }
+                }
+            }
+            catch (Exception) { }
+            finally { Liberer(comptes); }
+
+            if (dossiers.Count == 0)
+            {
+                try { dossiers.Add(((dynamic)espace).GetDefaultFolder(DossierEnvoyes)); }
+                catch (Exception) { }
+            }
+            return dossiers;
+        }
+
+        private static MessageEnvoye ChercherDans(object dossier, string filtre, string enregistrerSous)
+        {
+            object elements = null, trouves = null, element = null;
+            try
+            {
+                elements = ((dynamic)dossier).Items;
+                trouves = ((dynamic)elements).Restrict(filtre);
+                if ((int)((dynamic)trouves).Count == 0) return null;
+                element = ((dynamic)trouves).GetFirst();
+                if (element == null) return null;
+
+                dynamic m = element;
+                MessageEnvoye r = new MessageEnvoye();
+                r.EnvoyeLe = (DateTime)m.SentOn;
+                string sujet = (string)m.Subject;
+                r.Sujet = sujet == null ? "" : sujet;
+                r.Destinataires = ListeDestinataires(m);
+
+                if (!string.IsNullOrWhiteSpace(enregistrerSous))
+                {
+                    try { m.SaveAs(enregistrerSous, 3); }
+                    catch (Exception ex) { LogService.Write("Message envoyé non enregistré : " + ex.Message); }
+                }
+                return r;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+            finally
+            {
+                Liberer(element);
+                Liberer(trouves);
+                Liberer(elements);
+            }
+        }
+
+        private static string ListeDestinataires(dynamic message)
+        {
+            List<string> liste = new List<string>();
+            object destinataires = null;
+            try
+            {
+                destinataires = message.Recipients;
+                int n = (int)((dynamic)destinataires).Count;
+                for (int i = 1; i <= n; i++)
+                {
+                    object r = null;
+                    try
+                    {
+                        r = ((dynamic)destinataires).Item(i);
+                        string nom = (string)((dynamic)r).Name;
+                        string adresse = Adresse(r);
+                        liste.Add(string.IsNullOrWhiteSpace(adresse) || adresse == nom ? nom : nom + " <" + adresse + ">");
+                    }
+                    catch (Exception) { }
+                    finally { Liberer(r); }
+                }
+            }
+            catch (Exception) { }
+            finally { Liberer(destinataires); }
+            return string.Join("; ", liste);
         }
 
         /// <summary>Vrai si l'un des destinataires du message appartient à l'un de ces domaines.</summary>

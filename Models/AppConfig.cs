@@ -94,6 +94,12 @@ namespace AskThem.Models
         public bool DemanderLivraison { get; set; }
 
         /// <summary>
+        /// Jours entre l'envoi d'une demande et le rappel « avez-vous reçu une réponse ? »,
+        /// puis entre deux rappels tant que la réponse n'est pas venue.
+        /// </summary>
+        public int RappelJours { get; set; }
+
+        /// <summary>
         /// Les documents d'article vivent dans l'inventaire plutôt que sur le partage.
         ///
         /// L'inventaire porte déjà les droits — tout le monde lit, seuls les comptes
@@ -169,6 +175,7 @@ namespace AskThem.Models
             CategoriesCampagne = new List<string> { "21", "22", "24" };
             PublierSeulementLiberes = true;
             DemanderLivraison = true;
+            RappelJours = 7;
             DocumentsDansInventaire = true;
             PartNumberPatterns = new List<string> { "3-5-2" };
 

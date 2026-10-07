@@ -67,7 +67,11 @@ namespace AskThem
 
         /// <summary>Laisse passer la fermeture demandée par la mise à jour, elle est voulue.</summary>
         private bool _fermetureAutorisee;
-        private volatile bool _stopMailWatch;
+        /// <summary>Vrai pendant qu'une fenêtre de suivi est ouverte : un rappel n'en ouvre pas une seconde.</summary>
+        private bool _suiviOuvert;
+
+        /// <summary>« Plus tard » sur un rappel : on ne repose pas la question avant cette heure.</summary>
+        private DateTime _rappelsReportesJusqua = DateTime.MinValue;
 
         /// <summary>
         /// Numéro du traitement qui occupe la fenêtre.
@@ -78,9 +82,6 @@ namespace AskThem
         /// </summary>
         private volatile int _generation;
 
-        /// <summary>Le traitement que porte le fil courant.</summary>
-        [ThreadStatic]
-        private static int _generationDuFil;
 
         /// <summary>Type pour lequel les cases ont été réglées : on ne les force qu'à un changement.</summary>
         private RequestType? _typeApplique;
@@ -105,6 +106,7 @@ namespace AskThem
         private Label lblPoste;
         private Button btnBaseArticles;
         private Button btnPreferences;
+        private Button btnSuivi;
         private DepotArticles _depot;
         private DepotInventaire _depotInv;
         private string _folderDepot;
@@ -277,6 +279,10 @@ namespace AskThem
             btnBaseArticles = MakeToolButton("Base articles…");
             btnBaseArticles.Click += new EventHandler(BtnBaseArticles_Click);
 
+            btnSuivi = MakeToolButton("Suivi des demandes…");
+            btnSuivi.Click += new EventHandler(BtnSuivi_Click);
+            toolTip.SetToolTip(btnSuivi, "Vos demandes parties : réponse reçue, relance, clôture.");
+
             btnPreferences = MakeToolButton("Préférences…");
             btnPreferences.Click += new EventHandler(BtnPreferences_Click);
             toolTip.SetToolTip(btnPreferences, "Adapter le texte des emails. Vos textes sont conservés lors des mises à jour.");
@@ -287,6 +293,7 @@ namespace AskThem
             List<Button> boutons = new List<Button> { btnAddLine, btnPaste, btnImportCsv,
                                                       btnExportCsv, btnClear, btnInventaire };
             if (SolidWorksExporter.EstPosteEquipe()) boutons.Add(btnBaseArticles);
+            boutons.Add(btnSuivi);
             boutons.Add(btnPreferences);
 
             int x = 12;
@@ -1198,6 +1205,7 @@ namespace AskThem
             panelAssistant.Annuler += new EventHandler(BtnCancel_Click);
             panelAssistant.BaseArticles += new EventHandler(BtnBaseArticles_Click);
             panelAssistant.Preferences += new EventHandler(BtnPreferences_Click);
+            panelAssistant.Suivi += new EventHandler(BtnSuivi_Click);
 
             selecteurMode = new SelecteurMode();
             selecteurMode.Font = AppFont.Get();
@@ -1345,14 +1353,14 @@ namespace AskThem
             string majEchouee = UpdateService.EchecPrecedent();
             if (majEchouee != "") Log(majEchouee);
 
-            // Les demandes envoyées depuis la dernière session rejoignent l'archive. Un poste
-            // éteint, un partage momentanément injoignable ou un envoi différé ne font perdre
-            // aucun dossier : la reprise est simplement rejouée.
+            // Le suivi des demandes : envois constatés, archive, base des demandes, rappels. Il
+            // tourne en arrière-plan tant que la fenêtre est ouverte. Un poste éteint, un
+            // partage injoignable ou un envoi différé ne font rien perdre : il reprend.
+            SuiviEnvois.RappelsEchus += new Action<List<DemandeSuivie>>(Rappels_Echus);
+            SuiviEnvois.Demarrer(delegate { return _config; }, LogFromWorker);
+
             ThreadPool.QueueUserWorkItem(delegate
             {
-                try { ArchiveEnAttente.Reprendre(_config, LogFromWorker); }
-                catch (Exception ex) { LogService.Write("Reprise des demandes en attente : " + ex.Message); }
-
                 // Une campagne interrompue n'a pas besoin d'être reprise pas à pas : un
                 // nouveau recensement retrouve exactement ce qui reste, puisque les articles
                 // déjà publiés ressortent « à jour ». On se contente de le rappeler.
@@ -1389,7 +1397,7 @@ namespace AskThem
                 e.Cancel = true;
                 return;
             }
-            _stopMailWatch = true;
+            SuiviEnvois.Arreter();
             base.OnFormClosing(e);
         }
 
@@ -1861,6 +1869,51 @@ namespace AskThem
             Log("Compression des archives : " + choix + ".");
         }
 
+        private void BtnSuivi_Click(object sender, EventArgs e)
+        {
+            OuvrirSuivi(false);
+        }
+
+        /// <summary>
+        /// Des rappels sont échus : la question est posée sans attendre, sauf pendant un
+        /// traitement ou si l'utilisateur vient de répondre « plus tard ».
+        /// </summary>
+        private void Rappels_Echus(List<DemandeSuivie> echus)
+        {
+            if (IsDisposed || Disposing) return;
+            try
+            {
+                // Sans attendre la réponse : le fil du suivi ne doit pas rester bloqué
+                // pendant que la fenêtre est ouverte.
+                BeginInvoke(new Action(delegate
+                {
+                    if (_suiviOuvert || _busy || DateTime.Now < _rappelsReportesJusqua) return;
+                    Log(echus.Count + " demande(s) attendent votre confirmation de réponse.");
+                    OuvrirSuivi(true);
+                }));
+            }
+            catch (Exception) { }
+        }
+
+        private void OuvrirSuivi(bool rappel)
+        {
+            if (_suiviOuvert) return;
+            _suiviOuvert = true;
+            try
+            {
+                using (SuiviDemandesDialog dlg = new SuiviDemandesDialog(_config, rappel))
+                    dlg.ShowDialog(this);
+            }
+            finally
+            {
+                _suiviOuvert = false;
+            }
+
+            // Ce qui reste sans réponse sera redemandé dans quatre heures, ou au prochain
+            // démarrage — pas à chaque passage du suivi.
+            if (rappel) _rappelsReportesJusqua = DateTime.Now.AddHours(4);
+        }
+
         /// <summary>Les textes des emails, propres à l'utilisateur.</summary>
         private void BtnPreferences_Click(object sender, EventArgs e)
         {
@@ -2264,7 +2317,6 @@ namespace AskThem
 
         private void RunProcess(int generation)
         {
-            _generationDuFil = generation;
             try
             {
                 if (_generateMode) RunGenerate();
@@ -2697,7 +2749,7 @@ namespace AskThem
         {
             int total = _work.Count;
 
-            // --- Étape 1 : dossier de la demande, directement dans l'archive réseau ---
+            // --- Étape 1 : dossier de la demande, sur le poste en attendant l'envoi ---
             string tag = RequestTypes.Tag(_optType);
             string identifiant = string.IsNullOrWhiteSpace(_optSupplierName) ? _optSupplier : _optSupplierName;
             string folderName = DateTime.Now.ToString("yyyy-MM-dd") + "_" + SafeName(identifiant) + "_" + tag;
@@ -2915,8 +2967,11 @@ namespace AskThem
             WarnAboutIssues();
 
             // --- Étape 8 : emails Outlook (jamais en cas d'annulation) ---
-            List<object> mailsOuverts = new List<object>();
-            List<string> cheminsMsg = new List<string>();
+            // Chaque message porte une marque invisible : c'est par elle qu'on le retrouvera
+            // dans les éléments envoyés, et seulement là. Un brouillon abandonné n'y arrive
+            // jamais ; la demande n'est alors ni archivée ni suivie.
+            string idDemande = DemandeSuivie.NouvelId();
+            List<string> marques = new List<string>();
             List<string> sujetsEnvoyes = new List<string>();
             if (!_cancelRequested)
             {
@@ -2935,9 +2990,9 @@ namespace AskThem
                         List<string> pieces = new List<string>(lot.PiecesJointes);
                         if (poJoignable && i == 0) pieces.Add(cheminPo);
 
-                        object mail = OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, pieces);
-                        mailsOuverts.Add(mail);
-                        cheminsMsg.Add(Path.Combine(outputFolder, NomMessage(i + 1, lots.Count)));
+                        string marque = idDemande + "/" + (i + 1);
+                        OutlookService.CreateMail(_optSupplier, _optSupplierCc, subject, body, pieces, marque);
+                        marques.Add(marque);
                         sujetsEnvoyes.Add(subject);
                         Log("Email " + (i + 1) + "/" + lots.Count + " préparé : " + lot.Lignes.Count
                           + " article(s), " + lot.TailleMb.ToString("0.0") + " Mo.");
@@ -2956,8 +3011,9 @@ namespace AskThem
                         });
                     }
                 }
-                if (mailsOuverts.Count > 0)
-                    Log("Aucun message n'est envoyé automatiquement.");
+                if (marques.Count > 0)
+                    Log("Aucun message n'est envoyé automatiquement. La demande sera archivée et "
+                      + "suivie dès que le message sera parti.");
             }
 
             // --- Étape 9 : la demande attend son envoi ---
@@ -2965,8 +3021,31 @@ namespace AskThem
             // laisserait un dossier que personne ne reprendrait jamais.
             if (sujetsEnvoyes.Count > 0)
             {
+                DemandeSuivie demande = new DemandeSuivie();
+                demande.Id = idDemande;
+                demande.Type = RequestTypes.SousDossier(_optType);
+                demande.Statut = DemandeSuivie.Preparee;
+                demande.CreeeLe = DateTime.Now;
+                demande.Auteur = System.Environment.UserName;
+                demande.AuteurNom = OutlookService.NomUtilisateur();
+                demande.Poste = System.Environment.MachineName;
+                demande.Fournisseur = _optSupplierName;
+                demande.Destinataires = _optSupplier;
+                demande.Reference = _optProject;
+                List<string> numeros = new List<string>();
+                foreach (PartLine l in _work)
+                    if (!string.IsNullOrWhiteSpace(l.PartNumber)) numeros.Add(l.PartNumber.Trim());
+                demande.NbArticles = numeros.Count;
+                demande.Articles = string.Join(", ", numeros);
+                demande.NbMessages = marques.Count;
+
                 ArchiveEnAttente.Deposer(outputFolder, sujetsEnvoyes, _optSupplier,
-                                         RequestTypes.SousDossier(_optType));
+                                         RequestTypes.SousDossier(_optType), marques, demande);
+
+                // Elle entre dans la base comme « préparée » ; l'envoi la fera passer au
+                // Gantt. Le suivi cherche le message parti sans attendre son prochain tour.
+                BaseSuivi.Enregistrer(demande);
+                SuiviEnvois.Reveiller();
             }
             else
             {
@@ -2981,13 +3060,6 @@ namespace AskThem
             // --- Étape 10 : bilan ---
             ShowSummary(outputFolder);
 
-            // --- Étape 11 : suivi silencieux des emails, interface déjà rendue ---
-            // Rien de partagé n'est touché à partir d'ici : un nouveau traitement peut
-            // démarrer pendant que celui-ci suit encore ses messages.
-            WatchMails(mailsOuverts, cheminsMsg, outputFolder);
-
-            // --- Étape 12 : si l'envoi a eu lieu pendant le suivi, la demande rejoint l'archive ---
-            ArchiveEnAttente.Reprendre(_config, LogFromWorker);
         }
 
         /// <summary>
@@ -3007,12 +3079,6 @@ namespace AskThem
         private static string Numerotation(int rang, int total)
         {
             return total <= 1 ? "" : " (" + rang + "/" + total + ")";
-        }
-
-        /// <summary>Nom du .msg archivé, distinct pour chaque message d'une même demande.</summary>
-        private static string NomMessage(int rang, int total)
-        {
-            return total <= 1 ? "Demande.msg" : "Demande_" + rang + "sur" + total + ".msg";
         }
 
         /// <summary>
@@ -3782,96 +3848,6 @@ namespace AskThem
             if (items.Count > max)
                 sb.AppendLine("    … et " + (items.Count - max) + " autre(s).");
             return sb.ToString().TrimEnd();
-        }
-
-        /// <summary>
-        /// Enregistre chaque email au format .msg à côté de la demande, puis continue de les
-        /// réenregistrer tant qu'ils restent ouverts dans Outlook : les retouches de
-        /// l'utilisateur sont ainsi capturées sans jamais lui demander quoi que ce soit.
-        /// Le suivi d'un message s'arrête dès qu'Outlook ne le rend plus accessible ; les
-        /// autres continuent d'être suivis.
-        /// </summary>
-        private void WatchMails(List<object> mails, List<string> chemins, string dossier)
-        {
-            if (mails == null || mails.Count == 0)
-            {
-                Liberer(_generationDuFil);
-                return;
-            }
-
-            // Suivis encore ouverts : chaque message quitte la liste quand Outlook cesse
-            // de le rendre accessible, c'est-à-dire quand il est fermé ou envoyé.
-            List<int> actifs = new List<int>();
-            int[] echecs = new int[mails.Count];
-
-            // Le dernier objet lu de chaque message. Un message envoyé n'est plus lisible :
-            // c'est donc pendant le suivi, et non après, qu'il faut relever ce que
-            // l'utilisateur a retouché.
-            string[] sujets = new string[mails.Count];
-            for (int i = 0; i < mails.Count; i++)
-            {
-                sujets[i] = OutlookService.LireSujet(mails[i]);
-                if (OutlookService.SaveMessage(mails[i], chemins[i]))
-                {
-                    actifs.Add(i);
-                    Log("Email enregistré : " + chemins[i]);
-                }
-                else
-                {
-                    Log("L'email n'a pas pu être enregistré dans " + dossier + ".");
-                }
-            }
-
-            // L'interface est rendue à l'utilisateur : le suivi ne le bloque pas.
-            Liberer(_generationDuFil);
-
-            // Un Outlook occupé — un carnet d'adresses ou un choix de pièce jointe ouvert —
-            // refuse les appels comme le ferait un message fermé. On ne conclut donc à la
-            // fermeture qu'après une minute de refus continus.
-            const int RefusAvantFermeture = 15;
-
-            DateTime limite = DateTime.Now.AddMinutes(30);
-            while (DateTime.Now < limite && !_stopMailWatch && actifs.Count > 0)
-            {
-                Thread.Sleep(4000);
-                if (_stopMailWatch) break;
-
-                for (int k = actifs.Count - 1; k >= 0; k--)
-                {
-                    int i = actifs[k];
-                    if (OutlookService.SaveMessage(mails[i], chemins[i]))
-                    {
-                        echecs[i] = 0;
-                        string sujet = OutlookService.LireSujet(mails[i]);
-                        if (!string.IsNullOrWhiteSpace(sujet)) sujets[i] = sujet;
-                    }
-                    else
-                    {
-                        // Message fermé ou envoyé : la dernière version reste enregistrée.
-                        echecs[i]++;
-                        if (echecs[i] >= RefusAvantFermeture)
-                        {
-                            Log("Email archivé dans son état final : " + chemins[i]);
-                            actifs.RemoveAt(k);
-                        }
-                    }
-                }
-            }
-
-            foreach (int i in actifs)
-            {
-                string sujet = OutlookService.LireSujet(mails[i]);
-                if (!string.IsNullOrWhiteSpace(sujet)) sujets[i] = sujet;
-                Log("Email archivé dans son état final : " + chemins[i]);
-            }
-
-            // L'objet a pu être retouché : c'est sa dernière version qu'on retrouvera dans
-            // les éléments envoyés, donc celle qu'il faut retenir pour constater l'envoi. Un
-            // message déjà parti garde l'objet relevé avant son envoi.
-            List<string> sujetsFinaux = new List<string>();
-            foreach (string sujet in sujets)
-                if (!string.IsNullOrWhiteSpace(sujet)) sujetsFinaux.Add(sujet);
-            if (sujetsFinaux.Count > 0) ArchiveEnAttente.MettreAJourSujets(dossier, sujetsFinaux);
         }
 
         /// <summary>

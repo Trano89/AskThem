@@ -87,6 +87,15 @@ installé sur la machine cible : le runtime est embarqué dans l'exe.
   **Préférences…** ; ses textes sont enregistrés dans son profil Windows
   (`%APPDATA%\AskThem\textes-email.json`), survivent aux mises à jour, et un bouton les
   ramène au texte d'origine.
+- **Suivi des demandes.** Chaque message préparé porte une marque invisible. Une demande
+  n'est archivée sur le réseau et suivie qu'une fois ce message retrouvé dans les éléments
+  envoyés d'Outlook — c'est le message tel qu'il est parti, retouches comprises, qui est
+  archivé. Elle est alors inscrite dans `Suivi des demandes AskThem.xlsx`, à la racine de
+  l'archive des demandes : un onglet par type (offres, fabrications, commandes) avec un Gantt
+  des semaines d'attente, construit à partir d'onglets de données masqués. Tout est protégé :
+  on lit et on filtre, seul AskThem écrit. Une semaine après l'envoi, AskThem demande au
+  demandeur s'il a reçu la réponse : « oui » clôt la demande, « pas encore » repose la
+  question une semaine plus tard. Le délai se règle dans `config.json` (`RappelJours`).
 - **Seuls prérequis sur le poste cible** : SolidWorks et Outlook Classic installés,
   puisque l'application les pilote en COM.
 

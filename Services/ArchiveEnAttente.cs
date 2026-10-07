@@ -11,33 +11,34 @@ namespace AskThem.Services
     /// <summary>
     /// Retient les dossiers de demande jusqu'à ce que l'envoi soit constaté.
     ///
-    /// Le dossier de demande est d'abord écrit sur le poste. Il ne rejoint l'archive du réseau
-    /// qu'une fois le message retrouvé dans les éléments envoyés. Une demande préparée puis
-    /// abandonnée ne laisse donc aucune trace sur le partage, et l'archive redevient ce qu'elle
-    /// prétend être : la liste de ce qui est réellement parti chez un fournisseur.
+    /// Le dossier de demande est d'abord écrit sur le poste. Il ne rejoint l'archive du réseau,
+    /// et la demande n'entre dans le suivi, qu'une fois le message retrouvé dans les éléments
+    /// envoyés grâce à la marque qu'AskThem y a posée. Une demande générée puis abandonnée ne
+    /// laisse donc aucune trace sur le partage : l'archive redevient la liste de ce qui est
+    /// réellement parti chez un fournisseur. Et c'est le message tel qu'il est parti —
+    /// retouché ou non par l'utilisateur — qui y est conservé.
     ///
-    /// La reprise est rejouée à chaque démarrage : un partage indisponible, un poste éteint ou
-    /// un envoi différé ne font perdre aucun dossier.
+    /// La reprise est rejouée au démarrage puis régulièrement : un partage indisponible, un
+    /// poste éteint ou un envoi différé ne font perdre aucun dossier.
     /// </summary>
     public static class ArchiveEnAttente
     {
         private const string NomFiche = "attente.json";
 
-        /// <summary>
-        /// Une demande archivée dont la copie locale n'a pas pu être effacée : elle ne doit pas
-        /// être archivée une seconde fois.
-        /// </summary>
+        /// <summary>Demande archivée dont la copie locale n'a pas pu être effacée.</summary>
         private const string NomFicheArchivee = "archivee.json";
 
+        /// <summary>Demande jamais envoyée : plus suivie, laissée sur le poste.</summary>
+        private const string NomFicheAbandonnee = "abandonnee.json";
+
+        /// <summary>Au-delà, un message préparé et toujours pas parti est tenu pour abandonné.</summary>
+        private const int JoursAvantAbandon = 30;
+
         /// <summary>
-        /// La reprise tourne au démarrage, à la fin de chaque suivi d'emails et parfois en même
-        /// temps : deux reprises simultanées archiveraient deux fois le même dossier.
+        /// La reprise tourne au démarrage, à intervalles réguliers et après une demande :
+        /// deux reprises simultanées archiveraient deux fois le même dossier.
         /// </summary>
         private static readonly object Verrou = new object();
-
-        /// <summary>Nom d'un dossier de demande : date, destinataire, nature, suffixe éventuel.</summary>
-        private static readonly Regex NomDeDemande =
-            new Regex(@"^\d{4}-\d{2}-\d{2}_.+_(OFFRE|FAB|CDE)(_\d+)?$", RegexOptions.Compiled);
 
         /// <summary>Ce qu'on retient d'une demande tant que son envoi n'est pas constaté.</summary>
         public class Fiche
@@ -49,6 +50,18 @@ namespace AskThem.Services
             public DateTime PrepareeLe { get; set; }
             public string Auteur { get; set; }
 
+            /// <summary>Marque de chaque message de la demande, dans l'ordre.</summary>
+            public List<string> Marques { get; set; }
+
+            /// <summary>Marques déjà retrouvées dans les éléments envoyés.</summary>
+            public List<string> Envoyes { get; set; }
+
+            /// <summary>Dossier de la demande sur le réseau, une fois archivée.</summary>
+            public string DossierArchive { get; set; }
+
+            /// <summary>La demande telle que la base des demandes la connaît.</summary>
+            public DemandeSuivie Demande { get; set; }
+
             public Fiche()
             {
                 Sujets = new List<string>();
@@ -56,6 +69,9 @@ namespace AskThem.Services
                 NomCible = "";
                 SousDossier = "";
                 Auteur = "";
+                Marques = new List<string>();
+                Envoyes = new List<string>();
+                DossierArchive = "";
             }
         }
 
@@ -73,22 +89,11 @@ namespace AskThem.Services
         /// <summary>
         /// Marque un dossier comme en attente d'envoi.
         ///
-        /// Sans fiche, un dossier resterait indéfiniment sur le poste : c'est elle qui dit quoi
-        /// chercher dans les éléments envoyés, et sous quel nom archiver ensuite.
-        /// </summary>
-        public static void Deposer(string dossier, List<string> sujets, string destinataire)
-        {
-            Deposer(dossier, sujets, destinataire, "");
-        }
-
-        /// <summary>
-        /// Même chose, en rangeant la demande par nature une fois archivée.
-        ///
-        /// Les demandes s'accumulent : offres, commandes et fabrications dans un même dossier
-        /// deviennent vite illisibles.
+        /// Sans fiche, un dossier resterait indéfiniment sur le poste : c'est elle qui dit quel
+        /// message chercher dans les éléments envoyés, et sous quel nom archiver ensuite.
         /// </summary>
         public static void Deposer(string dossier, List<string> sujets, string destinataire,
-                                   string sousDossier)
+                                   string sousDossier, List<string> marques, DemandeSuivie demande)
         {
             if (string.IsNullOrWhiteSpace(dossier) || !Directory.Exists(dossier)) return;
 
@@ -101,11 +106,9 @@ namespace AskThem.Services
                 f.SousDossier = sousDossier != null ? sousDossier : "";
                 f.PrepareeLe = DateTime.Now;
                 f.Auteur = Environment.UserName;
-
-                JsonSerializerOptions options = new JsonSerializerOptions();
-                options.WriteIndented = true;
-                File.WriteAllText(Path.Combine(dossier, NomFiche),
-                                  JsonSerializer.Serialize(f, options), Encoding.UTF8);
+                if (marques != null) f.Marques = new List<string>(marques);
+                f.Demande = demande;
+                EcrireFiche(dossier, f);
             }
             catch (Exception ex)
             {
@@ -114,130 +117,218 @@ namespace AskThem.Services
         }
 
         /// <summary>
-        /// Remplace les sujets retenus pour une demande en attente.
-        ///
-        /// L'utilisateur retouche l'objet du message avant de l'envoyer ; c'est cette
-        /// dernière version qu'on retrouvera dans les éléments envoyés. Sans cette mise à
-        /// jour, la demande partirait sans jamais être archivée.
-        /// </summary>
-        public static void MettreAJourSujets(string dossier, List<string> sujets)
-        {
-            if (string.IsNullOrWhiteSpace(dossier) || sujets == null || sujets.Count == 0) return;
-            try
-            {
-                Fiche f = LireFiche(dossier);
-                if (f == null) return;
-
-                f.Sujets = new List<string>(sujets);
-                JsonSerializerOptions options = new JsonSerializerOptions();
-                options.WriteIndented = true;
-                File.WriteAllText(Path.Combine(dossier, NomFiche),
-                                  JsonSerializer.Serialize(f, options), Encoding.UTF8);
-            }
-            catch (Exception ex)
-            {
-                LogService.Write("Sujets d'attente non mis à jour pour " + dossier + " : " + ex.Message);
-            }
-        }
-
-        /// <summary>
-        /// Passe en revue les demandes en attente et archive celles dont l'envoi est constaté.
-        ///
-        /// Renvoie le nombre de dossiers archivés. Ce qui n'est pas confirmé reste en attente,
-        /// sans message d'alarme : préparer une demande et l'envoyer plus tard est un usage
-        /// normal.
+        /// Passe en revue les demandes en attente : constate les envois, archive, et tient la
+        /// base des demandes à jour. Renvoie le nombre de demandes dont l'envoi vient d'être
+        /// constaté.
         /// </summary>
         public static int Reprendre(AppConfig config, Action<string> journal)
         {
             lock (Verrou)
             {
-                int archives = 0;
-                string racine = RacineLocale();
-
+                int constates = 0;
                 string[] dossiers;
-                try { dossiers = Directory.GetDirectories(racine); }
+                try { dossiers = Directory.GetDirectories(RacineLocale()); }
                 catch (Exception) { return 0; }
 
                 foreach (string dossier in dossiers)
                 {
-                    Fiche f = LireFiche(dossier);
-                    if (f == null)
+                    try
                     {
-                        Fiche orpheline = Orpheline(dossier);
-                        if (orpheline != null
-                            && Archiver(config, dossier, orpheline, 0, journal, " (envoi constaté par une version précédente)"))
-                            archives++;
-                        continue;
+                        Fiche f = LireFiche(dossier);
+                        if (f == null) continue;
+                        bool envoi = f.Marques.Count > 0
+                            ? TraiterMarquee(config, dossier, f, journal)
+                            : TraiterAncienne(config, dossier, f, journal);
+                        if (envoi) constates++;
                     }
-
-                    int confirmes = 0;
-                    foreach (string sujet in f.Sujets)
-                        if (EnvoiOutlook.EstEnvoye(sujet, f.PrepareeLe, f.Destinataire)) confirmes++;
-
-                    if (confirmes == 0) continue;
-
-                    if (Archiver(config, dossier, f, confirmes, journal, "")) archives++;
+                    catch (Exception ex)
+                    {
+                        LogService.Write("Reprise de " + Path.GetFileName(dossier) + " : " + ex.Message);
+                    }
                 }
-                return archives;
+                return constates;
             }
         }
 
+        // ------------------------------------------------------------------ demandes marquées
+
         /// <summary>
-        /// Une demande dont l'envoi a déjà été constaté, mais restée sur le poste.
-        ///
-        /// Jusqu'à la version 1.5.12, la fiche d'attente était effacée AVANT de déplacer le
-        /// dossier vers le réseau — et ce déplacement échouait toujours, le poste et le partage
-        /// n'étant pas sur le même volume. Le dossier restait donc ici, sans fiche, alors que
-        /// le message était bel et bien parti. Seul l'archivage efface la fiche : un dossier de
-        /// demande qui a perdu la sienne mais garde son message enregistré est un envoi constaté.
-        /// Un dossier sans message n'a jamais été proposé à l'envoi, et reste où il est.
+        /// Une demande préparée par cette version : ses messages se reconnaissent à leur marque.
+        /// Vrai si un envoi vient d'être constaté.
         /// </summary>
-        private static Fiche Orpheline(string dossier)
+        private static bool TraiterMarquee(AppConfig config, string dossier, Fiche f, Action<string> journal)
         {
-            try
-            {
-                if (File.Exists(Path.Combine(dossier, NomFiche))) return null;
-                if (File.Exists(Path.Combine(dossier, NomFicheArchivee))) return null;
+            if (f.Demande == null) f.Demande = DemandeDeSecours(f);
+            DemandeSuivie d = f.Demande;
 
-                string nom = new DirectoryInfo(dossier).Name;
-                Match m = NomDeDemande.Match(nom);
-                if (!m.Success) return null;
-                if (Directory.GetFiles(dossier, "*.msg").Length == 0) return null;
-
-                Fiche f = new Fiche();
-                f.NomCible = nom;
-                f.SousDossier = m.Groups[1].Value == "FAB" ? RequestTypes.SousDossier(RequestType.Fabrication)
-                              : m.Groups[1].Value == "CDE" ? RequestTypes.SousDossier(RequestType.CommandeCatalogue)
-                              : RequestTypes.SousDossier(RequestType.Offre);
-                return f;
-            }
-            catch (Exception)
+            List<string> nouveaux = new List<string>();
+            for (int i = 0; i < f.Marques.Count; i++)
             {
-                return null;
+                string marque = f.Marques[i];
+                if (f.Envoyes.Contains(marque)) continue;
+
+                string msg = Path.Combine(dossier, NomMessage(i + 1, f.Marques.Count));
+                EnvoiOutlook.MessageEnvoye m = EnvoiOutlook.Chercher(marque, msg);
+                if (m == null) continue;
+
+                f.Envoyes.Add(marque);
+                nouveaux.Add(msg);
+                if (!d.EnvoyeeLe.HasValue || m.EnvoyeLe < d.EnvoyeeLe.Value) d.EnvoyeeLe = m.EnvoyeLe;
+                d.SujetEnvoye = Ajouter(d.SujetEnvoye, m.Sujet, " | ");
+                d.DestinatairesEnvoyes = Ajouter(d.DestinatairesEnvoyes, m.Destinataires, "; ");
             }
+
+            bool change = nouveaux.Count > 0;
+            if (change)
+            {
+                d.MessagesEnvoyes = f.Envoyes.Count;
+                if (d.Statut == DemandeSuivie.Preparee || d.Statut == DemandeSuivie.NonEnvoyee)
+                {
+                    d.Statut = DemandeSuivie.Envoyee;
+                    int jours = config != null && config.RappelJours > 0 ? config.RappelJours : 7;
+                    d.ProchainRappel = d.EnvoyeeLe.Value.Date.AddDays(jours);
+                }
+                Dire(journal, "Envoi constaté : « " + f.NomCible + " » est parti ("
+                            + f.Envoyes.Count + " message(s) sur " + f.Marques.Count + ").");
+            }
+
+            // L'archive suit l'envoi : le dossier entier au premier message parti, puis
+            // chaque message qui part ensuite. Un partage injoignable est réessayé plus tard.
+            if (f.Envoyes.Count > 0)
+            {
+                if (f.DossierArchive == "")
+                {
+                    string cible = Archiver(config, dossier, f, journal);
+                    if (cible != null)
+                    {
+                        f.DossierArchive = cible;
+                        d.DossierArchive = cible;
+                        change = true;
+                    }
+                }
+                else
+                {
+                    foreach (string msg in nouveaux)
+                    {
+                        try
+                        {
+                            string vers = Path.Combine(f.DossierArchive, Path.GetFileName(msg));
+                            if (!File.Exists(vers)) File.Copy(msg, vers);
+                        }
+                        catch (Exception ex)
+                        {
+                            LogService.Write("Message non ajouté à l'archive " + f.DossierArchive + " : " + ex.Message);
+                        }
+                    }
+                }
+            }
+
+            bool toutParti = f.Envoyes.Count == f.Marques.Count;
+            bool ancien = DateTime.Now - f.PrepareeLe > TimeSpan.FromDays(JoursAvantAbandon);
+
+            // Jamais parti : la demande sort du suivi, sans rien laisser sur le réseau.
+            if (f.Envoyes.Count == 0 && ancien)
+            {
+                d.Statut = DemandeSuivie.NonEnvoyee;
+                BaseSuivi.Enregistrer(d);
+                Renommer(dossier, NomFiche, NomFicheAbandonnee);
+                Dire(journal, "« " + f.NomCible + " » n'est jamais parti en " + JoursAvantAbandon
+                            + " jours : demande classée non envoyée.");
+                return false;
+            }
+
+            if (change)
+            {
+                EcrireFiche(dossier, f);
+                BaseSuivi.Enregistrer(d);
+            }
+
+            // Tout est parti et archivé, ou ce qui manque ne partira plus : la copie locale
+            // n'a plus de raison d'être.
+            if (f.DossierArchive != "" && (toutParti || ancien)) Effacer(dossier);
+            return nouveaux.Count > 0;
         }
 
-        // ------------------------------------------------------------------ interne
+        /// <summary>Nom du message enregistré tel qu'il est parti.</summary>
+        private static string NomMessage(int numero, int total)
+        {
+            return total > 1 ? "Message envoyé (" + numero + " sur " + total + ").msg" : "Message envoyé.msg";
+        }
+
+        private static string Ajouter(string existant, string ajout, string separateur)
+        {
+            if (string.IsNullOrWhiteSpace(ajout)) return existant ?? "";
+            if (string.IsNullOrWhiteSpace(existant)) return ajout.Trim();
+            if (existant.IndexOf(ajout.Trim(), StringComparison.OrdinalIgnoreCase) >= 0) return existant;
+            return existant + separateur + ajout.Trim();
+        }
+
+        // ------------------------------------------------------------------ demandes anciennes
 
         /// <summary>
-        /// Recopie la demande sur le réseau, puis efface la copie locale.
+        /// Une demande préparée par une version antérieure, sans marque : seul l'objet et le
+        /// domaine du destinataire permettent de la retrouver. Ces dossiers disparaissent avec
+        /// les dernières demandes en attente ; toutes les nouvelles sont marquées.
+        /// </summary>
+        private static bool TraiterAncienne(AppConfig config, string dossier, Fiche f, Action<string> journal)
+        {
+            int confirmes = 0;
+            foreach (string sujet in f.Sujets)
+                if (EnvoiOutlook.EstEnvoye(sujet, f.PrepareeLe, f.Destinataire)) confirmes++;
+            if (confirmes == 0) return false;
+
+            string cible = Archiver(config, dossier, f, journal);
+            if (cible == null) return false;
+
+            DemandeSuivie d = DemandeDeSecours(f);
+            d.Statut = DemandeSuivie.Envoyee;
+            d.EnvoyeeLe = f.PrepareeLe;
+            d.MessagesEnvoyes = confirmes;
+            d.DossierArchive = cible;
+            int jours = config != null && config.RappelJours > 0 ? config.RappelJours : 7;
+            d.ProchainRappel = DateTime.Today.AddDays(jours);
+            BaseSuivi.Enregistrer(d);
+
+            Effacer(dossier);
+            return true;
+        }
+
+        /// <summary>Ce qu'on peut dire d'une demande dont la fiche ne porte pas le détail.</summary>
+        private static DemandeSuivie DemandeDeSecours(Fiche f)
+        {
+            DemandeSuivie d = new DemandeSuivie();
+            d.Id = DemandeSuivie.NouvelId();
+            d.Type = f.SousDossier == "" ? RequestTypes.SousDossier(RequestType.Offre) : f.SousDossier;
+            d.CreeeLe = f.PrepareeLe;
+            d.Auteur = string.IsNullOrWhiteSpace(f.Auteur) ? Environment.UserName : f.Auteur;
+            d.Poste = Environment.MachineName;
+            d.Destinataires = f.Destinataire;
+            d.NbMessages = Math.Max(f.Sujets.Count, f.Marques.Count);
+
+            // « 2026-09-16_HER Precision_FAB » : le fournisseur est entre la date et la nature.
+            Match m = Regex.Match(f.NomCible ?? "", @"^\d{4}-\d{2}-\d{2}_(.+)_[A-Z]+(_\d+)?$");
+            d.Fournisseur = m.Success ? m.Groups[1].Value : "";
+            return d;
+        }
+
+        // ------------------------------------------------------------------ archivage
+
+        /// <summary>
+        /// Recopie la demande sur le réseau et renvoie son dossier, ou null si le partage est
+        /// injoignable. La copie locale est gardée : d'autres messages peuvent encore partir.
         ///
         /// Un déplacement ne franchit pas les volumes : le dossier vit sur le poste, l'archive
         /// sur le partage. On copie donc dans un dossier provisoire du partage, qu'un simple
         /// renommage — sur le même volume, d'un seul geste — rend visible une fois complet.
-        /// La fiche d'attente ne disparaît qu'avec la copie locale : tant que l'archive n'est
-        /// pas faite, la demande reste à reprendre.
         /// </summary>
-        private static bool Archiver(AppConfig config, string dossier, Fiche f, int confirmes,
-                                     Action<string> journal, string precision)
+        private static string Archiver(AppConfig config, string dossier, Fiche f, Action<string> journal)
         {
             string racineArchive = config != null ? config.ArchiveRoot : null;
-
             if (string.IsNullOrWhiteSpace(racineArchive) || !Directory.Exists(racineArchive))
             {
                 Dire(journal, "Envoi constaté pour « " + f.NomCible + " » mais l'archive réseau est "
-                            + "injoignable : le dossier reste en attente et sera archivé plus tard.");
-                return false;
+                            + "injoignable : la demande sera archivée plus tard.");
+                return null;
             }
 
             try
@@ -261,37 +352,69 @@ namespace AskThem.Services
                     throw;
                 }
 
-                string detail = confirmes > 0 && confirmes < f.Sujets.Count
-                    ? " (" + confirmes + " message(s) sur " + f.Sujets.Count + " confirmé(s))"
-                    : "";
-                Dire(journal, "Envoi constaté : demande archivée dans " + cible + detail + precision + ".");
-
-                // L'archive est faite : la copie locale n'a plus de raison d'être. Si elle
-                // résiste (un fichier ouvert), sa fiche change de nom pour qu'on ne l'archive
-                // pas une seconde fois.
-                try
-                {
-                    Directory.Delete(dossier, true);
-                }
-                catch (Exception ex)
-                {
-                    try
-                    {
-                        string fiche = Path.Combine(dossier, NomFiche);
-                        if (File.Exists(fiche)) File.Move(fiche, Path.Combine(dossier, NomFicheArchivee), true);
-                        else File.WriteAllText(Path.Combine(dossier, NomFicheArchivee), "{}", Encoding.UTF8);
-                    }
-                    catch (Exception) { }
-                    LogService.Write("Copie locale de « " + f.NomCible + " » conservée : " + ex.Message);
-                }
-                return true;
+                Dire(journal, "Demande archivée dans " + cible + ".");
+                return cible;
             }
             catch (Exception ex)
             {
                 Dire(journal, "Archivage impossible pour « " + f.NomCible + " » : " + ex.Message
-                            + " — le dossier reste en attente.");
-                return false;
+                            + " — nouvel essai plus tard.");
+                return null;
             }
+        }
+
+        /// <summary>Efface la copie locale d'une demande archivée, ou la marque comme telle.</summary>
+        private static void Effacer(string dossier)
+        {
+            try
+            {
+                Directory.Delete(dossier, true);
+            }
+            catch (Exception ex)
+            {
+                // Si elle résiste (un fichier ouvert), sa fiche change de nom pour qu'on ne la
+                // traite pas une seconde fois.
+                Renommer(dossier, NomFiche, NomFicheArchivee);
+                LogService.Write("Copie locale de « " + Path.GetFileName(dossier) + " » conservée : " + ex.Message);
+            }
+        }
+
+        private static void Renommer(string dossier, string de, string vers)
+        {
+            try
+            {
+                string source = Path.Combine(dossier, de);
+                if (File.Exists(source)) File.Move(source, Path.Combine(dossier, vers), true);
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>Copie récursive, sans les fiches internes : elles n'ont rien à faire dans l'archive.</summary>
+        private static void Copier(string source, string destination)
+        {
+            Directory.CreateDirectory(destination);
+            foreach (string fichier in Directory.GetFiles(source))
+            {
+                string nom = Path.GetFileName(fichier);
+                if (string.Equals(nom, NomFiche, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(nom, NomFicheArchivee, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(nom, NomFicheAbandonnee, StringComparison.OrdinalIgnoreCase)) continue;
+                File.Copy(fichier, Path.Combine(destination, nom), false);
+            }
+            foreach (string sousDossier in Directory.GetDirectories(source))
+                Copier(sousDossier, Path.Combine(destination, Path.GetFileName(sousDossier)));
+        }
+
+        // ------------------------------------------------------------------ fiche
+
+        private static void EcrireFiche(string dossier, Fiche f)
+        {
+            JsonSerializerOptions options = new JsonSerializerOptions();
+            options.WriteIndented = true;
+            string chemin = Path.Combine(dossier, NomFiche);
+            string temporaire = chemin + ".tmp";
+            File.WriteAllText(temporaire, JsonSerializer.Serialize(f, options), Encoding.UTF8);
+            File.Move(temporaire, chemin, true);
         }
 
         private static Fiche LireFiche(string dossier)
@@ -308,28 +431,16 @@ namespace AskThem.Services
                 Fiche f = JsonSerializer.Deserialize<Fiche>(File.ReadAllText(chemin), options);
                 if (f == null) return null;
                 if (f.Sujets == null) f.Sujets = new List<string>();
-                return f.Sujets.Count == 0 ? null : f;
+                if (f.Marques == null) f.Marques = new List<string>();
+                if (f.Envoyes == null) f.Envoyes = new List<string>();
+                if (f.DossierArchive == null) f.DossierArchive = "";
+                return f.Sujets.Count == 0 && f.Marques.Count == 0 ? null : f;
             }
             catch (Exception ex)
             {
                 LogService.Write("Fiche d'attente illisible dans " + dossier + " : " + ex.Message);
                 return null;
             }
-        }
-
-        /// <summary>Copie récursive, sans les fiches internes : elles n'ont rien à faire dans l'archive.</summary>
-        private static void Copier(string source, string destination)
-        {
-            Directory.CreateDirectory(destination);
-            foreach (string fichier in Directory.GetFiles(source))
-            {
-                string nom = Path.GetFileName(fichier);
-                if (string.Equals(nom, NomFiche, StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(nom, NomFicheArchivee, StringComparison.OrdinalIgnoreCase)) continue;
-                File.Copy(fichier, Path.Combine(destination, nom), false);
-            }
-            foreach (string sousDossier in Directory.GetDirectories(source))
-                Copier(sousDossier, Path.Combine(destination, Path.GetFileName(sousDossier)));
         }
 
         /// <summary>N'écrase jamais une demande déjà archivée du même jour.</summary>

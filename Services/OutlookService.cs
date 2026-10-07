@@ -11,10 +11,25 @@ namespace AskThem.Services
         private const int OlMsg = 3;
 
         /// <summary>
+        /// Propriété MAPI posée sur chaque message préparé par AskThem, invisible du
+        /// fournisseur. Elle suit le message dans les éléments envoyés : c'est elle, et non
+        /// l'objet que l'utilisateur a pu retoucher, qui prouve qu'une demande est partie.
+        /// </summary>
+        public const string ProprieteMarque =
+            "http://schemas.microsoft.com/mapi/string/{00020329-0000-0000-C000-000000000046}/AskThemDemande";
+
+        /// <summary>
         /// Crée et affiche le message. Retourne l'objet Outlook, afin de pouvoir
         /// enregistrer plus tard la version modifiée par l'utilisateur.
         /// </summary>
         public static object CreateMail(string to, string cc, string subject, string htmlBody, List<string> attachments)
+        {
+            return CreateMail(to, cc, subject, htmlBody, attachments, "");
+        }
+
+        /// <param name="marque">Identifiant du message, retrouvé ensuite dans les éléments envoyés.</param>
+        public static object CreateMail(string to, string cc, string subject, string htmlBody,
+                                        List<string> attachments, string marque)
         {
             Type t = Type.GetTypeFromProgID("Outlook.Application");
             if (t == null)
@@ -51,6 +66,14 @@ namespace AskThem.Services
                 }
             }
 
+            // La marque est posée avant l'affichage : sans elle, l'envoi ne pourrait pas être
+            // constaté, et la demande ne serait ni archivée ni suivie. On le dit tout de suite.
+            if (!string.IsNullOrWhiteSpace(marque))
+            {
+                object accesseur = mail.PropertyAccessor;
+                ((dynamic)accesseur).SetProperty(ProprieteMarque, marque);
+            }
+
             mail.Display(false); // affiche la fenêtre, N'ENVOIE PAS
             return mail;
         }
@@ -85,44 +108,21 @@ namespace AskThem.Services
             return html.Substring(ouverture + 1, fermeture - ouverture - 1);
         }
 
-        /// <summary>
-        /// Objet du message, tel qu'il est à cet instant, ou null s'il n'est plus joignable.
-        ///
-        /// L'utilisateur retouche souvent l'objet avant d'envoyer. C'est par lui qu'on
-        /// retrouve ensuite le message dans les éléments envoyés : il faut donc suivre sa
-        /// dernière valeur, et non celle qu'on avait proposée.
-        /// </summary>
-        public static string LireSujet(object mailItem)
+        /// <summary>Nom de l'utilisateur tel qu'Outlook le connaît, ou "".</summary>
+        public static string NomUtilisateur()
         {
-            if (mailItem == null) return null;
             try
             {
-                dynamic mail = mailItem;
-                return (string)mail.Subject;
+                if (!EnvoiOutlook.OutlookOuvert()) return "";
+                Type t = Type.GetTypeFromProgID("Outlook.Application");
+                if (t == null) return "";
+                dynamic outlook = Activator.CreateInstance(t);
+                string nom = (string)outlook.Session.CurrentUser.Name;
+                return nom == null ? "" : nom.Trim();
             }
             catch (Exception)
             {
-                return null;
-            }
-        }
-
-        /// <summary>
-        /// Enregistre le message au format .msg, dans l'état où il se trouve : si
-        /// l'utilisateur l'a modifié dans Outlook, ses modifications sont capturées.
-        /// Retourne false si Outlook ne rend plus le message accessible.
-        /// </summary>
-        public static bool SaveMessage(object mailItem, string path)
-        {
-            if (mailItem == null) return false;
-            try
-            {
-                dynamic mail = mailItem;
-                mail.SaveAs(path, OlMsg);
-                return true;
-            }
-            catch (Exception)
-            {
-                return false;
+                return "";
             }
         }
     }

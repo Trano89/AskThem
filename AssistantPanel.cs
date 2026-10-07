@@ -56,6 +56,7 @@ namespace AskThem
         private Label lblTitre;
         private Button btnBaseArticles;
         private Button btnPreferences;
+        private Button btnSuivi;
         private Label lblSousTitre;
         private Label lblProgression;
         private Panel corps;
@@ -115,6 +116,9 @@ namespace AskThem
 
         /// <summary>L'utilisateur veut adapter le texte des emails.</summary>
         public event EventHandler Preferences;
+
+        /// <summary>L'utilisateur veut voir où en sont ses demandes.</summary>
+        public event EventHandler Suivi;
 
         private void Verifier_Click(object sender, EventArgs e)
         {
@@ -230,6 +234,12 @@ namespace AskThem
             {
                 btnPreferences.Location = new Point(Math.Max(8, droite - btnPreferences.Width), 16);
                 btnPreferences.BringToFront();
+                droite = btnPreferences.Left - 8;
+            }
+            if (btnSuivi != null)
+            {
+                btnSuivi.Location = new Point(Math.Max(8, droite - btnSuivi.Width), 16);
+                btnSuivi.BringToFront();
             }
         }
 
@@ -243,12 +253,18 @@ namespace AskThem
             if (Preferences != null) Preferences(this, EventArgs.Empty);
         }
 
+        private void Suivi_Click(object sender, EventArgs e)
+        {
+            if (Suivi != null) Suivi(this, EventArgs.Empty);
+        }
+
         /// <summary>Grise le bouton pendant un traitement, comme le reste de l'écran.</summary>
         public void BaseArticlesDisponible(bool disponible)
         {
             if (btnBaseArticles == null) return;
             btnBaseArticles.Enabled = disponible;
             if (btnPreferences != null) btnPreferences.Enabled = disponible;
+            if (btnSuivi != null) btnSuivi.Enabled = disponible;
         }
 
         // ==================================================================
@@ -291,6 +307,14 @@ namespace AskThem
             btnPreferences.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             btnPreferences.Click += new EventHandler(Preferences_Click);
 
+            btnSuivi = new Button();
+            btnSuivi.Text = "Suivi des demandes…";
+            btnSuivi.Font = AppFont.Get();
+            btnSuivi.Size = new Size(AppFont.Width(btnSuivi.Text, 34), 30);
+            btnSuivi.FlatStyle = FlatStyle.System;
+            btnSuivi.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnSuivi.Click += new EventHandler(Suivi_Click);
+
             Panel entete = new Panel();
             entete.Dock = DockStyle.Top;
             entete.Height = 104;
@@ -300,6 +324,7 @@ namespace AskThem
             entete.Controls.Add(lblProgression);
             entete.Controls.Add(btnBaseArticles);
             entete.Controls.Add(btnPreferences);
+            entete.Controls.Add(btnSuivi);
             entete.Resize += new EventHandler(Entete_Resize);
 
             corps = new Panel();

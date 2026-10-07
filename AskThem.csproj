@@ -10,9 +10,9 @@
     <AssemblyName>AskThem</AssemblyName>
     <RootNamespace>AskThem</RootNamespace>
     <!-- Version affichée dans le titre et comparée aux publications GitHub. -->
-    <Version>1.5.13</Version>
-    <AssemblyVersion>1.5.13.0</AssemblyVersion>
-    <FileVersion>1.5.13.0</FileVersion>
+    <Version>1.5.14</Version>
+    <AssemblyVersion>1.5.14.0</AssemblyVersion>
+    <FileVersion>1.5.14.0</FileVersion>
     <Company>ParkSystems / Lyncée Tec Division</Company>
     <Product>AskThem</Product>
     <Description>Préparation des demandes d'offre et de fabrication depuis le coffre SolidWorks PDM.</Description>
@@ -63,6 +63,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
     <PackageReference Include="QuestPDF" Version="2026.8.0" />
   </ItemGroup>
 </Project>
