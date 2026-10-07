@@ -49,12 +49,6 @@
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <Link>config\controle-fabrication.json</Link>
     </None>
-    <!-- Les modeles de courriel etaient recopies a la main dans dist\ et avaient derive :
-         le poste de l'utilisateur affirmait au fournisseur que des fichiers etaient joints
-         alors que le message etait vide. Ils suivent desormais la compilation. -->
-    <None Update="templates\*.html">
-      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
-    </None>
   </ItemGroup>
   <ItemGroup>
     <Reference Include="SolidWorks.Interop.sldworks">

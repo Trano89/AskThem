@@ -63,7 +63,21 @@ namespace AskThem.Services
                                       string deadline, string conditions, string poFileName,
                                       bool catalogue, int nbArchives, bool demanderLivraison)
         {
-            string html = LoadTemplate(type, catalogue);
+            string texte = TextesEmail.Courant(TextesEmail.NatureDe(type, catalogue));
+            return BuildBodyAvecTexte(texte, type, lines, project, deadline, conditions, poFileName,
+                                      catalogue, nbArchives, demanderLivraison);
+        }
+
+        /// <summary>
+        /// Corps du message à partir d'un texte donné : sert à l'aperçu des préférences, qui
+        /// montre le rendu d'un texte avant qu'il soit enregistré.
+        /// </summary>
+        public static string BuildBodyAvecTexte(string texte, RequestType type, List<PartLine> lines,
+                                                string project, string deadline, string conditions,
+                                                string poFileName, bool catalogue, int nbArchives,
+                                                bool demanderLivraison)
+        {
+            string html = TextesEmail.EnHtml(texte);
             string projectText = string.IsNullOrWhiteSpace(project) ? "-" : project.Trim();
             string deadlineText = string.IsNullOrWhiteSpace(deadline) ? "non précisé" : deadline.Trim();
 
@@ -92,12 +106,12 @@ namespace AskThem.Services
             if (!demander) return "";
 
             if (type == RequestType.Offre) return
-                "<p>Merci d'indiquer également le <b>délai de livraison</b> ainsi que les "
+                "<p>Votre offre précisera également le <b>délai de livraison</b> et les "
               + "<b>frais de port</b>.</p>";
 
             return
-                "<p>Merci de nous confirmer le <b>délai de livraison</b> ainsi que les "
-              + "<b>frais de port</b>.</p>";
+                "<p>Pourriez-vous nous confirmer le <b>délai de livraison</b> et les "
+              + "<b>frais de port</b> ?</p>";
         }
 
         /// <summary>
@@ -122,8 +136,8 @@ namespace AskThem.Services
             string mentionControle = controles == 0 ? "" :
                 "<p>Un <b>formulaire de contrôle de fabrication</b> accompagne ce message, en "
               + "pièce jointe distincte pour chacun des " + controles + " article(s) concerné(s). "
-              + "Il porte la révision du plan auquel il se rapporte. Merci de le retourner "
-              + "rempli avec la livraison.</p>";
+              + "Il porte la révision du plan auquel il se rapporte et nous revient rempli "
+              + "avec la livraison.</p>";
 
             if (nbArchives > 0) return
                 "<p>Les fichiers sont joints <b>regroupés par numéro d'article</b> : une archive "
@@ -136,8 +150,8 @@ namespace AskThem.Services
 
             return
                 "<p><b>Aucun document n'accompagne ce message.</b> Les plans et modèles vous "
-              + "seront transmis séparément : merci de ne rien engager avant de les avoir "
-              + "reçus.</p>";
+              + "seront transmis séparément ; rien ne doit être engagé avant leur "
+              + "réception.</p>";
         }
 
         /// <summary>
@@ -162,8 +176,8 @@ namespace AskThem.Services
                  + " une <b>nouvelle référence de production</b>, qui remplace la référence "
                  + "antérieure indiquée dans la colonne <i>Ancienne réf.</i> du tableau. "
                  + "<b>Des modifications ont pu être apportées</b> depuis la version que vous "
-                 + "connaissez sous l'ancienne référence. Merci de <b>revoir la gamme</b> et de ne "
-                 + "pas reconduire telle quelle une préparation établie sur l'ancienne version."
+                 + "connaissez sous l'ancienne référence : la <b>gamme est à revoir</b>, une "
+                 + "préparation établie sur l'ancienne version ne peut pas être reconduite telle quelle."
                  + "</div>";
         }
 
@@ -220,65 +234,11 @@ namespace AskThem.Services
         private const string NoteRevision =
             "<div style=\"border-left:4px solid #c00000; background:#fff4f4; padding:10px 14px; margin:14px 0;\">"
             + "<b>IMPORTANT &mdash; Révision des plans</b><br/>"
-            + "Merci de contrôler impérativement la <b>révision indiquée dans le cartouche de "
-            + "chaque plan</b> et de la comparer à celle du tableau ci-dessus. La fabrication doit "
-            + "être réalisée <b>exclusivement selon la révision indiquée</b>. Nous vous prions "
-            + "de nous <b>confirmer par retour de message la révision sur laquelle vous travaillez</b>, "
+            + "La <b>révision indiquée dans le cartouche de chaque plan</b> doit être contrôlée et "
+            + "comparée à celle du tableau ci-dessus. La fabrication est réalisée "
+            + "<b>exclusivement selon la révision indiquée</b>. Nous vous prions de nous "
+            + "<b>confirmer par retour de message la révision sur laquelle vous travaillez</b>, "
             + "afin de garantir que les dernières mises à jour sont bien prises en compte.</div>";
-
-        /// <summary>Charge le modèle HTML ; si le fichier est absent, utilise le modèle intégré.</summary>
-        private static readonly HashSet<string> _perimesSignales = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        /// <summary>Le premier jeton attendu qu'un modèle ne porte pas, ou "".</summary>
-        private static string JetonManquant(string modele, RequestType type, bool catalogue)
-        {
-            List<string> attendus = new List<string> { "{{TABLEAU}}", "{{LIVRAISON}}" };
-            if (!catalogue && type != RequestType.CommandeCatalogue) attendus.Add("{{FICHIERS}}");
-            foreach (string jeton in attendus)
-                if (modele.IndexOf(jeton, StringComparison.Ordinal) < 0) return jeton;
-            return "";
-        }
-
-        private static void SignalerPerime(string fichier, string jeton)
-        {
-            lock (_perimesSignales)
-            {
-                if (!_perimesSignales.Add(fichier)) return;
-            }
-            LogService.Write("Modèle " + fichier + " d'une version antérieure (sans " + jeton
-                           + ") : modèle intégré utilisé. Remplacez le fichier du dossier templates.");
-        }
-
-        private static string LoadTemplate(RequestType type, bool catalogue)
-        {
-            string fileName;
-            if (type == RequestType.CommandeCatalogue) fileName = "template_commande_catalogue.html";
-            else if (catalogue) fileName = "template_offre_catalogue.html";
-            else if (type == RequestType.Offre) fileName = "template_offre.html";
-            else fileName = "template_fabrication.html";
-            string path = Path.Combine(AppContext.BaseDirectory, "templates", fileName);
-            try
-            {
-                if (File.Exists(path))
-                {
-                    string surDisque = File.ReadAllText(path);
-
-                    // Un modèle d'une version antérieure ne porte pas les jetons ajoutés
-                    // depuis : il primait quand même, et la phrase écrite en dur partait
-                    // quel que soit le réglage. On le reconnaît, et on prend l'intégré.
-                    string manque = JetonManquant(surDisque, type, catalogue);
-                    if (manque == "") return surDisque;
-                    SignalerPerime(fileName, manque);
-                }
-            }
-            catch (Exception ex)
-            {
-                LogService.Write("Modèle " + fileName + " illisible, modèle intégré utilisé : " + ex.Message);
-            }
-            if (type == RequestType.CommandeCatalogue) return TemplateCommandeCatalogue;
-            if (catalogue) return TemplateOffreCatalogue;
-            return type == RequestType.Offre ? TemplateOffre : TemplateFabrication;
-        }
 
         /// <summary>Tableau HTML des articles. Une colonne vide pour tous les articles est omise.</summary>
         private static string BuildTable(RequestType type, List<PartLine> lines, bool catalogue)
@@ -400,77 +360,5 @@ namespace AskThem.Services
             if (value == null) return "";
             return WebUtility.HtmlEncode(value);
         }
-
-        // ------------------------------------------------------------------
-        // Modèles intégrés : utilisés si le dossier templates est absent,
-        // afin que le programme fonctionne toujours.
-        // ------------------------------------------------------------------
-
-        /// <summary>Modèle intégré de la commande catalogue, si le fichier manque.</summary>
-        private const string TemplateCommandeCatalogue =
-"<html><body><div style=\"font-family:Aptos, 'Segoe UI', Calibri, Arial, sans-serif; font-size:12pt; color:#222222;\">"
-+ "<p>Bonjour,</p>"
-+ "<p>Nous vous passons commande des {{NB_ARTICLES}} article(s) de catalogue ci-dessous.</p>"
-+ "<p>Référence commande : <b>{{COMMANDE}}</b><br/>Délai souhaité : <b>{{DELAI}}</b></p>"
-+ "{{TABLEAU}}{{COMMENTAIRE}}{{PO}}"
-+ "<p>Merci de nous <b>confirmer la réception de cette commande</b> ainsi que "
-+ "les prix.</p>{{LIVRAISON}}"
-+ "<p>Avec nos remerciements, nous vous adressons nos meilleures salutations.</p>"
-+ "{{NOTES}}</div></body></html>";
-
-        /// <summary>Modèle intégré du mode catalogue, si le fichier manque.</summary>
-        private const string TemplateOffreCatalogue =
-"<html><body><div style=\"font-family:Aptos, 'Segoe UI', Calibri, Arial, sans-serif; font-size:12pt; color:#222222;\">"
-+ "<p>Bonjour,</p>"
-+ "<p>Nous vous prions de bien vouloir nous faire parvenir votre meilleure offre pour les "
-+ "{{NB_ARTICLES}} article(s) de catalogue ci-dessous.</p>"
-+ "<p>Merci d'indiquer un <b>prix unitaire pour chaque palier de quantité</b>.</p>"
-+ "{{LIVRAISON}}"
-+ "<p>Référence commande : <b>{{COMMANDE}}</b><br/>Délai souhaité : <b>{{DELAI}}</b></p>"
-+ "{{TABLEAU}}{{COMMENTAIRE}}{{PO}}"
-+ "<p>Merci de nous confirmer que les références ci-dessus correspondent bien "
-+ "aux articles souhaités.</p>"
-+ "<p>Dans l'attente de votre retour, nous vous adressons nos meilleures salutations.</p>"
-+ "{{NOTES}}</div></body></html>";
-
-        private const string TemplateOffre =
-@"<html>
-<body>
-<div style=""font-family:Aptos, 'Segoe UI', Calibri, Arial, sans-serif; font-size:12pt; color:#222222;"">
-<p>Bonjour,</p>
-<p>Nous vous prions de bien vouloir nous faire parvenir votre meilleure offre
-pour les {{NB_ARTICLES}} article(s) ci-dessous.</p>
-<p>Merci d'indiquer un <b>prix unitaire pour chaque palier de quantité</b>.</p>
-{{LIVRAISON}}
-<p>Référence commande : <b>{{COMMANDE}}</b><br/>
-Délai souhaité : <b>{{DELAI}}</b></p>
-{{TABLEAU}}
-{{COMMENTAIRE}}
-{{PO}}
-{{FICHIERS}}
-<p>Dans l'attente de votre retour, nous vous adressons nos meilleures salutations.</p>
-{{NOTES}}
-</div>
-</body>
-</html>";
-
-        private const string TemplateFabrication =
-@"<html>
-<body>
-<div style=""font-family:Aptos, 'Segoe UI', Calibri, Arial, sans-serif; font-size:12pt; color:#222222;"">
-<p>Bonjour,</p>
-<p>Nous vous confions la fabrication des {{NB_ARTICLES}} article(s) listés ci-dessous.</p>
-<p>Référence commande : <b>{{COMMANDE}}</b><br/>
-Délai souhaité : <b>{{DELAI}}</b></p>
-{{TABLEAU}}
-{{COMMENTAIRE}}
-{{PO}}
-{{FICHIERS}}
-{{LIVRAISON}}
-<p>Avec nos remerciements et nos meilleures salutations.</p>
-{{NOTES}}
-</div>
-</body>
-</html>";
     }
 }

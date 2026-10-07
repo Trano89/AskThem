@@ -83,9 +83,10 @@ installé sur la machine cible : le runtime est embarqué dans l'exe.
 
 - `config.json` est **créé automatiquement** à côté de l'exe au premier lancement.
   Ajustez-y ensuite le chemin du coffre PDM propre au poste.
-- Les modèles d'email sont intégrés à l'exe. Le dossier `templates\` reste facultatif :
-  s'il est présent à côté de `AskThem.exe`, ses fichiers ont la priorité sur les modèles
-  intégrés, ce qui permet d'ajuster les textes sans recompiler.
+- Les textes des emails sont intégrés à l'exe. Chaque utilisateur peut les adapter dans
+  **Préférences…** ; ses textes sont enregistrés dans son profil Windows
+  (`%APPDATA%\AskThem\textes-email.json`), survivent aux mises à jour, et un bouton les
+  ramène au texte d'origine.
 - **Seuls prérequis sur le poste cible** : SolidWorks et Outlook Classic installés,
   puisque l'application les pilote en COM.
 

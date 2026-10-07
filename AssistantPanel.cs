@@ -55,6 +55,7 @@ namespace AskThem
 
         private Label lblTitre;
         private Button btnBaseArticles;
+        private Button btnPreferences;
         private Label lblSousTitre;
         private Label lblProgression;
         private Panel corps;
@@ -111,6 +112,9 @@ namespace AskThem
         /// technique — qui travaille volontiers en mode guidé.
         /// </summary>
         public event EventHandler BaseArticles;
+
+        /// <summary>L'utilisateur veut adapter le texte des emails.</summary>
+        public event EventHandler Preferences;
 
         private void Verifier_Click(object sender, EventArgs e)
         {
@@ -215,9 +219,18 @@ namespace AskThem
         {
             Panel entete = sender as Panel;
             if (entete == null || btnBaseArticles == null) return;
-            btnBaseArticles.Location = new Point(
-                Math.Max(8, entete.ClientSize.Width - btnBaseArticles.Width - 28), 16);
-            btnBaseArticles.BringToFront();
+            int droite = entete.ClientSize.Width - 28;
+            if (btnBaseArticles.Visible)
+            {
+                btnBaseArticles.Location = new Point(Math.Max(8, droite - btnBaseArticles.Width), 16);
+                btnBaseArticles.BringToFront();
+                droite = btnBaseArticles.Left - 8;
+            }
+            if (btnPreferences != null)
+            {
+                btnPreferences.Location = new Point(Math.Max(8, droite - btnPreferences.Width), 16);
+                btnPreferences.BringToFront();
+            }
         }
 
         private void BaseArticles_Click(object sender, EventArgs e)
@@ -225,11 +238,17 @@ namespace AskThem
             if (BaseArticles != null) BaseArticles(this, EventArgs.Empty);
         }
 
+        private void Preferences_Click(object sender, EventArgs e)
+        {
+            if (Preferences != null) Preferences(this, EventArgs.Empty);
+        }
+
         /// <summary>Grise le bouton pendant un traitement, comme le reste de l'écran.</summary>
         public void BaseArticlesDisponible(bool disponible)
         {
             if (btnBaseArticles == null) return;
             btnBaseArticles.Enabled = disponible;
+            if (btnPreferences != null) btnPreferences.Enabled = disponible;
         }
 
         // ==================================================================
@@ -264,6 +283,14 @@ namespace AskThem
             btnBaseArticles.Visible = SolidWorksExporter.EstPosteEquipe();
             btnBaseArticles.Click += new EventHandler(BaseArticles_Click);
 
+            btnPreferences = new Button();
+            btnPreferences.Text = "Préférences…";
+            btnPreferences.Font = AppFont.Get();
+            btnPreferences.Size = new Size(AppFont.Width(btnPreferences.Text, 34), 30);
+            btnPreferences.FlatStyle = FlatStyle.System;
+            btnPreferences.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            btnPreferences.Click += new EventHandler(Preferences_Click);
+
             Panel entete = new Panel();
             entete.Dock = DockStyle.Top;
             entete.Height = 104;
@@ -272,6 +299,7 @@ namespace AskThem
             entete.Controls.Add(lblTitre);
             entete.Controls.Add(lblProgression);
             entete.Controls.Add(btnBaseArticles);
+            entete.Controls.Add(btnPreferences);
             entete.Resize += new EventHandler(Entete_Resize);
 
             corps = new Panel();

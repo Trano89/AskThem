@@ -104,6 +104,7 @@ namespace AskThem
         private Label pastilleInventaire;
         private Label lblPoste;
         private Button btnBaseArticles;
+        private Button btnPreferences;
         private DepotArticles _depot;
         private DepotInventaire _depotInv;
         private string _folderDepot;
@@ -276,12 +277,17 @@ namespace AskThem
             btnBaseArticles = MakeToolButton("Base articles…");
             btnBaseArticles.Click += new EventHandler(BtnBaseArticles_Click);
 
+            btnPreferences = MakeToolButton("Préférences…");
+            btnPreferences.Click += new EventHandler(BtnPreferences_Click);
+            toolTip.SetToolTip(btnPreferences, "Adapter le texte des emails. Vos textes sont conservés lors des mises à jour.");
+
             // Les boutons s'enchaînent selon leur largeur mesurée : aucune position figée.
             // La campagne n'a de sens que sur un poste qui sait produire des documents : le
             // bouton n'apparaît pas ailleurs, plutôt que d'être présent et de refuser.
             List<Button> boutons = new List<Button> { btnAddLine, btnPaste, btnImportCsv,
                                                       btnExportCsv, btnClear, btnInventaire };
             if (SolidWorksExporter.EstPosteEquipe()) boutons.Add(btnBaseArticles);
+            boutons.Add(btnPreferences);
 
             int x = 12;
             foreach (Button b in boutons)
@@ -1191,6 +1197,7 @@ namespace AskThem
             panelAssistant.Verifier += new EventHandler(Assistant_Verifier);
             panelAssistant.Annuler += new EventHandler(BtnCancel_Click);
             panelAssistant.BaseArticles += new EventHandler(BtnBaseArticles_Click);
+            panelAssistant.Preferences += new EventHandler(BtnPreferences_Click);
 
             selecteurMode = new SelecteurMode();
             selecteurMode.Font = AppFont.Get();
@@ -1852,6 +1859,16 @@ namespace AskThem
             _config.ZipCompression = choix;
             ConfigService.Save(_config);
             Log("Compression des archives : " + choix + ".");
+        }
+
+        /// <summary>Les textes des emails, propres à l'utilisateur.</summary>
+        private void BtnPreferences_Click(object sender, EventArgs e)
+        {
+            if (_busy) return;
+            using (PreferencesDialog dlg = new PreferencesDialog(_config))
+            {
+                if (dlg.ShowDialog(this) == DialogResult.OK) Log("Textes des emails enregistrés.");
+            }
         }
 
         private void BtnInventaire_Click(object sender, EventArgs e)
