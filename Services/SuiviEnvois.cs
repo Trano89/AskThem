@@ -79,7 +79,9 @@ namespace AskThem.Services
         {
             int constates = ArchiveEnAttente.Reprendre(config, journal);
 
-            if (BaseSuivi.EnAttente() > 0)
+            // Le classeur est aussi refait une fois par jour, et après une mise à jour de sa
+            // mise en page : sans cela, son Gantt restait arrêté au jour de la dernière demande.
+            if (BaseSuivi.EnAttente() > 0 || BaseSuivi.VueARafraichir(config))
             {
                 string message;
                 if (!BaseSuivi.Vider(config, out message) && message != "") LogService.Write(message);

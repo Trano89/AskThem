@@ -33,6 +33,7 @@ namespace AskThem
         private DataGridView grille;
         private RadioButton optMiennes;
         private RadioButton optToutes;
+        private RadioButton optSupprimees;
         private CheckBox chkCloturees;
         private Label lblVide;
         private Label lblSelection;
@@ -40,6 +41,11 @@ namespace AskThem
         private Button btnPasEncore;
         private Button btnSansSuite;
         private LinkLabel lnkDossier;
+        private LinkLabel lnkSupprimer;
+        private Button btnRetablir;
+
+        /// <summary>Vrai quand la fenêtre montre les demandes supprimées.</summary>
+        private bool VueSupprimees { get { return optSupprimees != null && optSupprimees.Checked; } }
 
         /// <param name="rappel">Vrai si la fenêtre s'ouvre pour un rappel : seules les demandes échues de l'utilisateur sont montrées.</param>
         public SuiviDemandesDialog(AppConfig config, bool rappel)
@@ -89,8 +95,15 @@ namespace AskThem
             optToutes = new RadioButton();
             optToutes.Text = "Toutes les demandes";
             optToutes.AutoSize = true;
-            optToutes.Margin = new Padding(0, 0, 32, 0);
+            optToutes.Margin = new Padding(0, 0, 16, 0);
             optToutes.CheckedChanged += delegate { Charger(); };
+
+            // Les demandes supprimées ne sont jamais effacées : elles se retrouvent ici.
+            optSupprimees = new RadioButton();
+            optSupprimees.Text = "Supprimées";
+            optSupprimees.AutoSize = true;
+            optSupprimees.Margin = new Padding(0, 0, 32, 0);
+            optSupprimees.CheckedChanged += delegate { Charger(); };
 
             chkCloturees = new CheckBox();
             chkCloturees.Text = "Inclure les demandes clôturées";
@@ -103,6 +116,7 @@ namespace AskThem
             filtres.Visible = !_rappel;
             filtres.Controls.Add(optMiennes);
             filtres.Controls.Add(optToutes);
+            filtres.Controls.Add(optSupprimees);
             filtres.Controls.Add(chkCloturees);
 
             grille = new DataGridView();
@@ -159,10 +173,18 @@ namespace AskThem
             btnPasEncore.Click += new EventHandler(PasEncore_Click);
             btnRecue = Ui.Primaire("Réponse reçue");
             btnRecue.Click += new EventHandler(Repondue_Click);
+            btnRetablir = Ui.Primaire("Rétablir");
+            btnRetablir.Click += new EventHandler(Retablir_Click);
+            btnRetablir.Visible = false;
+
+            // Retirer une demande du suivi est rare et se rattrape : un lien suffit.
+            lnkSupprimer = Ui.Lien("Supprimer du suivi…", new EventHandler(Supprimer_Click));
+            lnkSupprimer.Visible = !_rappel;
 
             FlowLayoutPanel liens = Ui.Rangee();
             liens.Controls.Add(lnkDossier);
             liens.Controls.Add(lnkClasseur);
+            liens.Controls.Add(lnkSupprimer);
             if (_rappel)
             {
                 LinkLabel lnkPlusTard = Ui.Lien("Plus tard", delegate { Close(); });
@@ -173,9 +195,10 @@ namespace AskThem
             bas.Dock = DockStyle.Fill;
             bas.AutoSize = true;
             bas.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-            bas.ColumnCount = 5;
+            bas.ColumnCount = 6;
             bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
             bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
@@ -187,6 +210,7 @@ namespace AskThem
             bas.Controls.Add(btnSansSuite, 2, 0);
             bas.Controls.Add(btnPasEncore, 3, 0);
             bas.Controls.Add(btnRecue, 4, 0);
+            bas.Controls.Add(btnRetablir, 5, 0);
 
             TableLayoutPanel cadre = new TableLayoutPanel();
             cadre.Dock = DockStyle.Fill;
@@ -229,9 +253,19 @@ namespace AskThem
                 if (d.Statut == DemandeSuivie.Envoyee) envoyees++;
                 else if (d.Statut == DemandeSuivie.Preparee) preparees++;
             }
+            bool supprimees = VueSupprimees;
+            btnRecue.Visible = !supprimees;
+            btnPasEncore.Visible = !supprimees;
+            btnSansSuite.Visible = !supprimees;
+            btnRetablir.Visible = supprimees;
+            lnkSupprimer.Visible = !_rappel && !supprimees;
+            chkCloturees.Visible = !supprimees;
+
             btnRecue.Enabled = envoyees > 0;
             btnPasEncore.Enabled = envoyees > 0;
             btnSansSuite.Enabled = envoyees + preparees > 0;
+            btnRetablir.Enabled = n > 0;
+            lnkSupprimer.Enabled = n > 0;
             lnkDossier.Enabled = n == 1;
             lblSelection.Text = n == 0 ? (_demandes.Count == 0 ? "" : "Aucune demande sélectionnée.")
                               : n == 1 ? "1 demande sélectionnée."
@@ -254,13 +288,15 @@ namespace AskThem
         {
             Cursor = Cursors.WaitCursor;
             List<DemandeSuivie> source;
-            try { source = !_rappel && optToutes.Checked ? BaseSuivi.Lire(_config) : BaseSuivi.Miennes(_config); }
+            try { source = !_rappel && (optToutes.Checked || VueSupprimees) ? BaseSuivi.Lire(_config) : BaseSuivi.Miennes(_config); }
             finally { Cursor = Cursors.Default; }
 
             _demandes = new List<DemandeSuivie>();
             foreach (DemandeSuivie d in source)
             {
                 if (_rappel) { if (d.RappelEchu(Moi(), DateTime.Today)) _demandes.Add(d); }
+                else if (VueSupprimees) { if (d.Masquee) _demandes.Add(d); }
+                else if (d.Masquee) continue;
                 else if (chkCloturees.Checked || d.Statut == DemandeSuivie.Envoyee || d.Statut == DemandeSuivie.Preparee)
                     _demandes.Add(d);
             }
@@ -295,7 +331,9 @@ namespace AskThem
             grille.ClearSelection();
             if (_rappel && grille.Rows.Count == 1) grille.Rows[0].Selected = true;
 
-            lblVide.Text = _rappel ? "Plus aucun rappel en attente." : "Aucune demande à suivre.";
+            lblVide.Text = _rappel ? "Plus aucun rappel en attente."
+                         : VueSupprimees ? "Aucune demande supprimée."
+                         : "Aucune demande à suivre.";
             lblVide.Visible = _demandes.Count == 0;
             grille.Visible = _demandes.Count > 0;
             MajActions();
@@ -353,11 +391,50 @@ namespace AskThem
         }
 
         /// <summary>
+        /// Retire les demandes choisies du suivi. Rien n'est effacé : elles passent dans
+        /// l'onglet « Supprimées » du classeur, et se rétablissent depuis cette fenêtre.
+        /// </summary>
+        private void Supprimer_Click(object sender, EventArgs e)
+        {
+            int n = Selection().Count;
+            if (n == 0) return;
+            Agir("Supprimée du suivi", delegate (DemandeSuivie d) { return !d.Masquee; },
+                delegate (DemandeSuivie m)
+                {
+                    m.Masquee = true;
+                    m.MasqueeLe = DateTime.Now;
+                    m.MasqueePar = Qui();
+                },
+                (n == 1 ? "Supprimer cette demande du suivi ?" : "Supprimer ces " + n + " demandes du suivi ?")
+                + System.Environment.NewLine + System.Environment.NewLine
+                + "Elle" + (n == 1 ? "" : "s") + " quitte" + (n == 1 ? "" : "nt") + " le suivi et le Gantt pour l'onglet "
+                + "« " + BaseSuivi.NomSupprimees + " » du classeur. Rien n'est effacé : « Supprimées », ci-dessus, "
+                + "permet de les rétablir.");
+        }
+
+        private void Retablir_Click(object sender, EventArgs e)
+        {
+            Agir("Rétablie dans le suivi", delegate (DemandeSuivie d) { return d.Masquee; },
+                delegate (DemandeSuivie m)
+                {
+                    m.Masquee = false;
+                    m.MasqueeLe = DateTime.Now;
+                    m.MasqueePar = Qui();
+                });
+        }
+
+        /// <summary>
         /// Applique une action aux demandes choisies. Celles d'un collègue ne sont touchées
         /// qu'après confirmation, et chacun de ces collègues reçoit un email qui dit quoi, et
         /// qui l'a fait.
         /// </summary>
         private void Agir(string action, Predicate<DemandeSuivie> possible, Action<DemandeSuivie> appliquer)
+        {
+            Agir(action, possible, appliquer, null);
+        }
+
+        private void Agir(string action, Predicate<DemandeSuivie> possible, Action<DemandeSuivie> appliquer,
+                          string question)
         {
             List<DemandeSuivie> choisies = new List<DemandeSuivie>();
             foreach (DemandeSuivie d in Selection())
@@ -368,7 +445,8 @@ namespace AskThem
             foreach (DemandeSuivie d in choisies)
                 if (!d.EstA(Moi()) && !collegues.Contains(d.Demandeur)) collegues.Add(d.Demandeur);
 
-            string question = "« " + action + " » pour " + choisies.Count + " demande(s) ?";
+            if (string.IsNullOrEmpty(question))
+                question = "« " + action + " » pour " + choisies.Count + " demande(s) ?";
             if (collegues.Count > 0)
                 question += System.Environment.NewLine + System.Environment.NewLine
                           + "Certaines appartiennent à " + string.Join(", ", collegues) + ". Un email automatique "

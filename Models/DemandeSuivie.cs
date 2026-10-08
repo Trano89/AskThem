@@ -85,6 +85,21 @@ namespace AskThem.Models
 
         public DateTime MisAJourLe { get; set; }
 
+        // ---- Suppression ----
+        // Une demande n'est jamais effacée : « supprimée », elle quitte le suivi et le Gantt
+        // pour l'onglet « Supprimées », d'où on peut la rétablir.
+
+        /// <summary>Vrai si la demande a été retirée du suivi.</summary>
+        public bool Masquee { get; set; }
+
+        /// <summary>
+        /// Quand elle a été supprimée ou rétablie pour la dernière fois. C'est cette date qui
+        /// départage deux états : un poste qui réécrit la demande pour une autre raison — envoi
+        /// constaté, archivage — ne la fait pas réapparaître.
+        /// </summary>
+        public DateTime? MasqueeLe { get; set; }
+        public string MasqueePar { get; set; }
+
         public DemandeSuivie()
         {
             Id = "";
@@ -104,6 +119,19 @@ namespace AskThem.Models
             DossierArchive = "";
             DerniereAction = "";
             DerniereActionPar = "";
+            MasqueePar = "";
+        }
+
+        /// <summary>
+        /// Reprend de l'autre version l'état « supprimée » s'il est plus récent que le sien.
+        /// </summary>
+        public void ReprendreMasque(DemandeSuivie autre)
+        {
+            if (autre == null || !autre.MasqueeLe.HasValue) return;
+            if (MasqueeLe.HasValue && MasqueeLe.Value >= autre.MasqueeLe.Value) return;
+            Masquee = autre.Masquee;
+            MasqueeLe = autre.MasqueeLe;
+            MasqueePar = autre.MasqueePar;
         }
 
         /// <summary>Vrai si cette demande appartient à cet utilisateur.</summary>
@@ -124,7 +152,7 @@ namespace AskThem.Models
         /// <summary>Vrai si ce rappel concerne cet utilisateur et qu'il est échu.</summary>
         public bool RappelEchu(string utilisateur, DateTime aujourdHui)
         {
-            return EnAttente
+            return EnAttente && !Masquee
                 && ProchainRappel.HasValue && ProchainRappel.Value.Date <= aujourdHui.Date
                 && string.Equals(Auteur, utilisateur, StringComparison.OrdinalIgnoreCase);
         }
