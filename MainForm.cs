@@ -140,6 +140,7 @@ namespace AskThem
         // Volet de detail : restitue ce que la grille n'affiche plus.
         private Panel panelDetail;
         private Label lblDetailTitre;
+        private Label lblDetailSource;
         private Label valDescription;
         private Label valRevPlan;
         private Label valRevModele;
@@ -653,9 +654,10 @@ namespace AskThem
             lblDetailTitre.TextAlign = ContentAlignment.MiddleLeft;
 
             Label note = new Label();
+            lblDetailSource = note;
             note.Text = "Lu dans le coffre PDM au moment de la génération. Rien à saisir ici.";
             note.Dock = DockStyle.Bottom;
-            note.Height = 58;
+            note.Height = 84;
             note.ForeColor = Color.Gray;
 
             // TableLayoutPanel plutot que des positions en pixels : suit la densite d'ecran.
@@ -846,6 +848,11 @@ namespace AskThem
             valStatut.Text = string.IsNullOrWhiteSpace(l.Status) ? "non vérifié" : l.Status;
             valStatut.ForeColor = StatusColor(l.Status);
             valFichiers.Text = DescribeFiles(l);
+            if (lblDetailSource != null)
+                lblDetailSource.Text = l.SourceDocuments == "Inventaire"
+                    ? "Révisions et date lues dans l'inventaire. Matière, finitions et état : "
+                      + "lus dans le coffre, à la génération."
+                    : "Lu dans le coffre PDM au moment de la génération. Rien à saisir ici.";
         }
 
         private static string OrDash(string v)
@@ -2380,6 +2387,57 @@ namespace AskThem
             }
         }
 
+        /// <summary>
+        /// Les documents vivent dans l'inventaire : une session, et le relevé de ce qu'il
+        /// possède pour toute la demande en un seul appel. Lecture seule.
+        /// </summary>
+        private void OuvrirDocumentsInventaire()
+        {
+            if (!_config.DocumentsDansInventaire) return;
+            _depotInv = new DepotInventaire(_config);
+            string motif;
+            if (_depotInv.Connecter(out motif))
+            {
+                Log(motif);
+                List<string> refs = new List<string>();
+                foreach (PartLine l in _work)
+                    if (!string.IsNullOrWhiteSpace(l.PartNumber)) refs.Add(l.PartNumber);
+                _depotInv.Charger(refs, LogFromWorker);
+            }
+            else
+            {
+                Log("Documents de l'inventaire indisponibles : " + motif);
+                _depotInv.Dispose();
+                _depotInv = null;
+            }
+        }
+
+        /// <summary>
+        /// Ce que l'inventaire dit des documents d'un article : révision et date du plan,
+        /// révision du modèle. Rien n'est téléchargé. Vrai s'il en tient au moins un.
+        /// </summary>
+        private bool RenseignerDocumentsInventaire(PartLine line)
+        {
+            if (_depotInv == null) return false;
+            DocumentsArticle d = _depotInv.Pour(line.PartNumber);
+            if (d == null || !d.Trouve) return false;
+
+            DocumentArticle plan = d.De(TypeDocument.Plan);
+            DocumentArticle dxf = d.De(TypeDocument.PlanDxf);
+            DocumentArticle modele = d.De(TypeDocument.Modele);
+            if (plan == null && dxf == null && modele == null) return false;
+
+            DocumentArticle refPlan = plan != null ? plan : dxf;
+            if (refPlan != null)
+            {
+                line.DrawingRevision = refPlan.RevisionAffichee;
+                line.RealizedDate = refPlan.DateAffichee;
+            }
+            if (modele != null) line.Revision = modele.RevisionAffichee;
+            line.SourceDocuments = "Inventaire";
+            return true;
+        }
+
         /// <summary>Mode vérification : aucune ouverture de SolidWorks.</summary>
         private void RunVerify()
         {
@@ -2410,29 +2468,64 @@ namespace AskThem
             int warn = 0;
             int missing = 0;
 
-            for (int i = 0; i < total; i++)
+            // Les révisions et dates viennent de l'inventaire : une vérification n'ouvre
+            // aucun fichier, et le détail de l'article restait vide jusqu'à la génération.
+            // Un poste sans SolidWorks enverra précisément ces documents-là ; un poste
+            // équipé exportera ceux du coffre, et c'est le coffre qui décide du statut.
+            bool equipe = SolidWorksExporter.EstPosteEquipe();
+            OuvrirDocumentsInventaire();
+            try
             {
-                if (_cancelRequested) { Log("Vérification annulée."); break; }
+                for (int i = 0; i < total; i++)
+                {
+                    if (_cancelRequested) { Log("Vérification annulée."); break; }
 
-                PartLine line = _work[i];
-                line.Model3DPath = PdmSearchService.Find3DInIndex(_pdmIndex, line.PartNumber);
-                line.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, line.PartNumber);
+                    PartLine line = _work[i];
+                    line.Model3DPath = PdmSearchService.Find3DInIndex(_pdmIndex, line.PartNumber);
+                    line.DrawingPath = PdmSearchService.FindDrawingInIndex(_pdmIndex, line.PartNumber);
 
-                // Une vérification ne joint rien : le plan « disponible » est celui du coffre.
-                // Sans cela, l'avertissement annonçait sans plan tous les articles vérifiés.
-                line.PlanDisponible = line.DrawingPath != null;
+                    // Une vérification ne joint rien : le plan « disponible » est celui du coffre.
+                    // Sans cela, l'avertissement annonçait sans plan tous les articles vérifiés.
+                    line.PlanDisponible = line.DrawingPath != null;
 
-                line.SupplierRef = "";
-                line.PdmSupplier = "";
-                RenseignerDepuisInventaire(line);
+                    // Ce qu'une vérification précédente avait trouvé ne doit pas rester affiché.
+                    line.DrawingRevision = "";
+                    line.Revision = "";
+                    line.RealizedDate = "";
+                    line.SourceDocuments = "";
 
-                if (line.Model3DPath != null && line.DrawingPath != null) { line.Status = "OK"; ok++; }
-                else if (line.Model3DPath != null) { line.Status = "Manquant 2D"; warn++; }
-                else if (line.DrawingPath != null) { line.Status = "Manquant 3D"; warn++; }
-                else { line.Status = "Introuvable"; missing++; }
+                    line.SupplierRef = "";
+                    line.PdmSupplier = "";
+                    RenseignerDepuisInventaire(line);
+                    bool enInventaire = RenseignerDocumentsInventaire(line);
 
-                SetProgress(i + 1, "Vérification " + (i + 1) + "/" + total + " : " + line.PartNumber);
-                RefreshGrid();
+                    if (!equipe && _depotInv != null)
+                    {
+                        // Sans SolidWorks, seuls les documents de l'inventaire partiront.
+                        DocumentsArticle d = _depotInv.Pour(line.PartNumber);
+                        bool plan = d != null && d.De(TypeDocument.Plan) != null;
+                        bool modele = d != null && d.De(TypeDocument.Modele) != null;
+                        line.PlanDisponible = plan;
+                        ArticleTypeRule regle = RuleFor(line.PartNumber);
+                        bool manque2D = regle.Export2D && !plan;
+                        bool manque3D = regle.Export3D && !modele;
+                        if (!enInventaire) { line.Status = "Sans document"; missing++; }
+                        else if (manque2D) { line.Status = "Manquant 2D"; warn++; }
+                        else if (manque3D) { line.Status = "Manquant 3D"; warn++; }
+                        else { line.Status = "OK"; ok++; }
+                    }
+                    else if (line.Model3DPath != null && line.DrawingPath != null) { line.Status = "OK"; ok++; }
+                    else if (line.Model3DPath != null) { line.Status = "Manquant 2D"; warn++; }
+                    else if (line.DrawingPath != null) { line.Status = "Manquant 3D"; warn++; }
+                    else { line.Status = "Introuvable"; missing++; }
+
+                    SetProgress(i + 1, "Vérification " + (i + 1) + "/" + total + " : " + line.PartNumber);
+                    RefreshGrid();
+                }
+            }
+            finally
+            {
+                if (_depotInv != null) { _depotInv.Dispose(); _depotInv = null; }
             }
 
             Log("Vérification terminée : " + ok + " OK, " + warn + " avertissement(s), " + missing + " introuvable(s).");
@@ -2441,7 +2534,8 @@ namespace AskThem
             List<string> comptes = new List<string>();
             comptes.Add(ok + " complet(s)");
             if (warn > 0) comptes.Add(warn + " sans modèle ou sans plan");
-            if (missing > 0) comptes.Add(missing + " introuvable(s) dans le coffre");
+            if (missing > 0) comptes.Add(missing + (SolidWorksExporter.EstPosteEquipe()
+                ? " introuvable(s) dans le coffre" : " sans document dans l'inventaire"));
             BilanVerification(string.Join(" · ", comptes), warn + missing > 0);
         }
 
@@ -2873,27 +2967,7 @@ namespace AskThem
             _depot = new DepotArticles(_config);
             _folderDepot = Path.Combine(outputFolder, "Documents_base_articles");
 
-            // Les documents vivent dans l'inventaire : une session, et le releve de ce qu'il
-            // possede pour toute la demande en un seul appel.
-            if (_config.DocumentsDansInventaire && !_optCatalogue)
-            {
-                _depotInv = new DepotInventaire(_config);
-                string motif;
-                if (_depotInv.Connecter(out motif))
-                {
-                    Log(motif);
-                    List<string> refs = new List<string>();
-                    foreach (PartLine l in _work)
-                        if (!string.IsNullOrWhiteSpace(l.PartNumber)) refs.Add(l.PartNumber);
-                    _depotInv.Charger(refs, LogFromWorker);
-                }
-                else
-                {
-                    Log("Documents de l'inventaire indisponibles : " + motif);
-                    _depotInv.Dispose();
-                    _depotInv = null;
-                }
-            }
+            if (!_optCatalogue) OuvrirDocumentsInventaire();
 
             _archivePath = outputFolder;
             Log("Dossier de la demande : " + outputFolder);
