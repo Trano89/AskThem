@@ -165,9 +165,13 @@ namespace AskThem.Services
             for (int i = 0; i < f.Marques.Count; i++)
             {
                 string marque = f.Marques[i];
-                if (f.Envoyes.Contains(marque)) continue;
-
                 string msg = Path.Combine(dossier, NomMessage(i + 1, f.Marques.Count));
+                if (f.Envoyes.Contains(marque))
+                {
+                    Rattraper(marque, msg, f);
+                    continue;
+                }
+
                 EnvoiOutlook.MessageEnvoye m = EnvoiOutlook.Chercher(marque, msg, f.PrepareeLe);
                 if (m == null) continue;
 
@@ -255,12 +259,46 @@ namespace AskThem.Services
             }
 
             // Tout est parti et archivé, ou ce qui manque ne partira plus : la copie locale
-            // n'a plus de raison d'être.
-            if (f.DossierArchive != "" && (toutParti || ancien)) Effacer(dossier);
+            // n'a plus de raison d'être. Tant qu'un message parti manque à l'archive, elle reste,
+            // et l'on retente de l'enregistrer au passage suivant.
+            if (f.DossierArchive != "" && (toutParti || ancien) && (TousArchives(f) || ancien)) Effacer(dossier);
             return nouveaux.Count > 0;
         }
 
         /// <summary>Nom du message enregistré tel qu'il est parti.</summary>
+        /// <summary>
+        /// Un message parti dont la copie n'a pas pu être enregistrée — Outlook occupé, archive
+        /// injoignable — est repris dans les éléments envoyés : c'est lui, tel que l'utilisateur
+        /// l'a envoyé après retouches, que l'archive doit garder, jamais le brouillon préparé.
+        /// </summary>
+        private static void Rattraper(string marque, string msgLocal, Fiche f)
+        {
+            string nom = Path.GetFileName(msgLocal);
+            string dansArchive = f.DossierArchive == "" ? "" : Path.Combine(f.DossierArchive, nom);
+            if (dansArchive != "" && File.Exists(dansArchive)) return;
+
+            if (!File.Exists(msgLocal))
+            {
+                if (EnvoiOutlook.Chercher(marque, msgLocal, f.PrepareeLe) == null || !File.Exists(msgLocal)) return;
+                LogService.Write("Message envoyé enregistré au second essai : " + f.NomCible + " — " + nom);
+            }
+            if (dansArchive == "") return;
+            try { File.Copy(msgLocal, dansArchive); }
+            catch (Exception ex) { LogService.Write("Message non ajouté à l'archive " + f.DossierArchive + " : " + ex.Message); }
+        }
+
+        /// <summary>Vrai si chaque message parti a sa copie dans l'archive.</summary>
+        private static bool TousArchives(Fiche f)
+        {
+            if (f.DossierArchive == "") return false;
+            for (int i = 0; i < f.Marques.Count; i++)
+            {
+                if (!f.Envoyes.Contains(f.Marques[i])) continue;
+                if (!File.Exists(Path.Combine(f.DossierArchive, NomMessage(i + 1, f.Marques.Count)))) return false;
+            }
+            return true;
+        }
+
         private static string NomMessage(int numero, int total)
         {
             return total > 1 ? "Message envoyé (" + numero + " sur " + total + ").msg" : "Message envoyé.msg";

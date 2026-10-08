@@ -128,6 +128,9 @@ namespace AskThem
         private DepotArticles _depot;
         private DepotInventaire _depotInv;
         private string _folderDepot;
+
+        /// <summary>Dossier des formulaires de contrôle, dans la demande : eux restent archivés.</summary>
+        private string _folderControles;
         private volatile bool inventaireConnecte;
 
         private DataGridView grid;
@@ -2953,8 +2956,13 @@ namespace AskThem
             string identifiant = string.IsNullOrWhiteSpace(_optSupplierName) ? _optSupplier : _optSupplierName;
             string folderName = DateTime.Now.ToString("yyyy-MM-dd") + "_" + SafeName(identifiant) + "_" + tag;
             string outputFolder = DossierUnique(Path.Combine(RacineDeSortie(), folderName));
-            string folder3D = Path.Combine(outputFolder, "3D_STEP");
-            string folder2D = Path.Combine(outputFolder, "2D_PLANS");
+
+            // Les plans et modèles exportés ne servent qu'à remplir les archives par article :
+            // ils sont produits dans un dossier de travail hors de la demande, puis effacés. La
+            // demande archivée gardait sinon deux fois les mêmes fichiers — en clair, et zippés.
+            string dossierTravail = DossierTravail(folderName);
+            string folder3D = Path.Combine(dossierTravail, "3D_STEP");
+            string folder2D = Path.Combine(dossierTravail, "2D_PLANS");
             string folderZip = Path.Combine(outputFolder, "ZIP_par_article");
             string folderControles = Path.Combine(outputFolder, "ControleFabrication");
             Directory.CreateDirectory(folder3D);
@@ -2965,7 +2973,9 @@ namespace AskThem
             // La base articles : un poste equipe y publie ce qu'il exporte, un poste sans
             // SolidWorks y lit ce qu'il ne peut pas produire.
             _depot = new DepotArticles(_config);
-            _folderDepot = Path.Combine(outputFolder, "Documents_base_articles");
+            // Les documents rapatriés de la base ne servent, eux aussi, qu'à remplir les archives.
+            _folderDepot = Path.Combine(dossierTravail, "Documents_base_articles");
+            _folderControles = folderControles;
 
             if (!_optCatalogue) OuvrirDocumentsInventaire();
 
@@ -3229,6 +3239,9 @@ namespace AskThem
             // le traitement suivant ouvrira la sienne dans le même champ.
             if (_depotInv != null) { _depotInv.Dispose(); _depotInv = null; }
 
+            // Les exports sont dans les archives, et les archives dans les messages.
+            EffacerDossierTravail(dossierTravail);
+
             // --- Étape 10 : bilan ---
             _nbEmails = marques.Count;
             ShowSummary(outputFolder);
@@ -3436,7 +3449,9 @@ namespace AskThem
             // l'a demande.
             if (_optControle && _optType == RequestType.Fabrication)
             {
-                string cf = _depotInv.TelechargerControle(line.PartNumber, dossierArticle, LogFromWorker);
+                // Le formulaire part à part et reste dans la demande archivée, comme sur un poste équipé.
+                Directory.CreateDirectory(_folderControles);
+                string cf = _depotInv.TelechargerControle(line.PartNumber, _folderControles, LogFromWorker);
                 if (cf != null)
                 {
                     line.ControlePath = cf;
@@ -3690,8 +3705,9 @@ namespace AskThem
                 // le demandait.
                 if (_optControle && _optType == RequestType.Fabrication)
                 {
+                    Directory.CreateDirectory(_folderControles);
                     string cf = _depot.GenererControlePour(fiche, _optSupplierName, _optProject,
-                                                          line.Qty1, _folderDepot);
+                                                          line.Qty1, _folderControles);
                     if (cf != null)
                     {
                         line.ControlePath = cf;
@@ -4038,6 +4054,38 @@ namespace AskThem
         private string RacineDeSortie()
         {
             return ArchiveEnAttente.RacineLocale();
+        }
+
+        /// <summary>
+        /// Dossier de travail des exports d'une génération, sur le poste. Ce qu'une génération
+        /// interrompue y a laissé est effacé après deux jours : plus rien n'en dépend.
+        /// </summary>
+        private static string DossierTravail(string nom)
+        {
+            string racine = Path.Combine(Path.GetTempPath(), "AskThem", "exports");
+            try
+            {
+                if (Directory.Exists(racine))
+                {
+                    foreach (string ancien in Directory.GetDirectories(racine))
+                    {
+                        if (Directory.GetLastWriteTime(ancien) >= DateTime.Now.AddDays(-2)) continue;
+                        try { Directory.Delete(ancien, true); }
+                        catch (Exception) { }
+                    }
+                }
+            }
+            catch (Exception) { }
+
+            string chemin = DossierUnique(Path.Combine(racine, nom));
+            Directory.CreateDirectory(chemin);
+            return chemin;
+        }
+
+        private void EffacerDossierTravail(string dossier)
+        {
+            try { if (Directory.Exists(dossier)) Directory.Delete(dossier, true); }
+            catch (Exception ex) { LogService.Write("Dossier de travail non effacé (" + dossier + ") : " + ex.Message); }
         }
 
         /// <summary>Évite d'écraser une demande du même jour pour le même fournisseur.</summary>

@@ -259,14 +259,21 @@ du catalogue.
 ## Dossier de sortie
 
 ```
-<Téléchargements>\AskThem_OFFRE_20260821_1432\
-├── 3D_STEP\             (fichiers .STEP AP203)
-├── 2D_PLANS\            (fichiers .pdf et .dxf)
-└── ZIP_par_article\     (une archive par numéro d'article)
+<Archive>\Offres\2026-10-07_Fournisseur_OFFRE\
+├── ZIP_par_article\     (une archive par numéro d'article : STEP, PDF et DXF)
+├── ControleFabrication\ (formulaires de contrôle, en fabrication)
+└── Message envoyé.msg   (l'email tel qu'il est parti, retouches comprises)
 ```
 
 Ce sont les **archives par article** qui sont jointes à l'email : le destinataire reçoit
-un fichier par article, contenant son STEP, son PDF et son DXF.
+un fichier par article, contenant son STEP, son PDF et son DXF. Les plans et modèles sont
+exportés dans un dossier de travail du poste, puis effacés une fois zippés : la demande ne
+les garde qu'une fois, dans les archives.
+
+Le message archivé est repris dans les **éléments envoyés** d'Outlook, pas sur le brouillon
+préparé par AskThem : ce que l'utilisateur a modifié avant d'envoyer — texte, destinataires,
+pièces jointes — est ce qui est conservé. Si Outlook n'a pas pu l'enregistrer au moment où
+l'envoi est constaté, AskThem réessaie aux passages suivants.
 
 ### Quand la demande ne tient pas dans un seul email
 
