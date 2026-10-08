@@ -3,13 +3,15 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Text;
 using System.Windows.Forms;
+using AskThem.Controls;
 using AskThem.Models;
 using AskThem.Services;
 
 namespace AskThem
 {
     /// <summary>
-    /// Préférences de l'utilisateur : le texte des emails, et le délai des rappels.
+    /// Préférences : le texte des emails et le délai des rappels, propres à l'utilisateur ;
+    /// le découpage des envois, propre au poste.
     ///
     /// Chacun écrit ses messages à sa façon. Le texte se modifie en clair, un aperçu montre
     /// le message tel que le fournisseur le recevra, et un bouton ramène au texte d'origine.
@@ -29,6 +31,9 @@ namespace AskThem
         private WebBrowser apercu;
         private Timer minuterie;
         private NumericUpDown numRappel;
+        private ComboBox cboCompression;
+        private NumericUpDown numTailleMax;
+        private NumericUpDown numPiecesMax;
         private readonly AppConfig _config;
 
         public PreferencesDialog(AppConfig config)
@@ -40,6 +45,8 @@ namespace AskThem
             foreach (NatureTexte n in Enum.GetValues(typeof(NatureTexte)))
                 _textes[n] = perso.ContainsKey(n) ? perso[n] : TextesEmail.Origine(n);
 
+            // Suspendue puis reprise : c'est à la reprise que la fenêtre se met à l'échelle.
+            SuspendLayout();
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
             Text = "Préférences";
@@ -54,6 +61,10 @@ namespace AskThem
             Construire();
 
             cboNature.SelectedIndex = 0;
+
+            ResumeLayout(false);
+            PerformLayout();
+            Ui.TenirDansEcran(this);
         }
 
         private void Construire()
@@ -73,29 +84,41 @@ namespace AskThem
             explication.Height = 44;
             explication.ForeColor = Color.FromArgb(90, 97, 105);
 
-            Label lblNature = new Label();
-            lblNature.Text = "Message :";
-            lblNature.AutoSize = true;
-            lblNature.Location = new Point(0, 8);
+            Label lblNature = Ui.Corps("Message :");
+            lblNature.Anchor = AnchorStyles.Left;
+            lblNature.Margin = new Padding(0, 0, 8, 0);
 
             cboNature = new ComboBox();
             cboNature.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboNature.Location = new Point(90, 4);
             cboNature.Width = 340;
+            cboNature.Margin = new Padding(0, 0, 16, 0);
             foreach (NatureTexte n in Enum.GetValues(typeof(NatureTexte)))
                 cboNature.Items.Add(TextesEmail.Libelle(n));
             cboNature.SelectedIndexChanged += new EventHandler(Nature_Change);
 
-            lblEtat = new Label();
-            lblEtat.AutoSize = true;
-            lblEtat.Location = new Point(448, 8);
+            lblEtat = Ui.Legende("");
+            lblEtat.Anchor = AnchorStyles.Left;
+            lblEtat.Margin = new Padding(0, 0, 16, 0);
 
-            Panel choix = new Panel();
+            // Revenir à l'origine se fait rarement, et se rattrape : des liens suffisent.
+            LinkLabel lnkOrigine = Ui.Lien("Rétablir ce texte", new EventHandler(Origine_Click));
+            lnkOrigine.Anchor = AnchorStyles.Left;
+            lnkOrigine.Margin = new Padding(0, 0, 16, 0);
+            LinkLabel lnkToutOrigine = Ui.Lien("Tout rétablir", new EventHandler(ToutOrigine_Click));
+            lnkToutOrigine.Anchor = AnchorStyles.Left;
+            lnkToutOrigine.Margin = Padding.Empty;
+
+            FlowLayoutPanel choix = new FlowLayoutPanel();
             choix.Dock = DockStyle.Top;
-            choix.Height = 38;
+            choix.AutoSize = true;
+            choix.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            choix.WrapContents = true;
+            choix.Padding = new Padding(0, 4, 0, 8);
             choix.Controls.Add(lblNature);
             choix.Controls.Add(cboNature);
             choix.Controls.Add(lblEtat);
+            choix.Controls.Add(lnkOrigine);
+            choix.Controls.Add(lnkToutOrigine);
 
             // --- éditeur et légende ---
             txtTexte = new TextBox();
@@ -157,43 +180,26 @@ namespace AskThem
             milieu.Controls.Add(gauche, 0, 0);
             milieu.Controls.Add(droite, 1, 0);
 
-            // --- boutons ---
-            Button btnOrigine = new Button();
-            btnOrigine.Text = "Rétablir le texte d'origine";
-            btnOrigine.Size = new Size(AppFont.Width(btnOrigine.Text, 40), 32);
-            btnOrigine.Location = new Point(0, 10);
-            btnOrigine.Click += new EventHandler(Origine_Click);
-
-            Button btnToutOrigine = new Button();
-            btnToutOrigine.Text = "Tout rétablir";
-            btnToutOrigine.Size = new Size(AppFont.Width(btnToutOrigine.Text, 40), 32);
-            btnToutOrigine.Location = new Point(btnOrigine.Right + 8, 10);
-            btnToutOrigine.Click += new EventHandler(ToutOrigine_Click);
-
-            Button btnAnnuler = new Button();
-            btnAnnuler.Text = "Annuler";
-            btnAnnuler.Size = new Size(AppFont.Width(btnAnnuler.Text, 40), 32);
-            btnAnnuler.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            // --- boutons : l'action principale à droite ---
+            Button btnAnnuler = Ui.Secondaire("Annuler");
             btnAnnuler.DialogResult = DialogResult.Cancel;
-
-            Button btnEnregistrer = new Button();
-            btnEnregistrer.Text = "Enregistrer";
-            btnEnregistrer.Size = new Size(AppFont.Width(btnEnregistrer.Text, 40), 32);
-            btnEnregistrer.Anchor = AnchorStyles.Top | AnchorStyles.Right;
+            Button btnEnregistrer = Ui.Primaire("Enregistrer");
             btnEnregistrer.Click += new EventHandler(Enregistrer_Click);
 
-            Panel bas = new Panel();
+            TableLayoutPanel bas = new TableLayoutPanel();
             bas.Dock = DockStyle.Bottom;
-            bas.Height = 52;
-            bas.Controls.Add(btnOrigine);
-            bas.Controls.Add(btnToutOrigine);
-            bas.Controls.Add(btnEnregistrer);
-            bas.Controls.Add(btnAnnuler);
-            bas.Resize += delegate
-            {
-                btnAnnuler.Location = new Point(bas.ClientSize.Width - btnAnnuler.Width, 10);
-                btnEnregistrer.Location = new Point(btnAnnuler.Left - btnEnregistrer.Width - 8, 10);
-            };
+            bas.AutoSize = true;
+            bas.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            bas.ColumnCount = 3;
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            bas.RowCount = 1;
+            bas.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            bas.Padding = new Padding(0, 12, 0, 0);
+            bas.Controls.Add(new Label(), 0, 0);
+            bas.Controls.Add(btnAnnuler, 1, 0);
+            bas.Controls.Add(btnEnregistrer, 2, 0);
 
             // --- onglets : les textes, les rappels ---
             TabPage pageTextes = new TabPage("Textes des emails");
@@ -207,6 +213,7 @@ namespace AskThem
             onglets.Dock = DockStyle.Fill;
             onglets.TabPages.Add(pageTextes);
             onglets.TabPages.Add(PageRappels());
+            onglets.TabPages.Add(PageEnvoi());
 
             Panel corps = new Panel();
             corps.Dock = DockStyle.Fill;
@@ -216,6 +223,7 @@ namespace AskThem
 
             Controls.Add(corps);
             CancelButton = btnAnnuler;
+            AcceptButton = null;     // Entrée sert à aller à la ligne dans le texte
 
             // L'aperçu suit la frappe, sans la ralentir.
             minuterie = new Timer();
@@ -223,63 +231,132 @@ namespace AskThem
             minuterie.Tick += delegate { minuterie.Stop(); Apercu(); };
         }
 
+        /// <summary>Une page de réglages : un titre, une explication, puis des rangées.</summary>
+        private static TableLayoutPanel Formulaire(TabPage page, string titre, string explication)
+        {
+            page.Padding = new Padding(20, 18, 20, 8);
+            page.AutoScroll = true;
+
+            TableLayoutPanel t = new TableLayoutPanel();
+            t.Dock = DockStyle.Top;
+            t.AutoSize = true;
+            t.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            t.ColumnCount = 2;
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+
+            Label lTitre = Ui.Section(titre);
+            lTitre.Margin = new Padding(0, 0, 0, 6);
+            Label lExplication = Ui.Legende(explication);
+            lExplication.Margin = new Padding(0, 0, 0, 18);
+            Large(t, lTitre);
+            Large(t, lExplication);
+            page.Controls.Add(t);
+            return t;
+        }
+
+        /// <summary>Une rangée sur toute la largeur.</summary>
+        private static void Large(TableLayoutPanel t, Control c)
+        {
+            int r = t.RowCount++;
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            t.Controls.Add(c, 0, r);
+            t.SetColumnSpan(c, 2);
+        }
+
+        /// <summary>Une rangée : l'intitulé, puis les contrôles côte à côte.</summary>
+        private static void Reglage(TableLayoutPanel t, string intitule, params Control[] controles)
+        {
+            int r = t.RowCount++;
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            Label l = Ui.Corps(intitule);
+            l.Anchor = AnchorStyles.Left;
+            l.Margin = new Padding(0, 0, 16, 12);
+            FlowLayoutPanel f = new FlowLayoutPanel();
+            f.AutoSize = true;
+            f.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            f.WrapContents = false;
+            f.Margin = new Padding(0, 0, 0, 12);
+            foreach (Control c in controles)
+            {
+                c.Anchor = AnchorStyles.Left;
+                f.Controls.Add(c);
+            }
+            t.Controls.Add(l, 0, r);
+            t.Controls.Add(f, 1, r);
+        }
+
+        private static Label Unite(string texte)
+        {
+            Label l = Ui.Corps(texte);
+            l.Margin = new Padding(6, 0, 16, 0);
+            return l;
+        }
+
         /// <summary>Le délai des rappels, propre à cet utilisateur.</summary>
         private TabPage PageRappels()
         {
             TabPage page = new TabPage("Rappels");
-            page.Padding = new Padding(20, 18, 20, 8);
-
-            Label titre = new Label();
-            titre.Text = "Rappel « Avez-vous reçu une réponse ? »";
-            titre.Font = new Font(AppFont.Family, 14F, FontStyle.Bold);
-            titre.AutoSize = true;
-            titre.Location = new Point(20, 18);
-
-            Label explication = new Label();
-            explication.Text = "Après l'envoi d'une demande, AskThem vous demande si le fournisseur a répondu. "
-                             + "« Pas encore » repose la question après le même délai." + System.Environment.NewLine
-                             + "Ce réglage vaut pour vous seul, sur tous vos postes, et reste en place lors des mises à jour.";
-            explication.ForeColor = Color.FromArgb(90, 97, 105);
-            explication.Location = new Point(20, 58);
-            explication.Size = new Size(820, 44);
-
-            Label lbl = new Label();
-            lbl.Text = "Délai avant rappel :";
-            lbl.AutoSize = true;
-            lbl.Location = new Point(20, 124);
+            TableLayoutPanel t = Formulaire(page, "Rappel « Avez-vous reçu une réponse ? »",
+                "Après l'envoi d'une demande, AskThem vous demande si le fournisseur a répondu. "
+              + "« Pas encore » repose la question après le même délai. Ce réglage vaut pour vous "
+              + "seul, sur tous vos postes, et reste en place lors des mises à jour.");
 
             numRappel = new NumericUpDown();
             numRappel.Minimum = 1;
             numRappel.Maximum = 90;
             numRappel.Width = 70;
-            numRappel.Location = new Point(lbl.Left + AppFont.Width(lbl.Text, 16), 120);
             numRappel.Value = Math.Max(1, Math.Min(90, PreferencesUtilisateur.DelaiRappel(_config)));
 
-            Label jours = new Label();
-            jours.Text = "jours";
-            jours.AutoSize = true;
-            jours.Location = new Point(numRappel.Right + 8, 124);
+            LinkLabel origine = Ui.Lien("Rétablir " + PreferencesUtilisateur.RappelParDefaut + " jours",
+                delegate { numRappel.Value = PreferencesUtilisateur.RappelParDefaut; });
+            origine.Margin = Padding.Empty;
+            Reglage(t, "Délai avant rappel", numRappel, Unite("jours"), origine);
 
-            Button origine = new Button();
-            origine.Text = "Rétablir " + PreferencesUtilisateur.RappelParDefaut + " jours";
-            origine.Size = new Size(AppFont.Width(origine.Text, 36), 30);
-            origine.Location = new Point(jours.Left + 60, 118);
-            origine.Click += delegate { numRappel.Value = PreferencesUtilisateur.RappelParDefaut; };
+            Label note = Ui.Legende("Les rappels déjà programmés gardent leur date ; le nouveau délai vaut "
+                                  + "pour les prochains envois et pour chaque « Pas encore ».");
+            Large(t, note);
+            return page;
+        }
 
-            Label note = new Label();
-            note.Text = "Les rappels déjà programmés gardent leur date ; le nouveau délai vaut pour les prochains envois "
-                      + "et pour chaque « Pas encore ».";
-            note.ForeColor = Color.FromArgb(120, 127, 135);
-            note.Location = new Point(20, 168);
-            note.Size = new Size(820, 40);
+        /// <summary>
+        /// Le découpage des envois, propre au poste : il dépend de la messagerie, pas de la
+        /// demande. Ces réglages encombraient l'écran principal, où personne ne les changeait.
+        /// </summary>
+        private TabPage PageEnvoi()
+        {
+            TabPage page = new TabPage("Envoi");
+            TableLayoutPanel t = Formulaire(page, "Pièces jointes",
+                "Une demande trop lourde pour un seul email est répartie sur plusieurs messages. "
+              + "Ces réglages valent pour ce poste, pour tous ses utilisateurs.");
 
-            page.Controls.Add(titre);
-            page.Controls.Add(explication);
-            page.Controls.Add(lbl);
-            page.Controls.Add(numRappel);
-            page.Controls.Add(jours);
-            page.Controls.Add(origine);
-            page.Controls.Add(note);
+            numTailleMax = new NumericUpDown();
+            numTailleMax.Minimum = 1;
+            numTailleMax.Maximum = 200;
+            numTailleMax.Width = 70;
+            numTailleMax.Value = Math.Max(1, Math.Min(200, _config == null ? 20 : _config.ZipThresholdMb));
+            Reglage(t, "Taille par email, au plus", numTailleMax, Unite("Mo"));
+
+            numPiecesMax = new NumericUpDown();
+            numPiecesMax.Minimum = 1;
+            numPiecesMax.Maximum = 200;
+            numPiecesMax.Width = 70;
+            numPiecesMax.Value = Math.Max(1, Math.Min(200, _config == null ? 25 : _config.MaxAttachments));
+            Reglage(t, "Pièces jointes par email, au plus", numPiecesMax, Unite("fichiers"));
+
+            cboCompression = new ComboBox();
+            cboCompression.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboCompression.Width = 140;
+            cboCompression.Items.AddRange(ZipService.Niveaux);
+            cboCompression.SelectedItem = ZipService.Niveaux[2];
+            if (_config != null)
+                foreach (string n in ZipService.Niveaux)
+                    if (n == _config.ZipCompression) cboCompression.SelectedItem = n;
+            Reglage(t, "Compression des archives", cboCompression);
+
+            Label note = Ui.Legende("Une compression plus forte allège les messages, mais prend plus de temps "
+                                  + "à la préparation.");
+            Large(t, note);
             return page;
         }
 
@@ -383,6 +460,30 @@ namespace AskThem
             {
                 MessageBox.Show(this, message, "Préférences", MessageBoxButtons.OK, MessageBoxIcon.Error);
                 return;
+            }
+
+            // Les réglages du poste ne s'écrivent que s'ils ont changé : le fichier est
+            // partagé par tous les utilisateurs du poste.
+            if (_config != null)
+            {
+                int taille = (int)numTailleMax.Value;
+                int pieces = (int)numPiecesMax.Value;
+                string compression = cboCompression.SelectedItem as string;
+                if (string.IsNullOrEmpty(compression)) compression = _config.ZipCompression;
+                if (taille != _config.ZipThresholdMb || pieces != _config.MaxAttachments
+                    || compression != _config.ZipCompression)
+                {
+                    _config.ZipThresholdMb = taille;
+                    _config.MaxAttachments = pieces;
+                    _config.ZipCompression = compression;
+                    try { ConfigService.Save(_config); }
+                    catch (Exception ex)
+                    {
+                        MessageBox.Show(this, "Les réglages d'envoi n'ont pas pu être enregistrés : " + ex.Message,
+                            "Préférences", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        return;
+                    }
+                }
             }
             DialogResult = DialogResult.OK;
             Close();

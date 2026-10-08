@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using AskThem.Controls;
 using AskThem.Models;
 using AskThem.Services;
 
@@ -23,6 +24,8 @@ namespace AskThem
         {
             _config = config;
 
+            // Suspendue puis reprise : c'est à la reprise que la fenêtre se met à l'échelle.
+            SuspendLayout();
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
             Text = "Connexion à l'inventaire";
@@ -79,6 +82,10 @@ namespace AskThem
             Controls.Add(lblEtat);
             Controls.Add(note);
             Controls.Add(BuildBottom());
+
+            ResumeLayout(false);
+            PerformLayout();
+            Ui.TenirDansEcran(this);
         }
 
         private Panel BuildBottom()

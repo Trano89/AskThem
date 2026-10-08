@@ -22,8 +22,20 @@ namespace AskThem.Controls
         private static readonly Color Encre = Color.FromArgb(21, 24, 28);
         private static readonly Color EncreDouce = Color.FromArgb(90, 97, 105);
 
+        // Créées une fois : en créer deux à chaque dessin, au survol, épuisait les GDI.
+        private static readonly Font PoliceTitre = new Font(AppFont.Family, 12F, FontStyle.Bold);
+        private static readonly Font PoliceTexte = AppFont.Get();
+
         private bool _survole;
         private bool _appuye;
+        private bool _selectionne;
+
+        /// <summary>Le choix en cours, repéré quand on revient à cette étape.</summary>
+        public bool Selectionne
+        {
+            get { return _selectionne; }
+            set { _selectionne = value; Invalidate(); }
+        }
 
         /// <summary>Ligne de titre, en gras.</summary>
         public string Titre { get; set; }
@@ -35,13 +47,38 @@ namespace AskThem.Controls
         {
             Titre = "";
             Explication = "";
-            Height = 86;
+            Height = LogicalToDeviceUnits(86);
             FlatStyle = FlatStyle.Flat;
             FlatAppearance.BorderSize = 0;
             BackColor = Fond;
             UseVisualStyleBackColor = false;
             SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint
                    | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
+        }
+
+        private int MargeX { get { return LogicalToDeviceUnits(20); } }
+        private int MargeY { get { return LogicalToDeviceUnits(14); } }
+        private int Ecart { get { return LogicalToDeviceUnits(4); } }
+
+        /// <summary>
+        /// La hauteur qu'il faut pour tout lire à cette largeur. Fixée en pixels, elle
+        /// rognait l'explication dès que l'écran était mis à l'échelle.
+        /// </summary>
+        public int HauteurPour(int largeur)
+        {
+            int utile = Math.Max(40, largeur - MargeX * 2);
+            Size t = TextRenderer.MeasureText(Titre, PoliceTitre, new Size(utile, int.MaxValue),
+                TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+            Size x = TextRenderer.MeasureText(Explication, PoliceTexte, new Size(utile, int.MaxValue),
+                TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+            return MargeY * 2 + t.Height + Ecart + x.Height;
+        }
+
+        protected override void OnSizeChanged(EventArgs e)
+        {
+            base.OnSizeChanged(e);
+            int h = HauteurPour(Width);
+            if (Height != h) Height = h;
         }
 
         protected override void OnMouseEnter(EventArgs e)
@@ -80,29 +117,29 @@ namespace AskThem.Controls
             g.Clear(Parent == null ? SystemColors.Control : Parent.BackColor);
 
             Rectangle r = new Rectangle(0, 0, Width - 1, Height - 1);
-            Color fond = _appuye ? FondAppuye : (_survole ? FondSurvol : Fond);
-            Color bord = (_survole || Focused) ? BordureSurvol : Bordure;
+            Color fond = _appuye ? FondAppuye : (_survole || _selectionne ? FondSurvol : Fond);
+            bool accent = _survole || Focused || _selectionne;
+            Color bord = accent ? BordureSurvol : Bordure;
 
             using (SolidBrush b = new SolidBrush(fond))
-            using (Pen p = new Pen(bord, _survole || Focused ? 2f : 1f))
+            using (Pen p = new Pen(bord, accent ? 2f : 1f))
             {
                 g.FillRectangle(b, r);
                 g.DrawRectangle(p, r);
             }
 
-            int marge = 20;
-            using (Font fTitre = new Font(AppFont.Family, 13F, FontStyle.Bold))
-            using (Font fTexte = new Font(AppFont.Family, 9.5F, FontStyle.Regular))
-            {
-                Rectangle rTitre = new Rectangle(marge, 14, Width - marge * 2, 26);
-                TextRenderer.DrawText(g, Titre, fTitre, rTitre, Encre,
-                    TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
+            int utile = Math.Max(40, Width - MargeX * 2);
+            Size t = TextRenderer.MeasureText(Titre, PoliceTitre, new Size(utile, int.MaxValue),
+                TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
+            Rectangle rTitre = new Rectangle(MargeX, MargeY, utile, t.Height);
+            TextRenderer.DrawText(g, Titre, PoliceTitre, rTitre, Encre,
+                TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak | TextFormatFlags.NoPrefix);
 
-                Rectangle rTexte = new Rectangle(marge, 42, Width - marge * 2, Height - 52);
-                TextRenderer.DrawText(g, Explication, fTexte, rTexte, EncreDouce,
-                    TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak
-                    | TextFormatFlags.NoPrefix);
-            }
+            int y = MargeY + t.Height + Ecart;
+            Rectangle rTexte = new Rectangle(MargeX, y, utile, Math.Max(0, Height - y - MargeY / 2));
+            TextRenderer.DrawText(g, Explication, PoliceTexte, rTexte, EncreDouce,
+                TextFormatFlags.Left | TextFormatFlags.Top | TextFormatFlags.WordBreak
+                | TextFormatFlags.NoPrefix);
         }
     }
 }

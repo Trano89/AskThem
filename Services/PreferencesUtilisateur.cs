@@ -22,6 +22,9 @@ namespace AskThem.Services
         /// </summary>
         public int RappelJours { get; set; }
 
+        /// <summary>Dernière vue utilisée : vrai pour la vue complète, faux pour le mode guidé.</summary>
+        public bool VueComplete { get; set; }
+
         public static string Chemin()
         {
             return Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.ApplicationData),

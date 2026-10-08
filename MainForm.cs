@@ -40,6 +40,13 @@ namespace AskThem
         private volatile Dictionary<string, InventoryService.Entry> _inventaire;
         private List<PartLine> _work;
         private volatile bool _cancelRequested;
+
+        // Ce que le traitement a relevé, pour son bilan : le résumé tient sur une ligne, le
+        // détail s'ouvre à la demande.
+        private string _pointsResume = "";
+        private string _pointsDetail = "";
+        private int _nbEmails;
+        private string _erreurOutlook = "";
         private bool _busy;
 
         // Options figées au démarrage du traitement (lues sur le thread interface).
@@ -82,7 +89,6 @@ namespace AskThem
         /// </summary>
         private volatile int _generation;
 
-
         /// <summary>Type pour lequel les cases ont été réglées : on ne les force qu'à un changement.</summary>
         private RequestType? _typeApplique;
         private UpdateService.UpdateInfo _update;
@@ -96,17 +102,29 @@ namespace AskThem
         private Label lblInfo;
 
         private Panel panelTools;
-        private Button btnAddLine;
         private Button btnPaste;
         private Button btnImportCsv;
-        private Button btnExportCsv;
-        private Button btnClear;
-        private Button btnInventaire;
-        private Label pastilleInventaire;
-        private Label lblPoste;
-        private Button btnBaseArticles;
-        private Button btnPreferences;
-        private Button btnSuivi;
+        private Button btnListe;
+
+        // Barre d'application : les deux vues à gauche, le suivi et les outils à droite.
+        private ToolStrip barreApp;
+        private ToolStripButton btnModeGuide;
+        private ToolStripButton btnModeComplet;
+        private ToolStripButton btnSuiviApp;
+        private ToolStripDropDownButton menuOutils;
+        private ToolStripMenuItem mnuJournal;
+
+        /// <summary>Vue affichée : la vue complète, ou le mode guidé.</summary>
+        private bool _vueComplete;
+
+        // Barre d'état commune aux deux vues.
+        private StatusStrip barreEtat;
+        private ToolStripStatusLabel lblInventaire;
+        private ToolStripStatusLabel lblPoste;
+        private Panel panelJournal;
+        private BandeauInfo bandeau;
+        private LinkLabel lnkRetirerPo;
+        private CheckBox chkDelai;
         private DepotArticles _depot;
         private DepotInventaire _depotInv;
         private string _folderDepot;
@@ -137,8 +155,10 @@ namespace AskThem
         private Button btnSuppliers;
         private Button btnRecherche;
         private AssistantPanel panelAssistant;
+        private TableLayoutPanel vueComplete;
+        private TableLayoutPanel actionsVue;
+        private bool _separateursPlaces;
         private Panel panelComplet;
-        private SelecteurMode selecteurMode;
         private ToolTip toolTip = new ToolTip();
         private TextBox txtProject;
         private DateTimePicker dtpDeadline;
@@ -146,36 +166,25 @@ namespace AskThem
         private CheckBox chk2D;
         private CheckBox chkControleFabrication;
         private CheckBox chkLivraison;
-        private ComboBox cboCompression;
-        private NumericUpDown numTailleMax;
-        private NumericUpDown numPiecesMax;
         private ContextMenuStrip menuGrille;
         private ToolStripMenuItem mnuControleFabrication;
         private TextBox txtConditions;
         private Label lblPo;
         private TextBox txtPo;
         private Button btnPo;
-        private Panel groupePo;
         private Button btnVerify;
         private Button btnGenerate;
 
-        private Panel panelStatus;
-
         // Separateurs deplacables : l'utilisateur repartit l'espace comme il l'entend.
-        private SplitContainer splitPrincipal;
         private SplitContainer splitCentre;
-        private SplitContainer splitBas;
 
         // Hauteurs souhaitees au demarrage, deduites du contenu.
-        private int hauteurParams;
-        private int hauteurStatus;
         private int largeurDetail;
         private bool separateurDeplaceParUtilisateur;
-        private Panel panelStatusLine;
-        private ProgressBar progress;
-        private Label lblProgress;
-        private Button btnCancel;
-        private Button btnUpdate;
+        private ToolStripProgressBar progress;
+        private ToolStripStatusLabel lblProgress;
+        private ToolStripStatusLabel btnCancel;
+        private ToolStripButton btnUpdate;
         private TextBox txtLog;
 
         public MainForm()
@@ -186,6 +195,10 @@ namespace AskThem
             // Sans mise a l'echelle explicite, les polices suivent la densite d'ecran
             // mais pas les hauteurs de panneaux : les controles se retrouvent rognes
             // lors d'une session distante ou sur un ecran a densite differente.
+            // La mise à l'échelle n'a lieu qu'à la reprise d'une mise en page suspendue :
+            // sans SuspendLayout, elle ne se faisait jamais, et à 150 % tout ce qui avait une
+            // taille fixée restait à 100 % sous un texte agrandi.
+            SuspendLayout();
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
 
@@ -193,7 +206,10 @@ namespace AskThem
             AppIcon.Apply(this);
             Font = AppFont.Get();
             Size = new Size(1180, 760);
-            MinimumSize = new Size(1000, 640);
+
+            // Utilisable jusqu'à 820 × 560 : un portable à 150 % n'offre guère plus.
+            MinimumSize = new Size(820, 560);
+            BackColor = Theme.Fond;
             StartPosition = FormStartPosition.CenterScreen;
 
             BuildTopPanel();
@@ -204,6 +220,8 @@ namespace AskThem
             BuildStatusPanel();
 
             AssembleAvecSeparateurs();
+            ResumeLayout(false);
+            PerformLayout();
 
             ApplyMode();
             LoadSuppliers();
@@ -217,115 +235,130 @@ namespace AskThem
         // Construction de l'interface
         // ==================================================================
 
+        /// <summary>
+        /// La demande, en tête : sa nature et son destinataire, dans l'ordre où le mode guidé
+        /// les demande. Le destinataire était en bas, sous la grille, alors que c'est lui qui
+        /// décide de la validation de chaque article saisi.
+        /// </summary>
         private void BuildTopPanel()
         {
-            panelTop = new Panel();
-            panelTop.Dock = DockStyle.Top;
+            TableLayoutPanel t = new TableLayoutPanel();
+            t.Dock = DockStyle.Top;
+            t.AutoSize = true;
+            t.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            t.ColumnCount = 1;
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            t.RowCount = 2;
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            t.Margin = new Padding(0, 0, 0, 8);
+            panelTop = t;
 
-            // Trois natures de demande : un interrupteur ne pouvait plus les exprimer.
-            Label lblType = new Label();
-            lblType.Font = AppFont.Get();
-            lblType.Text = "Type de demande :";
-            lblType.Location = new Point(12, 20);
-            lblType.AutoSize = true;
+            Label lblType = Ui.Corps("Type de demande");
+            lblType.Anchor = AnchorStyles.Left;
+            lblType.Margin = new Padding(0, 6, 8, 0);
 
             cboType = new ComboBox();
             cboType.Font = AppFont.Get();
             cboType.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboType.Location = new Point(lblType.Right + 10, 16);
-            cboType.Width = AppFont.Width(RequestTypes.Libelle(RequestType.Fabrication), 60);
-            foreach (RequestType t in new RequestType[] {
+            cboType.Width = 220;
+            cboType.Margin = new Padding(0, 2, 24, 0);
+            foreach (RequestType ty in new RequestType[] {
                          RequestType.Offre, RequestType.Fabrication, RequestType.CommandeCatalogue })
-                cboType.Items.Add(new ChoixTypeDemande(t));
+                cboType.Items.Add(new ChoixTypeDemande(ty));
             cboType.SelectedIndex = 0;
             cboType.SelectedIndexChanged += new EventHandler(TypeDemande_Change);
 
-            lblInfo = new Label();
-            lblInfo.Font = AppFont.Get();
-            lblInfo.Text = "Saisissez ou collez (Ctrl+V depuis Excel) vos numéros d'article.";
-            lblInfo.ForeColor = Color.Gray;
-            lblInfo.Location = new Point(cboType.Right + 32, 20);
-            lblInfo.AutoSize = true;
+            Label lblDest = Ui.Corps("Destinataire");
+            lblDest.Anchor = AnchorStyles.Left;
+            lblDest.Margin = new Padding(0, 6, 8, 0);
 
-            panelTop.Controls.Add(lblType);
-            panelTop.Controls.Add(cboType);
-            panelTop.Height = Math.Max(cboType.Height, lblInfo.PreferredHeight) + 34;
-            panelTop.Controls.Add(lblInfo);
+            cboSupplier = new ComboBox();
+            cboSupplier.Font = AppFont.Get();
+            cboSupplier.DropDownStyle = ComboBoxStyle.DropDownList;
+            cboSupplier.Width = 260;
+            cboSupplier.Margin = new Padding(0, 2, 0, 0);
+            cboSupplier.SelectedIndexChanged += new EventHandler(Supplier_Changed);
+
+            btnSuppliers = Ui.Secondaire("Gérer…");
+            btnSuppliers.Click += new EventHandler(BtnSuppliers_Click);
+            toolTip.SetToolTip(btnSuppliers, "Ajouter ou modifier des fournisseurs.");
+
+            lblInfo = Ui.Legende("");
+            lblInfo.Margin = new Padding(0, 6, 0, 0);
+
+            // Deux groupes qui passent l'un sous l'autre quand la fenêtre est étroite : sur une
+            // seule rangée, le bouton « Gérer… » sortait de l'écran.
+            FlowLayoutPanel groupeType = Ui.Rangee();
+            groupeType.Margin = new Padding(0, 0, 0, 4);
+            groupeType.Controls.Add(lblType);
+            groupeType.Controls.Add(cboType);
+            FlowLayoutPanel groupeDest = Ui.Rangee();
+            groupeDest.Margin = new Padding(0, 0, 0, 4);
+            groupeDest.Controls.Add(lblDest);
+            groupeDest.Controls.Add(cboSupplier);
+            groupeDest.Controls.Add(btnSuppliers);
+            FlowLayoutPanel ligne = new FlowLayoutPanel();
+            ligne.AutoSize = true;
+            ligne.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            ligne.WrapContents = true;
+            ligne.Dock = DockStyle.Fill;
+            ligne.Margin = Padding.Empty;
+            ligne.Controls.Add(groupeType);
+            ligne.Controls.Add(groupeDest);
+
+            t.Controls.Add(ligne, 0, 0);
+            t.Controls.Add(lblInfo, 0, 1);
         }
 
+        /// <summary>
+        /// Sous la demande, ce qu'il faut savoir : la nature choisie, et à qui le message ira.
+        /// </summary>
+        private void MajInfo()
+        {
+            if (lblInfo == null || cboType == null) return;
+            string texte = RequestTypes.Description(CurrentType);
+            Supplier s = SelectedSupplier;
+            if (s != null && !string.IsNullOrWhiteSpace(s.ToLine)) texte += "  ·  " + s.ToLine;
+            lblInfo.Text = texte;
+        }
+
+        /// <summary>
+        /// Ce qui agit sur la liste des articles, et rien d'autre : les réglages de
+        /// l'application sont passés dans « Outils », en haut à droite.
+        /// </summary>
         private void BuildToolsPanel()
         {
-            panelTools = new Panel();
-            panelTools.Dock = DockStyle.Top;
+            FlowLayoutPanel f = Ui.Rangee();
+            f.Dock = DockStyle.Top;
+            f.Margin = new Padding(0, 0, 0, 8);
+            panelTools = f;
 
-            btnAddLine = MakeToolButton("Ajouter ligne");
-            btnAddLine.Click += new EventHandler(BtnAddLine_Click);
+            btnRecherche = Ui.Secondaire("Rechercher un article…");
+            btnRecherche.Margin = Padding.Empty;
+            btnRecherche.Click += new EventHandler(BtnRecherche_Click);
+            toolTip.SetToolTip(btnRecherche,
+                "Chercher un article dans le coffre et dans l'inventaire, à fabriquer ou au catalogue.");
 
-            btnPaste = MakeToolButton("Coller Excel");
+            btnPaste = Ui.Secondaire("Coller depuis Excel");
             btnPaste.Click += new EventHandler(BtnPaste_Click);
 
-            btnImportCsv = MakeToolButton("Importer liste");
+            btnImportCsv = Ui.Secondaire("Importer un fichier…");
             btnImportCsv.Click += new EventHandler(BtnImportCsv_Click);
 
-            btnExportCsv = MakeToolButton("Exporter CSV");
-            btnExportCsv.Click += new EventHandler(BtnExportCsv_Click);
+            ContextMenuStrip menuListe = new ContextMenuStrip();
+            menuListe.Items.Add("Ajouter une ligne", null, new EventHandler(BtnAddLine_Click));
+            menuListe.Items.Add("Exporter la liste (CSV)…", null, new EventHandler(BtnExportCsv_Click));
+            menuListe.Items.Add(new ToolStripSeparator());
+            menuListe.Items.Add("Vider la liste…", null, new EventHandler(BtnClear_Click));
 
-            btnClear = MakeToolButton("Tout vider");
-            btnClear.Click += new EventHandler(BtnClear_Click);
+            btnListe = Ui.Secondaire("Liste ▾");
+            btnListe.Click += delegate { menuListe.Show(btnListe, new Point(0, btnListe.Height)); };
 
-            btnInventaire = MakeToolButton("Inventaire…");
-            btnInventaire.Click += new EventHandler(BtnInventaire_Click);
-
-            btnBaseArticles = MakeToolButton("Base articles…");
-            btnBaseArticles.Click += new EventHandler(BtnBaseArticles_Click);
-
-            btnSuivi = MakeToolButton("Suivi des demandes…");
-            btnSuivi.Click += new EventHandler(BtnSuivi_Click);
-            toolTip.SetToolTip(btnSuivi, "Vos demandes parties : réponse reçue, relance, clôture.");
-
-            btnPreferences = MakeToolButton("Préférences…");
-            btnPreferences.Click += new EventHandler(BtnPreferences_Click);
-            toolTip.SetToolTip(btnPreferences, "Adapter le texte des emails. Vos textes sont conservés lors des mises à jour.");
-
-            // Les boutons s'enchaînent selon leur largeur mesurée : aucune position figée.
-            // La campagne n'a de sens que sur un poste qui sait produire des documents : le
-            // bouton n'apparaît pas ailleurs, plutôt que d'être présent et de refuser.
-            List<Button> boutons = new List<Button> { btnAddLine, btnPaste, btnImportCsv,
-                                                      btnExportCsv, btnClear, btnInventaire };
-            if (SolidWorksExporter.EstPosteEquipe()) boutons.Add(btnBaseArticles);
-            boutons.Add(btnSuivi);
-            boutons.Add(btnPreferences);
-
-            int x = 12;
-            foreach (Button b in boutons)
-            {
-                b.Location = new Point(x, 8);
-                panelTools.Controls.Add(b);
-                x += b.Width + 8;
-            }
-            pastilleInventaire = new Label();
-            pastilleInventaire.Size = new Size(14, 14);
-            pastilleInventaire.Location = new Point(x, btnInventaire.Top + (btnInventaire.Height - 14) / 2);
-            using (System.Drawing.Drawing2D.GraphicsPath rond = new System.Drawing.Drawing2D.GraphicsPath())
-            {
-                rond.AddEllipse(0, 0, 14, 14);
-                pastilleInventaire.Region = new Region(rond);
-            }
-            panelTools.Controls.Add(pastilleInventaire);
-
-            // Ce que le poste sait produire, annonce des l'ouverture : un acheteur sans
-            // SolidWorks doit le savoir avant de preparer une demande, pas au moment de
-            // l'envoyer.
-            lblPoste = new Label();
-            lblPoste.Font = AppFont.Get();
-            lblPoste.AutoSize = true;
-            lblPoste.Location = new Point(pastilleInventaire.Right + 18,
-                                          btnInventaire.Top + (btnInventaire.Height - lblPoste.PreferredHeight) / 2);
-            panelTools.Controls.Add(lblPoste);
-            AfficherEtatPoste();
-
-            panelTools.Height = btnAddLine.Height + 16;
-            AfficherEtatInventaire(false, "État de la connexion inconnu.");
+            f.Controls.Add(btnRecherche);
+            f.Controls.Add(btnPaste);
+            f.Controls.Add(btnImportCsv);
+            f.Controls.Add(btnListe);
         }
 
         /// <summary>
@@ -386,10 +419,11 @@ namespace AskThem
             grid.AllowUserToDeleteRows = true;
             grid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            grid.RowHeadersWidth = 30;
-            grid.ColumnHeadersHeight = AppFont.Width("Hg", 0) > 0 ? 34 : 34;
-            grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.EnableResizing;
-            grid.RowTemplate.Height = 30;
+            // La grille ne suit pas la mise à l'échelle de la fenêtre : ses hauteurs se
+            // règlent ici, en pixels réels, d'après le texte qu'elles portent.
+            grid.RowHeadersWidth = AppFont.Px(30);
+            grid.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            grid.RowTemplate.Height = AppFont.Get().Height + AppFont.Px(10);
             grid.VirtualMode = false;
             grid.AutoGenerateColumns = false;
             // Un seul clic suffit pour modifier une cellule (au lieu du double-clic par defaut).
@@ -838,82 +872,90 @@ namespace AskThem
         }
 
         /// <summary>
-        /// Bandeau de paramètres en disposition fluide : chaque groupe est dimensionné
-        /// d'après son texte, et l'ensemble se replie tout seul quand la fenêtre rétrécit.
-        /// Les positions en pixels ne survivaient pas à un changement de police.
+        /// Les détails de la demande, sous la liste, dans une grille à deux colonnes de champs.
+        /// La compression et les seuils d'envoi relèvent du poste : ils sont dans Préférences.
         /// </summary>
         private void BuildParamsPanel()
         {
-            panelParams = new Panel();
-            panelParams.Dock = DockStyle.Bottom;
-            // Largeur realiste avant toute mesure : sans elle, les groupes s'empilent
-            // au lieu de se repartir, et la hauteur deduite est trois fois trop grande.
-            panelParams.Width = ClientSize.Width;
-            hauteurParams = 176;
-            panelParams.Height = hauteurParams;
-            panelParams.Padding = new Padding(12, 8, 12, 8);
-
-            // --- Les deux actions, toujours à droite ---
-            btnVerify = new Button();
-            btnVerify.Text = "Vérifier";
-            btnVerify.Size = new Size(AppFont.Width(btnVerify.Text, 44), 38);
-            btnVerify.Click += new EventHandler(BtnVerify_Click);
-
-            btnGenerate = new Button();
-            btnGenerate.Text = "Générer la demande";
-            btnGenerate.Size = new Size(AppFont.Width(btnGenerate.Text, 44), 38);
-            btnGenerate.BackColor = Color.FromArgb(0, 90, 158);
-            btnGenerate.ForeColor = Color.White;
-            btnGenerate.FlatStyle = FlatStyle.Flat;
-            btnGenerate.Click += new EventHandler(BtnGenerate_Click);
-
-            Panel actions = new Panel();
-            actions.Dock = DockStyle.Right;
-            actions.Width = btnVerify.Width + btnGenerate.Width + 24;
-            actions.Padding = new Padding(12, 0, 0, 0);
-            btnVerify.Location = new Point(12, 8);
-            btnGenerate.Location = new Point(12 + btnVerify.Width + 10, 8);
-            actions.Controls.Add(btnVerify);
-            actions.Controls.Add(btnGenerate);
-
-            // --- Les champs, qui se replient selon la largeur ---
-            FlowLayoutPanel flow = new FlowLayoutPanel();
-            flow.Dock = DockStyle.Fill;
-            flow.FlowDirection = FlowDirection.LeftToRight;
-            flow.WrapContents = true;
-            flow.AutoScroll = true;
-
-            cboSupplier = new ComboBox();
-            cboSupplier.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboSupplier.Width = 260;
-            cboSupplier.SelectedIndexChanged += new EventHandler(Supplier_Changed);
-
-            btnSuppliers = new Button();
-            btnSuppliers.Text = "Fournisseurs…";
-            btnSuppliers.Size = new Size(AppFont.Width(btnSuppliers.Text, 34), 30);
-            btnSuppliers.Click += new EventHandler(BtnSuppliers_Click);
+            TableLayoutPanel t = new TableLayoutPanel();
+            t.Dock = DockStyle.Top;
+            t.AutoSize = true;
+            t.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            t.ColumnCount = 4;
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            t.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50F));
+            t.Margin = new Padding(0, 8, 0, 0);
+            panelParams = t;
 
             txtProject = new TextBox();
-            txtProject.Width = 170;
+            txtProject.Font = AppFont.Get();
+            txtProject.PlaceholderText = "ex. P-2026-031";
+            txtProject.Dock = DockStyle.Fill;
+            txtProject.Margin = new Padding(0, 2, 0, 4);
+
+            chkDelai = new CheckBox();
+            chkDelai.Text = "Indiquer une date";
+            chkDelai.AutoSize = true;
+            chkDelai.Margin = new Padding(0, 4, 8, 0);
 
             dtpDeadline = new DateTimePicker();
             dtpDeadline.Format = DateTimePickerFormat.Short;
-            dtpDeadline.ShowCheckBox = true;
-            dtpDeadline.Checked = false;
-            dtpDeadline.Width = 160;
+            dtpDeadline.Width = 130;
+            dtpDeadline.Enabled = false;
+            dtpDeadline.Margin = new Padding(0, 2, 0, 0);
+            chkDelai.CheckedChanged += delegate { dtpDeadline.Enabled = chkDelai.Checked; };
+
+            FlowLayoutPanel delai = Ui.Rangee();
+            delai.Controls.Add(chkDelai);
+            delai.Controls.Add(dtpDeadline);
+
+            lblPo = Ui.Corps(LibellePo(true));
+            lblPo.Anchor = AnchorStyles.Left;
+
+            txtPo = new TextBox();
+            txtPo.Font = AppFont.Get();
+            txtPo.Width = 320;
+            txtPo.ReadOnly = true;
+            txtPo.PlaceholderText = "aucun fichier choisi";
+            txtPo.Margin = new Padding(0, 2, 0, 0);
+            txtPo.TextChanged += delegate { lnkRetirerPo.Visible = txtPo.Text.Trim() != ""; };
+
+            btnPo = Ui.Secondaire("Choisir un PDF…");
+            btnPo.Click += new EventHandler(BtnPo_Click);
+
+            lnkRetirerPo = Ui.Lien("Retirer", delegate { txtPo.Text = ""; Log("Document joint retiré."); });
+            lnkRetirerPo.Margin = new Padding(12, 8, 0, 0);
+            lnkRetirerPo.Visible = false;
+
+            FlowLayoutPanel po = Ui.Rangee();
+            po.Margin = new Padding(0, 4, 0, 4);
+            po.Controls.Add(txtPo);
+            po.Controls.Add(btnPo);
+            po.Controls.Add(lnkRetirerPo);
+
+            txtConditions = new TextBox();
+            txtConditions.Font = AppFont.Get();
+            txtConditions.Multiline = true;
+            txtConditions.ScrollBars = ScrollBars.Vertical;
+            txtConditions.Dock = DockStyle.Fill;
+            txtConditions.Height = AppFont.HauteurLigne() * 3 + 10;
+            txtConditions.Margin = new Padding(0, 2, 0, 4);
+            txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage…";
 
             chk3D = new CheckBox();
-            chk3D.Text = "Exporter 3D (STEP AP203)";
+            chk3D.Text = "Modèle 3D (STEP)";
             chk3D.AutoSize = true;
             chk3D.Checked = _config.Export3D;
 
             chk2D = new CheckBox();
-            chk2D.Text = "Exporter 2D (PDF + DXF)";
+            chk2D.Text = "Plan (PDF + DXF)";
             chk2D.AutoSize = true;
             chk2D.Checked = _config.Export2D;
 
             chkControleFabrication = new CheckBox();
-            chkControleFabrication.Text = "Générer le contrôle de fabrication (PDF) — bêta";
+            chkControleFabrication.Text = "Contrôle de fabrication (PDF, bêta)";
             chkControleFabrication.AutoSize = true;
             chkControleFabrication.Checked = false;
             toolTip.SetToolTip(chkControleFabrication,
@@ -929,208 +971,91 @@ namespace AskThem
                 + "À décocher quand le transport est déjà réglé : accord-cadre, enlèvement "
                 + "sur place, ou port déjà convenu avec ce fournisseur.");
 
-            cboCompression = new ComboBox();
-            cboCompression.DropDownStyle = ComboBoxStyle.DropDownList;
-            cboCompression.Width = 130;
-            cboCompression.Items.AddRange(ZipService.Niveaux);
-            cboCompression.SelectedItem = ZipService.Niveaux[2];
-            foreach (string n in ZipService.Niveaux)
-                if (string.Equals(n, _config.ZipCompression, StringComparison.OrdinalIgnoreCase))
-                    cboCompression.SelectedItem = n;
-            cboCompression.SelectedIndexChanged += new EventHandler(Compression_Changee);
-            toolTip.SetToolTip(cboCompression,
-                "Compression des archives jointes. Sur les exports du coffre, « Maximale » ne gagne "
-                + "que trois pour cent de plus qu'« Optimal » pour quatre fois le temps.");
+            FlowLayoutPanel joindre = Ui.Rangee();
+            joindre.WrapContents = true;
+            joindre.Margin = new Padding(0, 4, 0, 0);
+            foreach (CheckBox c in new CheckBox[] { chk3D, chk2D, chkControleFabrication, chkLivraison })
+            {
+                c.Margin = new Padding(0, 0, 20, 0);
+                joindre.Controls.Add(c);
+            }
 
-            // Ces deux seuils décident du découpage en plusieurs emails : les laisser
-            // dans config.json seul rendait le comportement inexplicable depuis l'interface.
-            numTailleMax = new NumericUpDown();
-            numTailleMax.Minimum = 1;
-            numTailleMax.Maximum = 200;
-            numTailleMax.Width = 70;
-            numTailleMax.Value = Math.Max(1, Math.Min(200, _config.ZipThresholdMb));
-            numTailleMax.ValueChanged += new EventHandler(Seuils_Changes);
-            toolTip.SetToolTip(numTailleMax,
-                "Poids maximal des pièces jointes d'un message. Au-delà, la demande part en plusieurs emails. "
-                + "Votre serveur de messagerie peut être plus strict que cette valeur.");
+            Label lRef = Ui.Corps("Réf. commande");
+            Label lDelai = Ui.Corps("Délai souhaité");
+            Label lCom = Ui.Corps("Commentaire");
+            Label lJoindre = Ui.Corps("Joindre");
+            foreach (Label l in new Label[] { lRef, lDelai, lCom, lJoindre, lblPo })
+            {
+                l.Anchor = AnchorStyles.Left | AnchorStyles.Top;
+                l.Margin = new Padding(0, 6, 12, 0);
+            }
+            lDelai.Margin = new Padding(24, 6, 12, 0);
 
-            numPiecesMax = new NumericUpDown();
-            numPiecesMax.Minimum = 1;
-            numPiecesMax.Maximum = 200;
-            numPiecesMax.Width = 70;
-            numPiecesMax.Value = Math.Max(1, Math.Min(200, _config.MaxAttachments));
-            numPiecesMax.ValueChanged += new EventHandler(Seuils_Changes);
-            toolTip.SetToolTip(numPiecesMax,
-                "Nombre maximal de pièces jointes d'un message. Au-delà, la demande part en plusieurs emails.");
+            t.RowCount = 4;
+            for (int i = 0; i < 4; i++) t.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            t.Controls.Add(lRef, 0, 0);
+            t.Controls.Add(txtProject, 1, 0);
+            t.Controls.Add(lDelai, 2, 0);
+            t.Controls.Add(delai, 3, 0);
+            t.Controls.Add(lblPo, 0, 1);
+            t.Controls.Add(po, 1, 1);
+            t.SetColumnSpan(po, 3);
+            t.Controls.Add(lCom, 0, 2);
+            t.Controls.Add(txtConditions, 1, 2);
+            t.SetColumnSpan(txtConditions, 3);
+            t.Controls.Add(lJoindre, 0, 3);
+            t.Controls.Add(joindre, 1, 3);
+            t.SetColumnSpan(joindre, 3);
 
-            lblPo = new Label();
-            lblPo.Text = LibellePo(true);
-            lblPo.AutoSize = true;
-
-            txtPo = new TextBox();
-            txtPo.Width = 240;
-            txtPo.ReadOnly = true;
-            txtPo.PlaceholderText = "aucun fichier choisi";
-
-            btnPo = new Button();
-            btnPo.Text = "Parcourir…";
-            btnPo.Size = new Size(AppFont.Width(btnPo.Text, 34), 30);
-            btnPo.Click += new EventHandler(BtnPo_Click);
-
-            txtConditions = new TextBox();
-            txtConditions.Multiline = true;
-            txtConditions.ScrollBars = ScrollBars.Vertical;
-            txtConditions.Size = new Size(520, 68);
-            txtConditions.PlaceholderText = "Délais de paiement, incoterms, exigences qualité, emballage...";
-
-            btnRecherche = new Button();
-            btnRecherche.Text = "Rechercher…";
-            btnRecherche.Size = new Size(AppFont.Width(btnRecherche.Text, 34), 30);
-            btnRecherche.Click += new EventHandler(BtnRecherche_Click);
-            toolTip.SetToolTip(btnRecherche,
-                "Chercher un article dans le coffre et dans l'inventaire, à fabriquer ou au catalogue.");
-
-            flow.Controls.Add(Groupe("Destinataire :", cboSupplier, btnSuppliers));
-            flow.Controls.Add(Groupe("", btnRecherche, null));
-            flow.Controls.Add(Groupe("Référence commande :", txtProject, null));
-            flow.Controls.Add(Groupe("Délai souhaité :", dtpDeadline, null));
-            flow.Controls.Add(Groupe("", chk3D, chk2D));
-            flow.Controls.Add(Groupe("", chkControleFabrication, null));
-            flow.Controls.Add(Groupe("", chkLivraison, null));
-            flow.Controls.Add(Groupe("Compression des archives :", cboCompression, null));
-            flow.Controls.Add(Groupe("Par email, au plus (Mo / pièces) :", numTailleMax, numPiecesMax));
-            groupePo = Groupe(lblPo.Text, txtPo, btnPo);
-            flow.Controls.Add(groupePo);
-            flow.Controls.Add(Groupe("Commentaire général (bas de l'email) :", txtConditions, null));
-
-            panelParams.Controls.Add(flow);
-            panelParams.Controls.Add(actions);
-
-            // Hauteur reelle une fois les groupes repartis sur la largeur disponible.
-            flow.PerformLayout();
-            int bas = 0;
-            foreach (Control g in flow.Controls) bas = Math.Max(bas, g.Bottom + g.Margin.Bottom);
-            if (bas > 0) hauteurParams = bas + panelParams.Padding.Vertical + 10;
+            // --- les deux actions, en bas à droite ---
+            btnVerify = Ui.Secondaire("Vérifier les articles");
+            btnVerify.Click += new EventHandler(BtnVerify_Click);
+            btnGenerate = Ui.Primaire("Générer la demande");
+            btnGenerate.Click += new EventHandler(BtnGenerate_Click);
         }
 
         /// <summary>
-        /// Un groupe intitulé + champ, dimensionné d'après son contenu : c'est lui qui
-        /// permet au bandeau de se replier proprement quelle que soit la police.
+        /// La barre d'état, commune aux deux vues : l'état du traitement, l'inventaire, ce que
+        /// le poste sait produire, et le journal — replié, car il ne sert qu'à comprendre un
+        /// problème.
         /// </summary>
-        private Panel Groupe(string intitule, Control champ, Control complement)
-        {
-            Panel g = new Panel();
-            g.Margin = new Padding(0, 4, 22, 6);
-
-            // La police doit être posée avant de mesurer : un contrôle non rattaché
-            // se mesure encore avec la police par défaut, et le texte se retrouve coupé.
-            champ.Font = AppFont.Get();
-            if (complement != null) complement.Font = AppFont.Get();
-
-            int y = 0;
-            int largeur = LargeurReelle(champ);
-
-            if (intitule != "")
-            {
-                Label l = new Label();
-                l.Font = AppFont.Get();
-                l.Text = intitule;
-                l.AutoSize = true;
-                l.Location = new Point(0, 0);
-                g.Controls.Add(l);
-                y = l.PreferredHeight + 4;
-                largeur = Math.Max(largeur, l.PreferredSize.Width);
-            }
-
-            champ.Location = new Point(0, y);
-            g.Controls.Add(champ);
-
-            if (complement != null)
-            {
-                // Le complément se place à droite du champ, ou sous lui pour une case à cocher.
-                if (complement is CheckBox)
-                {
-                    complement.Location = new Point(0, y + HauteurReelle(champ) + 6);
-                    largeur = Math.Max(largeur, LargeurReelle(complement));
-                    g.Height = y + HauteurReelle(champ) + 6 + HauteurReelle(complement);
-                }
-                else
-                {
-                    complement.Location = new Point(LargeurReelle(champ) + 8, y - 1);
-                    largeur = LargeurReelle(champ) + 8 + LargeurReelle(complement);
-                    g.Height = y + Math.Max(HauteurReelle(champ), HauteurReelle(complement));
-                }
-                g.Controls.Add(complement);
-            }
-            else
-            {
-                g.Height = y + HauteurReelle(champ);
-            }
-
-            g.Width = largeur;
-            return g;
-        }
-
-        /// <summary>
-        /// Largeur d'un contrôle, en tenant compte de l'auto-dimensionnement : tant que
-        /// le contrôle n'est pas affiché, sa propriété Width n'est pas encore à jour.
-        /// </summary>
-        private static int LargeurReelle(Control c)
-        {
-            if (c.AutoSize) return Math.Max(c.Width, c.PreferredSize.Width);
-            return c.Width;
-        }
-
-        private static int HauteurReelle(Control c)
-        {
-            if (c.AutoSize) return Math.Max(c.Height, c.PreferredSize.Height);
-            return c.Height;
-        }
-
         private void BuildStatusPanel()
         {
-            panelStatus = new Panel();
-            panelStatus.Dock = DockStyle.Bottom;
-            hauteurStatus = 96;
-            panelStatus.Height = hauteurStatus;
+            barreEtat = new StatusStrip();
+            barreEtat.Font = AppFont.Get();
+            barreEtat.SizingGrip = true;
+            barreEtat.BackColor = Theme.Fond;
 
-            progress = new ProgressBar();
-            progress.Dock = DockStyle.Top;
-            progress.Height = 20;
+            lblProgress = new ToolStripStatusLabel("Prêt.");
+            lblProgress.Spring = true;
+            lblProgress.TextAlign = ContentAlignment.MiddleLeft;
 
-            panelStatusLine = new Panel();
-            panelStatusLine.Dock = DockStyle.Top;
-            panelStatusLine.Height = 34;
+            progress = new ToolStripProgressBar();
+            progress.Size = new Size(160, 16);
+            progress.Visible = false;
 
-            lblProgress = new Label();
-            lblProgress.Text = "Prêt.";
-            lblProgress.Location = new Point(6, 8);
-            lblProgress.AutoSize = true;
-
-            btnCancel = new Button();
-            btnCancel.Text = "Annuler";
-            btnCancel.Width = 110;
-            btnCancel.Height = 26;
-            btnCancel.Location = new Point(panelStatusLine.Width - 122, 2);
-            btnCancel.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnCancel.Enabled = false;
+            btnCancel = new ToolStripStatusLabel("Annuler");
+            btnCancel.IsLink = true;
+            btnCancel.Visible = false;
             btnCancel.Click += new EventHandler(BtnCancel_Click);
 
-            btnUpdate = new Button();
-            btnUpdate.Text = "Mettre à jour";
-            btnUpdate.Width = 140;
-            btnUpdate.Height = 26;
-            btnUpdate.Location = new Point(panelStatusLine.Width - 270, 2);
-            btnUpdate.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            btnUpdate.Visible = false;
-            btnUpdate.BackColor = Color.FromArgb(0, 120, 70);
-            btnUpdate.ForeColor = Color.White;
-            btnUpdate.FlatStyle = FlatStyle.Flat;
-            btnUpdate.Click += new EventHandler(BtnUpdate_Click);
+            lblInventaire = new ToolStripStatusLabel("● Inventaire");
+            lblInventaire.IsLink = false;
+            lblInventaire.Click += new EventHandler(BtnInventaire_Click);
 
-            panelStatusLine.Controls.Add(lblProgress);
-            panelStatusLine.Controls.Add(btnUpdate);
-            panelStatusLine.Controls.Add(btnCancel);
+            lblPoste = new ToolStripStatusLabel("");
+            lblPoste.ForeColor = Theme.Texte2;
+
+            ToolStripStatusLabel lnkJournal = new ToolStripStatusLabel("Journal");
+            lnkJournal.IsLink = true;
+            lnkJournal.Click += delegate { BasculerJournal(!panelJournal.Visible); };
+
+            barreEtat.Items.Add(lblProgress);
+            barreEtat.Items.Add(progress);
+            barreEtat.Items.Add(btnCancel);
+            barreEtat.Items.Add(lblInventaire);
+            barreEtat.Items.Add(lblPoste);
+            barreEtat.Items.Add(lnkJournal);
 
             txtLog = new TextBox();
             txtLog.Multiline = true;
@@ -1138,28 +1063,123 @@ namespace AskThem
             txtLog.ReadOnly = true;
             txtLog.Dock = DockStyle.Fill;
             txtLog.BackColor = Color.White;
+            txtLog.BorderStyle = BorderStyle.None;
 
-            // Le dernier ajouté est ancré au plus près du bord haut du panneau.
-            panelStatus.Controls.Add(txtLog);
-            panelStatus.Controls.Add(panelStatusLine);
-            panelStatus.Controls.Add(progress);
+            panelJournal = new Panel();
+            panelJournal.Dock = DockStyle.Bottom;
+            panelJournal.Height = 140;
+            panelJournal.Padding = new Padding(16, 6, 16, 6);
+            panelJournal.BackColor = Color.White;
+            panelJournal.Visible = false;
+            panelJournal.Controls.Add(txtLog);
+            panelJournal.Controls.Add(Ui.Separateur());
+
+            AfficherEtatPoste();
+            AfficherEtatInventaire(false, "État de la connexion inconnu.");
+        }
+
+        /// <summary>Affiche ou replie le journal.</summary>
+        private void BasculerJournal(bool visible)
+        {
+            panelJournal.Visible = visible;
+            if (mnuJournal != null) mnuJournal.Checked = visible;
+        }
+
+        /// <summary>
+        /// La barre d'application : les deux vues à gauche ; le suivi, la mise à jour et les
+        /// outils à droite. Elle remplace la rangée de neuf boutons qui débordait de la
+        /// fenêtre, et les boutons posés sur le titre du mode guidé.
+        /// </summary>
+        private void BuildBarreApp()
+        {
+            barreApp = new ToolStrip();
+            barreApp.Font = AppFont.Get();
+            barreApp.GripStyle = ToolStripGripStyle.Hidden;
+            barreApp.RenderMode = ToolStripRenderMode.System;
+            barreApp.Padding = new Padding(8, 4, 8, 4);
+            barreApp.BackColor = Theme.Fond;
+            barreApp.Dock = DockStyle.Top;
+
+            btnModeGuide = new ToolStripButton("Guidé");
+            btnModeGuide.Click += delegate { ChoisirVue(false); };
+            btnModeComplet = new ToolStripButton("Vue complète");
+            btnModeComplet.Click += delegate { ChoisirVue(true); };
+
+            menuOutils = new ToolStripDropDownButton("Outils");
+            menuOutils.Alignment = ToolStripItemAlignment.Right;
+            ToolStripMenuItem nouvelle = new ToolStripMenuItem("Nouvelle demande");
+            nouvelle.ShortcutKeys = Keys.Control | Keys.N;
+            nouvelle.Click += delegate { if (!_busy) NouvelleDemandeComplete(); };
+            menuOutils.DropDownItems.Add(nouvelle);
+            menuOutils.DropDownItems.Add(new ToolStripSeparator());
+            menuOutils.DropDownItems.Add("Fournisseurs…", null, new EventHandler(BtnSuppliers_Click));
+            menuOutils.DropDownItems.Add("Connexion à l'inventaire…", null, new EventHandler(BtnInventaire_Click));
+            ToolStripItem baseArticles = menuOutils.DropDownItems.Add("Base articles…", null, new EventHandler(BtnBaseArticles_Click));
+            // La campagne n'a de sens que sur un poste qui sait produire des documents.
+            baseArticles.Visible = SolidWorksExporter.EstPosteEquipe();
+            menuOutils.DropDownItems.Add(new ToolStripSeparator());
+            menuOutils.DropDownItems.Add("Préférences…", null, new EventHandler(BtnPreferences_Click));
+            mnuJournal = new ToolStripMenuItem("Afficher le journal");
+            mnuJournal.Click += delegate { BasculerJournal(!panelJournal.Visible); };
+            menuOutils.DropDownItems.Add(mnuJournal);
+            menuOutils.DropDownItems.Add(new ToolStripSeparator());
+            ToolStripItem version = menuOutils.DropDownItems.Add("AskThem " + UpdateService.CurrentVersion());
+            version.Enabled = false;
+
+            btnSuiviApp = new ToolStripButton("Suivi des demandes");
+            btnSuiviApp.Alignment = ToolStripItemAlignment.Right;
+            btnSuiviApp.Click += new EventHandler(BtnSuivi_Click);
+            btnSuiviApp.ToolTipText = "Vos demandes parties : réponse reçue, relance, clôture.";
+
+            btnUpdate = new ToolStripButton("Mise à jour disponible");
+            btnUpdate.Alignment = ToolStripItemAlignment.Right;
+            btnUpdate.ForeColor = Theme.Accent;
+            btnUpdate.Visible = false;
+            btnUpdate.Click += new EventHandler(BtnUpdate_Click);
+
+            barreApp.Items.Add(btnModeGuide);
+            barreApp.Items.Add(btnModeComplet);
+            // Alignés à droite, les éléments se placent de droite à gauche dans l'ordre d'ajout.
+            barreApp.Items.Add(menuOutils);
+            barreApp.Items.Add(btnSuiviApp);
+            barreApp.Items.Add(btnUpdate);
+        }
+
+        /// <summary>Passe d'une vue à l'autre ; ce qui a été saisi suit, dans les deux sens.</summary>
+        private void ChoisirVue(bool complete)
+        {
+            if (complete == _vueComplete && (panelComplet.Visible == complete)) return;
+            if (complete)
+            {
+                panelAssistant.Synchroniser();
+                AppliquerDemande(panelAssistant.Demande);
+            }
+            else
+            {
+                panelAssistant.Charger(DemandeCourante());
+            }
+            _vueComplete = complete;
+            AppliquerMode();
+
+            // La vue choisie est retenue : celui qui travaille en vue complète n'a pas à
+            // rebasculer à chaque lancement.
+            PreferencesUtilisateur prefs = PreferencesUtilisateur.Lire();
+            if (prefs.VueComplete != complete)
+            {
+                prefs.VueComplete = complete;
+                string m;
+                prefs.Enregistrer(out m);
+            }
         }
 
         // ==================================================================
         // Comportements de l'interface
         // ==================================================================
 
-        /// <summary>
-        /// Assemble la fenêtre autour de trois séparateurs déplaçables : entre la grille
-        /// et le volet de détail, entre le haut et le bas, et entre les paramètres et le
-        /// journal. Chacun peut être déplacé, chaque zone agrandie ou réduite.
-        /// </summary>
         private void AssembleAvecSeparateurs()
         {
             grid.Dock = DockStyle.Fill;
             panelDetail.Dock = DockStyle.Fill;
-            panelParams.Dock = DockStyle.Fill;
-            panelStatus.Dock = DockStyle.Fill;
 
             splitCentre = new SplitContainer();
             splitCentre.Dock = DockStyle.Fill;
@@ -1169,32 +1189,63 @@ namespace AskThem
             splitCentre.SplitterMoving += new SplitterCancelEventHandler(Separateur_Deplace);
             splitCentre.Panel1.Controls.Add(grid);
             splitCentre.Panel2.Controls.Add(panelDetail);
+            splitCentre.Margin = Padding.Empty;
 
-            splitBas = new SplitContainer();
-            splitBas.Dock = DockStyle.Fill;
-            splitBas.Orientation = Orientation.Horizontal;
-            splitBas.SplitterWidth = 6;
-            splitBas.FixedPanel = FixedPanel.Panel1;      // les paramètres gardent leur hauteur, le journal absorbe
-            splitBas.SplitterMoving += new SplitterCancelEventHandler(Separateur_Deplace);
-            splitBas.Panel1.Controls.Add(panelParams);
-            splitBas.Panel2.Controls.Add(panelStatus);
+            bandeau = new BandeauInfo();
+            bandeau.Margin = new Padding(0, 8, 0, 0);
 
-            splitPrincipal = new SplitContainer();
-            splitPrincipal.Dock = DockStyle.Fill;
-            splitPrincipal.Orientation = Orientation.Horizontal;
-            splitPrincipal.SplitterWidth = 6;
-            splitPrincipal.FixedPanel = FixedPanel.Panel2; // le bas garde sa hauteur, la grille absorbe
-            splitPrincipal.SplitterMoving += new SplitterCancelEventHandler(Separateur_Deplace);
-            splitPrincipal.Panel1.Controls.Add(splitCentre);
-            splitPrincipal.Panel2.Controls.Add(splitBas);
+            TableLayoutPanel actions = new TableLayoutPanel();
+            actions.Dock = DockStyle.Top;
+            actions.AutoSize = true;
+            actions.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            actions.ColumnCount = 3;
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            actions.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            actions.RowCount = 1;
+            actions.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            actions.Margin = new Padding(0, 12, 0, 0);
+            actions.Controls.Add(new Label(), 0, 0);
+            actions.Controls.Add(btnVerify, 1, 0);
+            actions.Controls.Add(btnGenerate, 2, 0);
 
-            // La vue complète est rassemblée dans son propre panneau : le mode guidé prend
-            // exactement la même place, et l'on passe de l'un à l'autre sans fenêtre par-dessus.
+            // La vue complète, de haut en bas dans l'ordre du travail : la demande, les
+            // articles, les détails, le bilan, et l'action.
+            TableLayoutPanel vue = new TableLayoutPanel();
+            vueComplete = vue;
+            actionsVue = actions;
+            vue.Dock = DockStyle.Top;
+            vue.ColumnCount = 1;
+            vue.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            vue.Padding = new Padding(16, 12, 16, 8);
+            vue.RowCount = 6;
+            vue.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            vue.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            vue.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            vue.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            vue.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            vue.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            panelTop.Dock = DockStyle.Fill;
+            panelTools.Dock = DockStyle.Fill;
+            panelParams.Dock = DockStyle.Fill;
+            bandeau.Dock = DockStyle.Fill;
+            actions.Dock = DockStyle.Fill;
+            vue.Controls.Add(panelTop, 0, 0);
+            vue.Controls.Add(panelTools, 0, 1);
+            vue.Controls.Add(splitCentre, 0, 2);
+            vue.Controls.Add(panelParams, 0, 3);
+            vue.Controls.Add(bandeau, 0, 4);
+            vue.Controls.Add(actions, 0, 5);
+
             panelComplet = new Panel();
             panelComplet.Dock = DockStyle.Fill;
-            panelComplet.Controls.Add(splitPrincipal);
-            panelComplet.Controls.Add(panelTools);
-            panelComplet.Controls.Add(panelTop);
+            panelComplet.BackColor = Theme.Fond;
+            panelComplet.AutoScroll = true;
+            panelComplet.Controls.Add(vue);
+            panelComplet.Resize += delegate { AjusterVue(); };
+            bandeau.SizeChanged += delegate { AjusterVue(); };
+            bandeau.VisibleChanged += delegate { AjusterVue(); };
+            splitCentre.SizeChanged += delegate { if (!_separateursPlaces) AppliquerSeparateurs(); };
 
             panelAssistant = new AssistantPanel(_config, _suppliers,
                 delegate { return _inventaire; },
@@ -1203,55 +1254,55 @@ namespace AskThem
             panelAssistant.FournisseursChanges += new EventHandler(Assistant_FournisseursChanges);
             panelAssistant.Verifier += new EventHandler(Assistant_Verifier);
             panelAssistant.Annuler += new EventHandler(BtnCancel_Click);
-            panelAssistant.BaseArticles += new EventHandler(BtnBaseArticles_Click);
-            panelAssistant.Preferences += new EventHandler(BtnPreferences_Click);
-            panelAssistant.Suivi += new EventHandler(BtnSuivi_Click);
+            panelAssistant.NouvelleDemande += new EventHandler(Assistant_NouvelleDemande);
 
-            selecteurMode = new SelecteurMode();
-            selecteurMode.Font = AppFont.Get();
-            selecteurMode.TexteGauche = "Guidé";
-            selecteurMode.TexteDroite = "Vue complète";
-            selecteurMode.Width = selecteurMode.LargeurUtile;
-            selecteurMode.Height = 32;
-            selecteurMode.Location = new Point(14, 9);
-            selecteurMode.ModeChange += new EventHandler(Mode_Change);
+            BuildBarreApp();
 
-            panelModes = new Panel();
-            panelModes.Dock = DockStyle.Top;
-            panelModes.Height = 50;
-            panelModes.Controls.Add(selecteurMode);
-
+            // Ordre d'ajout : le dernier ajouté se docke le plus près du bord.
             Controls.Add(panelComplet);
             Controls.Add(panelAssistant);
-            Controls.Add(panelModes);
+            Controls.Add(panelJournal);
+            Controls.Add(barreEtat);
+            Controls.Add(barreApp);
 
+            _vueComplete = PreferencesUtilisateur.Lire().VueComplete;
             AppliquerMode();
         }
 
-        private Panel panelModes;
+        /// <summary>
+        /// La vue complète garde de quoi voir la grille : quand la fenêtre est trop basse,
+        /// elle défile plutôt que d'écraser la liste des articles — c'est elle qu'on remplit.
+        /// </summary>
+        private void AjusterVue()
+        {
+            if (panelComplet == null || vueComplete == null) return;
+            int largeur = Math.Max(1, panelComplet.ClientSize.Width - vueComplete.Padding.Horizontal);
+            int fixe = vueComplete.Padding.Vertical;
+            foreach (Control c in new Control[] { panelTop, panelTools, panelParams, bandeau, actionsVue })
+            {
+                if (c == null || !c.Visible) continue;
+                fixe += c.GetPreferredSize(new Size(largeur, 0)).Height + c.Margin.Vertical;
+            }
+            int minimum = fixe + LogicalToDeviceUnits(160);
+            int h = Math.Max(panelComplet.ClientSize.Height, minimum);
+            if (vueComplete.Height != h) vueComplete.Height = h;
+        }
 
-        /// <summary>Montre la vue choisie. Les deux remplissent les mêmes champs.</summary>
         private void AppliquerMode()
         {
-            bool complet = selecteurMode.Complet;
+            bool complet = _vueComplete;
             panelComplet.Visible = complet;
             panelAssistant.Visible = !complet;
+            btnModeGuide.Checked = !complet;
+            btnModeComplet.Checked = complet;
             if (complet) panelComplet.BringToFront(); else panelAssistant.BringToFront();
-        }
-
-        private void Mode_Change(object sender, EventArgs e)
-        {
-            // Ce qui a été saisi d'un côté se retrouve de l'autre, dans les deux sens.
-            if (selecteurMode.Complet)
+            if (complet)
             {
-                panelAssistant.Synchroniser();
-                AppliquerDemande(panelAssistant.Demande);
+                AjusterVue();
+                // Le volet de détail se place quand la vue est visible : cachée, elle n'a
+                // pas de largeur, et le volet restait à sa largeur minimale.
+                if (!_separateursPlaces) { PerformLayout(); AppliquerSeparateurs(); }
             }
-            else
-            {
-                panelAssistant.Charger(DemandeCourante());
-            }
-            AppliquerMode();
         }
 
         /// <summary>Ce que la vue complète contient, sous la forme que l'assistant attend.</summary>
@@ -1266,7 +1317,7 @@ namespace AskThem
             d.Type = CurrentType;
             d.Destinataire = SelectedSupplier;
             d.ReferenceCommande = txtProject.Text.Trim();
-            d.Delai = dtpDeadline.Checked ? (DateTime?)dtpDeadline.Value : null;
+            d.Delai = chkDelai.Checked ? (DateTime?)dtpDeadline.Value : null;
             d.CheminPo = txtPo.Text.Trim();
             d.Commentaire = txtConditions.Text;
             d.Export3D = chk3D.Checked;
@@ -1292,17 +1343,42 @@ namespace AskThem
             Log(_suppliers.Count + " fournisseur(s) enregistré(s) sur le réseau.");
         }
 
+        /// <summary>
+        /// Repart d'une demande vierge, une fois la précédente préparée : la liste, la
+        /// référence, le délai, le document joint et le commentaire. Le type et les cases
+        /// restent : on enchaîne souvent des demandes de même nature.
+        /// </summary>
+        private void Assistant_NouvelleDemande(object sender, EventArgs e)
+        {
+            NouvelleDemande();
+        }
+
+        /// <summary>Depuis la vue complète : les deux vues repartent ensemble.</summary>
+        private void NouvelleDemandeComplete()
+        {
+            NouvelleDemande();
+            panelAssistant.Reinitialiser();
+        }
+
+        private void NouvelleDemande()
+        {
+            _lines.Clear();
+            _lines.Add(new PartLine());
+            txtProject.Text = "";
+            chkDelai.Checked = false;
+            txtPo.Text = "";
+            txtConditions.Text = "";
+            if (cboSupplier.Items.Count > 0) cboSupplier.SelectedIndex = 0;
+            bandeau.Masquer();
+            RefreshGrid();
+        }
+
         private void Assistant_Generer(object sender, EventArgs e)
         {
             AppliquerDemande(panelAssistant.Demande);
             StartProcess(true);
         }
 
-        /// <summary>
-        /// Position initiale des séparateurs, appliquée à l'affichage après un agencement
-        /// complet : avant cela les conteneurs n'ont pas leur taille définitive, et toutes
-        /// les distances calculées seraient rabotées.
-        /// </summary>
         /// <summary>Reporte dans les contrôles ce que l'assistant a recueilli.</summary>
         private void AppliquerDemande(DemandeEnCours d)
         {
@@ -1332,7 +1408,7 @@ namespace AskThem
             if (_lines.Count == 0) _lines.Add(new PartLine());
 
             txtProject.Text = d.ReferenceCommande;
-            dtpDeadline.Checked = d.Delai.HasValue;
+            chkDelai.Checked = d.Delai.HasValue;
             if (d.Delai.HasValue) dtpDeadline.Value = d.Delai.Value;
             txtPo.Text = d.CheminPo;
             txtConditions.Text = d.Commentaire;
@@ -1342,6 +1418,20 @@ namespace AskThem
             chkLivraison.Checked = d.DemanderLivraison;
 
             RefreshGrid();
+        }
+
+        /// <summary>
+        /// La fenêtre tient dans l'écran. Sa taille de départ, mise à l'échelle à 150 %,
+        /// dépassait un écran 1080p : le bas — là où sont les boutons — tombait hors de vue.
+        /// </summary>
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            Rectangle zone = Screen.FromControl(this).WorkingArea;
+            MinimumSize = new Size(Math.Min(MinimumSize.Width, zone.Width), Math.Min(MinimumSize.Height, zone.Height));
+            int w = Math.Min(Width, zone.Width);
+            int h = Math.Min(Height, zone.Height);
+            Bounds = new Rectangle(zone.Left + (zone.Width - w) / 2, zone.Top + (zone.Height - h) / 2, w, h);
         }
 
         protected override void OnShown(EventArgs e)
@@ -1410,18 +1500,19 @@ namespace AskThem
 
         private void AppliquerSeparateurs()
         {
-            if (separateurDeplaceParUtilisateur || splitPrincipal == null) return;
-            if (splitPrincipal.Height < 420 || splitCentre.Width < 640) return;
-
-            ReglerSeparateur(splitPrincipal, 140, 160,
-                splitPrincipal.Height - hauteurParams - hauteurStatus - splitBas.SplitterWidth);
-
-            // Le bas ne connait sa hauteur qu'une fois le separateur principal applique.
-            splitPrincipal.PerformLayout();
-            splitBas.PerformLayout();
-
-            ReglerSeparateur(splitCentre, 320, 220, splitCentre.Width - largeurDetail);
-            ReglerSeparateur(splitBas, 90, 70, hauteurParams);
+            if (separateurDeplaceParUtilisateur || splitCentre == null) return;
+            int volet = LogicalToDeviceUnits(300);
+            int minGrille = LogicalToDeviceUnits(320);
+            int minVolet = LogicalToDeviceUnits(220);
+            if (splitCentre.Width < minGrille + minVolet + splitCentre.SplitterWidth) return;
+            try
+            {
+                splitCentre.Panel1MinSize = minGrille;
+                splitCentre.Panel2MinSize = minVolet;
+                splitCentre.SplitterDistance = Math.Max(minGrille, splitCentre.Width - volet - splitCentre.SplitterWidth);
+                _separateursPlaces = true;
+            }
+            catch (Exception) { }
         }
 
         /// <summary>
@@ -1507,10 +1598,11 @@ namespace AskThem
             colQty2.Visible = offre;
             colQty3.Visible = offre;
 
-            // Un achat catalogue ne livre aucun fichier : ces réglages n'ont rien à régler.
-            chk3D.Enabled = !catalogue;
-            chk2D.Enabled = !catalogue;
-            lblInfo.Text = RequestTypes.Description(type);
+            // Un achat catalogue ne livre aucun fichier : ces cases n'ont rien à régler.
+            chk3D.Visible = !catalogue;
+            chk2D.Visible = !catalogue;
+            chkControleFabrication.Visible = type == RequestType.Fabrication;
+            MajInfo();
 
             // Le controle n'accompagne qu'une fabrication : sur une offre la piece n'est pas
             // encore commandee, et un article de catalogue ne se controle pas sur plan. Une
@@ -1525,13 +1617,7 @@ namespace AskThem
 
             // Le document joint change de nature selon le mode : bon de commande en
             // fabrication, demande de PO en offre. Il reste facultatif en offre.
-            if (groupePo != null)
-            {
-                foreach (Control c in groupePo.Controls)
-                {
-                    if (c is Label) { ((Label)c).Text = LibellePo(offre); break; }
-                }
-            }
+            if (lblPo != null) lblPo.Text = LibellePo(offre);
 
             if (!offre)
             {
@@ -1567,7 +1653,7 @@ namespace AskThem
 
             UiInvoke(delegate
             {
-                btnUpdate.Text = "Mettre à jour → " + info.LatestVersion;
+                btnUpdate.Text = "Mise à jour " + info.LatestVersion + " disponible";
                 btnUpdate.Visible = true;
 
                 // Le bouton du bandeau n'existe pas en mode guidé, et se remarque peu même
@@ -1657,11 +1743,16 @@ namespace AskThem
             FillSupplierBox(null);
         }
 
-        /// <summary>Remplit la liste déroulante et resélectionne le fournisseur indiqué.</summary>
+        /// <summary>
+        /// Remplit la liste des destinataires. Aucun n'est choisi d'office : le premier de la
+        /// liste était présélectionné, et une demande pouvait partir chez lui sans qu'on l'ait
+        /// voulu.
+        /// </summary>
         private void FillSupplierBox(string nomARetrouver)
         {
             cboSupplier.BeginUpdate();
             cboSupplier.Items.Clear();
+            cboSupplier.Items.Add("Choisir un fournisseur…");
             foreach (Supplier s in _suppliers) cboSupplier.Items.Add(s);
             cboSupplier.EndUpdate();
 
@@ -1671,12 +1762,12 @@ namespace AskThem
                 {
                     if (string.Equals(_suppliers[i].Name, nomARetrouver, StringComparison.OrdinalIgnoreCase))
                     {
-                        cboSupplier.SelectedIndex = i;
+                        cboSupplier.SelectedIndex = i + 1;
                         return;
                     }
                 }
             }
-            if (cboSupplier.Items.Count > 0 && cboSupplier.SelectedIndex < 0) cboSupplier.SelectedIndex = 0;
+            cboSupplier.SelectedIndex = 0;
         }
 
         private Supplier SelectedSupplier
@@ -1686,6 +1777,7 @@ namespace AskThem
 
         private void Supplier_Changed(object sender, EventArgs e)
         {
+            MajInfo();
             Supplier s = SelectedSupplier;
             if (s == null) { toolTip.SetToolTip(cboSupplier, ""); return; }
             string infos = "Destinataires : " + s.ToLine;
@@ -1711,29 +1803,11 @@ namespace AskThem
         /// <summary>Intitulé du document joint, selon le type de demande.</summary>
         private static string LibellePo(bool offre)
         {
-            return offre ? "Demande de PO (PDF, facultatif) :" : "Bon de commande (PDF) :";
+            return offre ? "Demande de PO" : "Bon de commande";
         }
 
         private void BtnPo_Click(object sender, EventArgs e)
         {
-            // Un document déjà choisi peut être retiré : il restait sinon attaché à toutes les
-            // demandes suivantes, et le bon de commande d'un fournisseur partait chez un autre.
-            if (txtPo.Text.Trim() != "")
-            {
-                DialogResult choix = MessageBox.Show(this,
-                    "Document joint : " + Path.GetFileName(txtPo.Text.Trim()) + Environment.NewLine + Environment.NewLine
-                  + "Oui : choisir un autre fichier." + Environment.NewLine
-                  + "Non : retirer ce document de la demande.",
-                    "AskThem", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
-                if (choix == DialogResult.Cancel) return;
-                if (choix == DialogResult.No)
-                {
-                    txtPo.Text = "";
-                    Log("Document joint retiré.");
-                    return;
-                }
-            }
-
             using (OpenFileDialog dlg = new OpenFileDialog())
             {
                 dlg.Title = CurrentType == RequestType.Offre
@@ -1753,41 +1827,28 @@ namespace AskThem
             }
         }
 
-        /// <summary>
-        /// Affiche ce que le poste peut produire.
-        ///
-        /// La sonde ne leve jamais d'exception : elle sert justement a repondre avant qu'une
-        /// demande soit preparee, la ou Connect() echouerait. Un poste sans SolidWorks reste
-        /// pleinement utilisable pour les articles de catalogue.
-        /// </summary>
         private void AfficherEtatPoste()
         {
             bool equipe = SolidWorksExporter.EstPosteEquipe();
-
-            lblPoste.Text = equipe
-                ? "Poste équipé : plans et modèles produits depuis le coffre"
-                : "Poste sans SolidWorks : documents lus dans la base articles";
-            lblPoste.ForeColor = equipe ? Color.Gray : Color.FromArgb(154, 98, 6);
-
-            toolTip.SetToolTip(lblPoste, equipe
+            lblPoste.Text = equipe ? "Poste équipé SolidWorks" : "Poste sans SolidWorks";
+            lblPoste.ForeColor = equipe ? Theme.Texte2 : Theme.Attention;
+            lblPoste.ToolTipText = equipe
                 ? "SolidWorks est installé : les plans, modèles 3D et contrôles de fabrication "
                   + "peuvent être produits depuis ce poste."
                 : "SolidWorks n'est pas installé sur ce poste. Les plans et modèles sont lus "
                   + "dans la base articles du réseau ; ceux qui n'y figurent pas doivent être "
-                  + "publiés depuis un poste équipé.");
+                  + "publiés depuis un poste équipé.";
         }
 
-        /// <summary>Couleur et infobulle de la pastille, selon l'état de la connexion.</summary>
         private void AfficherEtatInventaire(bool connecte, string detail)
         {
             inventaireConnecte = connecte;
             UiInvoke(delegate
             {
-                pastilleInventaire.BackColor = connecte
-                    ? Color.FromArgb(32, 150, 70)
-                    : Color.FromArgb(180, 60, 60);
-                toolTip.SetToolTip(pastilleInventaire,
-                    (connecte ? "Connecté à l'inventaire. " : "Non connecté à l'inventaire. ") + detail);
+                lblInventaire.ForeColor = connecte ? Theme.Succes : Theme.Erreur;
+                lblInventaire.Text = connecte ? "● Inventaire" : "● Inventaire non connecté";
+                lblInventaire.ToolTipText = (connecte ? "Connecté à l'inventaire. " : "Non connecté à l'inventaire. ")
+                                          + detail + " Cliquer pour régler la connexion.";
             });
         }
 
@@ -1828,19 +1889,6 @@ namespace AskThem
             t.Start();
         }
 
-        /// <summary>Les seuils d'email sont conservés d'une session à l'autre.</summary>
-        private void Seuils_Changes(object sender, EventArgs e)
-        {
-            int taille = (int)numTailleMax.Value;
-            int pieces = (int)numPiecesMax.Value;
-            if (taille == _config.ZipThresholdMb && pieces == _config.MaxAttachments) return;
-
-            _config.ZipThresholdMb = taille;
-            _config.MaxAttachments = pieces;
-            ConfigService.Save(_config);
-            Log("Par email : " + taille + " Mo et " + pieces + " pièce(s) jointe(s) au plus.");
-        }
-
         /// <summary>
         /// Demander ou non le délai et les frais de livraison, retenu d'une session à l'autre.
         ///
@@ -1857,16 +1905,6 @@ namespace AskThem
             Log(demander
                 ? "Le message demandera le délai et les frais de livraison."
                 : "Le message ne demandera ni délai ni frais de livraison.");
-        }
-
-        /// <summary>Le niveau choisi est conservé d'une session à l'autre.</summary>
-        private void Compression_Changee(object sender, EventArgs e)
-        {
-            string choix = cboCompression.SelectedItem as string;
-            if (string.IsNullOrEmpty(choix) || choix == _config.ZipCompression) return;
-            _config.ZipCompression = choix;
-            ConfigService.Save(_config);
-            Log("Compression des archives : " + choix + ".");
         }
 
         private void BtnSuivi_Click(object sender, EventArgs e)
@@ -1920,7 +1958,7 @@ namespace AskThem
             if (_busy) return;
             using (PreferencesDialog dlg = new PreferencesDialog(_config))
             {
-                if (dlg.ShowDialog(this) == DialogResult.OK) Log("Textes des emails enregistrés.");
+                if (dlg.ShowDialog(this) == DialogResult.OK) Log("Préférences enregistrées.");
             }
         }
 
@@ -2202,7 +2240,7 @@ namespace AskThem
                 if (fournisseur == null)
                 {
                     MessageBox.Show("Choisissez un fournisseur dans la liste." + Environment.NewLine +
-                        "Utilisez le bouton « Fournisseurs… » pour en créer un.",
+                        "« Outils › Fournisseurs… » permet d'en créer un.",
                         "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                     return false;
                 }
@@ -2235,7 +2273,7 @@ namespace AskThem
                     if (txtPo.Text.Trim() == "")
                     {
                         MessageBox.Show("Une demande de fabrication exige un bon de commande." + Environment.NewLine +
-                            "Utilisez « Parcourir… » pour joindre le PDF.",
+                            "« Choisir un PDF… » permet de le joindre.",
                             "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
                         return false;
                     }
@@ -2261,7 +2299,7 @@ namespace AskThem
                         "AskThem n'est pas connecté à l'inventaire." + Environment.NewLine + Environment.NewLine +
                         "Les anciennes références et les références fournisseur ne seront pas " +
                         "renseignées dans cette demande." + Environment.NewLine +
-                        "Le bouton « Inventaire… » permet de rétablir la connexion." +
+                        "« Outils › Connexion à l'inventaire… » permet de la rétablir." +
                         Environment.NewLine + Environment.NewLine + "Envoyer quand même ?",
                         "AskThem", MessageBoxButtons.YesNo, MessageBoxIcon.Warning,
                         MessageBoxDefaultButton.Button2) != DialogResult.Yes)
@@ -2283,7 +2321,7 @@ namespace AskThem
             _opt2D = chk2D.Checked;
             _optControle = chkControleFabrication.Checked;
             _optLivraison = chkLivraison.Checked;
-            _optCompression = ZipService.Niveau(cboCompression.SelectedItem as string);
+            _optCompression = ZipService.Niveau(_config.ZipCompression);
             Supplier fournisseur = SelectedSupplier;
             _optSupplier = fournisseur == null ? "" : fournisseur.ToLine;
             _optSupplierCc = fournisseur == null ? "" : fournisseur.CcLine;
@@ -2297,7 +2335,7 @@ namespace AskThem
             _optCatalogue = RequestTypes.EstCatalogue(_optType) || ToutEnCatalogue();
 
             _optProject = txtProject.Text.Trim();
-            _optDeadline = dtpDeadline.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
+            _optDeadline = chkDelai.Checked ? dtpDeadline.Value.ToString("dd.MM.yyyy") : "";
             _optConditions = txtConditions.Text;
             _optPoPath = txtPo.Text.Trim();
             _work = new List<PartLine>(_lines);
@@ -2306,6 +2344,10 @@ namespace AskThem
             progress.Value = 0;
 
             _cancelRequested = false;
+            _pointsResume = "";
+            _pointsDetail = "";
+            _nbEmails = 0;
+            _erreurOutlook = "";
             int generation = Occuper();
 
             // SolidWorks en COM exige un thread STA.
@@ -2358,6 +2400,8 @@ namespace AskThem
                 Log("Vérification catalogue : " + nb + " article(s) sur " + _work.Count
                   + " avec une référence chez « " + _optSupplierName + " ».");
                 AvertirCatalogue();
+                BilanVerification(nb + " article(s) sur " + _work.Count + " avec une référence chez « "
+                                + _optSupplierName + " »", nb < _work.Count);
                 return;
             }
 
@@ -2393,6 +2437,67 @@ namespace AskThem
 
             Log("Vérification terminée : " + ok + " OK, " + warn + " avertissement(s), " + missing + " introuvable(s).");
             WarnAboutIssues();
+
+            List<string> comptes = new List<string>();
+            comptes.Add(ok + " complet(s)");
+            if (warn > 0) comptes.Add(warn + " sans modèle ou sans plan");
+            if (missing > 0) comptes.Add(missing + " introuvable(s) dans le coffre");
+            BilanVerification(string.Join(" · ", comptes), warn + missing > 0);
+        }
+
+        /// <summary>
+        /// Le bilan d'une vérification, en tête d'écran : il remplace la fenêtre « points à
+        /// vérifier » qu'il fallait fermer, et le journal que personne n'ouvrait.
+        /// </summary>
+        private void BilanVerification(string comptes, bool incomplet)
+        {
+            Bilan b = new Bilan();
+            if (_cancelRequested)
+            {
+                b.Niveau = NiveauBilan.Info;
+                b.Titre = "Vérification interrompue.";
+                b.Texte = "Les articles déjà vérifiés portent leur état dans la liste.";
+                AfficherBilan(b);
+                return;
+            }
+            bool points = _pointsResume != "";
+            b.Niveau = incomplet || points ? NiveauBilan.Attention : NiveauBilan.Succes;
+            b.Titre = incomplet || points ? "Vérification terminée : des points sont à voir."
+                                          : "Vérification terminée : tout est en ordre.";
+            b.Texte = comptes + "." + (points ? Environment.NewLine + "À voir : " + _pointsResume + "." : "");
+            b.Details = _pointsDetail;
+            AfficherBilan(b);
+        }
+
+        /// <summary>Montre un bilan dans les deux vues : on peut changer de vue sans le perdre.</summary>
+        private void AfficherBilan(Bilan b)
+        {
+            UiInvoke(delegate
+            {
+                if (b.Genere)
+                    bandeau.Afficher(b, Tuple.Create<string, Action>("Nouvelle demande", NouvelleDemandeComplete));
+                else
+                    bandeau.Afficher(b);
+                panelAssistant.AfficherBilan(b);
+            });
+        }
+
+        /// <summary>
+        /// Les points relevés par une vérification ou avant un envoi. Avant un envoi, ils
+        /// s'affichent aussitôt — les emails vont s'ouvrir ; une vérification les garde
+        /// pour son bilan.
+        /// </summary>
+        private void SignalerPoints(List<string> resume, string detail)
+        {
+            if (resume.Count == 0) return;
+            _pointsResume = string.Join(" · ", resume);
+            _pointsDetail = detail;
+            if (!_generateMode) return;
+            UiInvoke(delegate
+            {
+                MessageBox.Show(this, detail, "AskThem — points à vérifier",
+                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            });
         }
 
         /// <summary>Construit l'index du coffre PDM (une seule fois par traitement).</summary>
@@ -2545,8 +2650,8 @@ namespace AskThem
                 MessageBox.Show(
                     "Ni le coffre ni l'inventaire ne sont accessibles : il n'y a rien à chercher."
                     + Environment.NewLine + Environment.NewLine
-                    + "Vérifiez le chemin du coffre dans config.json, et la connexion par le bouton "
-                    + "« Inventaire… ».",
+                    + "Vérifiez le chemin du coffre dans config.json, et la connexion par "
+                    + "« Outils › Connexion à l'inventaire… ».",
                     "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return;
             }
@@ -3000,15 +3105,7 @@ namespace AskThem
                     catch (Exception ex)
                     {
                         Log("ERREUR Outlook (message " + (i + 1) + "/" + lots.Count + ") : " + ex.Message);
-                        string folder = outputFolder;
-                        string message = ex.Message;
-                        UiInvoke(delegate
-                        {
-                            MessageBox.Show("L'email n'a pas pu être créé : " + message +
-                                Environment.NewLine + Environment.NewLine +
-                                "Les fichiers restent disponibles dans : " + folder,
-                                "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        });
+                        _erreurOutlook = ex.Message;
                     }
                 }
                 if (marques.Count > 0)
@@ -3059,6 +3156,7 @@ namespace AskThem
             if (_depotInv != null) { _depotInv.Dispose(); _depotInv = null; }
 
             // --- Étape 10 : bilan ---
+            _nbEmails = marques.Count;
             ShowSummary(outputFolder);
 
         }
@@ -3736,14 +3834,16 @@ namespace AskThem
                 foreach (string x in sansPlan) Log("Sans plan : " + x);
             }
             sb.AppendLine();
-            sb.Append("Le détail complet figure dans le journal, en bas de la fenêtre.");
+            sb.Append("Le détail complet figure dans le journal (Outils › Afficher le journal).");
 
-            string message = sb.ToString();
-            UiInvoke(delegate
-            {
-                MessageBox.Show(message, "AskThem — points à vérifier",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            });
+            List<string> resume = new List<string>();
+            if (introuvables.Count > 0) resume.Add(introuvables.Count + " introuvable(s) dans le coffre");
+            if (enErreur.Count > 0) resume.Add(enErreur.Count + " en erreur");
+            if (mauvaisFournisseur.Count > 0) resume.Add(mauvaisFournisseur.Count + " à fournisseur imposé");
+            if (sansReference.Count > 0) resume.Add(sansReference.Count + " sans référence fournisseur");
+            if (enDeveloppement.Count > 0) resume.Add(enDeveloppement.Count + " non libéré(s)");
+            if (sansPlan.Count > 0) resume.Add(sansPlan.Count + " sans plan 2D");
+            SignalerPoints(resume, sb.ToString());
         }
 
         /// <summary>
@@ -3769,26 +3869,28 @@ namespace AskThem
                 }
             }
 
+            StringBuilder sb = new StringBuilder();
+            List<string> resume = new List<string>();
             if (_optFournisseurInventaire == 0)
             {
                 string nom = _optSupplierName == "" ? "Le destinataire choisi" : "« " + _optSupplierName + " »";
                 Log(nom + " n'est lié à aucune fiche de l'inventaire : aucune référence "
                   + "fournisseur ne peut être renseignée.");
-                UiInvoke(delegate
-                {
-                    MessageBox.Show(
-                        nom + " n'est lié à aucune fiche de l'inventaire." + Environment.NewLine + Environment.NewLine
-                        + "Sans ce lien, AskThem ne sait pas quelle référence l'article porte chez lui, "
-                        + "et la demande partira sans aucune référence." + Environment.NewLine + Environment.NewLine
-                        + "Le bouton « Fournisseurs… » permet de faire le lien.",
-                        "AskThem — points à vérifier", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                });
+                sb.AppendLine(nom + " n'est lié à aucune fiche de l'inventaire.");
+                sb.AppendLine("Sans ce lien, AskThem ne sait pas quelle référence l'article porte chez lui, "
+                            + "et la demande partira sans aucune référence. « Outils › Fournisseurs… » "
+                            + "permet de faire le lien.");
+                sb.AppendLine();
+                resume.Add("destinataire non lié à l'inventaire");
             }
 
             if (horsInventaire.Count == 0 && sansFournisseur.Count == 0
-                && autreFournisseur.Count == 0 && sansReference.Count == 0) return;
+                && autreFournisseur.Count == 0 && sansReference.Count == 0)
+            {
+                SignalerPoints(resume, sb.ToString().TrimEnd());
+                return;
+            }
 
-            StringBuilder sb = new StringBuilder();
             if (autreFournisseur.Count > 0)
             {
                 sb.AppendLine("Non vendus par ce fournisseur — " + autreFournisseur.Count + " article(s) :");
@@ -3814,14 +3916,14 @@ namespace AskThem
                 sb.AppendLine(Summarize(sansReference));
                 sb.AppendLine();
             }
-            sb.Append("Ces articles partiront sans référence. Le détail figure dans le journal.");
+            sb.Append("Ces articles partiront sans référence. Le détail figure dans le journal "
+                    + "(Outils › Afficher le journal).");
 
-            string message = sb.ToString();
-            UiInvoke(delegate
-            {
-                MessageBox.Show(message, "AskThem — points à vérifier",
-                    MessageBoxButtons.OK, MessageBoxIcon.Warning);
-            });
+            if (autreFournisseur.Count > 0) resume.Add(autreFournisseur.Count + " non vendu(s) par ce fournisseur");
+            if (sansFournisseur.Count > 0) resume.Add(sansFournisseur.Count + " sans fournisseur dans l'inventaire");
+            if (horsInventaire.Count > 0) resume.Add(horsInventaire.Count + " inconnu(s) de l'inventaire");
+            if (sansReference.Count > 0) resume.Add(sansReference.Count + " sans référence chez ce fournisseur");
+            SignalerPoints(resume, sb.ToString());
         }
 
         /// <summary>
@@ -3878,8 +3980,8 @@ namespace AskThem
         }
 
         /// <summary>
-        /// Bilan du traitement. Rien ne s'affiche quand tout s'est bien passé :
-        /// le journal en bas de fenêtre suffit. Seule une annulation est signalée.
+        /// Bilan du traitement, en tête d'écran : ce qui est prêt, où, et la suite — relire
+        /// et envoyer depuis Outlook, puis passer à la demande suivante.
         /// </summary>
         private void ShowSummary(string outputFolder)
         {
@@ -3903,14 +4005,37 @@ namespace AskThem
             Log("Elle rejoindra l'archive réseau (" + _config.ArchiveRoot
               + ") dès que l'envoi du message aura été constaté.");
 
-            if (!_cancelRequested) return;
-
-            string dossier = outputFolder;
-            UiInvoke(delegate
+            Bilan b = new Bilan();
+            b.Dossier = outputFolder;
+            b.Details = _pointsDetail;
+            if (_cancelRequested)
             {
-                MessageBox.Show("Traitement annulé. Les fichiers déjà extraits sont conservés dans : " + dossier,
-                    "AskThem", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            });
+                b.Niveau = NiveauBilan.Attention;
+                b.Titre = "Traitement annulé : aucun email n'a été préparé.";
+                b.Texte = "Les fichiers déjà extraits sont conservés dans le dossier de la demande.";
+            }
+            else if (_nbEmails == 0)
+            {
+                b.Niveau = NiveauBilan.Erreur;
+                b.Titre = "L'email n'a pas pu être créé dans Outlook.";
+                b.Texte = (_erreurOutlook == "" ? "" : _erreurOutlook + Environment.NewLine)
+                        + "Les fichiers sont prêts dans le dossier de la demande.";
+            }
+            else
+            {
+                bool points = _pointsResume != "" || _erreurOutlook != "";
+                b.Niveau = points ? NiveauBilan.Attention : NiveauBilan.Succes;
+                b.Genere = true;
+                b.Titre = _nbEmails == 1 ? "L'email est prêt dans Outlook."
+                                         : _nbEmails + " emails sont prêts dans Outlook.";
+                b.Texte = (_nbEmails == 1 ? "Relisez-le, puis envoyez-le" : "Relisez-les, puis envoyez-les")
+                        + " : la demande sera archivée et suivie dès son départ.";
+                if (_erreurOutlook != "")
+                    b.Texte += Environment.NewLine + "Un message n'a pas pu être créé : " + _erreurOutlook;
+                if (_pointsResume != "")
+                    b.Texte += Environment.NewLine + "À voir : " + _pointsResume + ".";
+            }
+            AfficherBilan(b);
         }
 
         /// <summary>Remplace les caractères interdits dans un nom de fichier.</summary>
@@ -3969,7 +4094,6 @@ namespace AskThem
             LogService.Write(message);
         }
 
-        /// <summary>Active ou désactive l'interface pendant un traitement.</summary>
         /// <summary>Occupe la fenêtre pour un nouveau traitement, et renvoie son numéro.</summary>
         private int Occuper()
         {
@@ -3995,21 +4119,23 @@ namespace AskThem
             UiInvoke(delegate
             {
                 panelTools.Enabled = !busy;
+                panelTop.Enabled = !busy;
                 grid.Enabled = !busy;
                 panelDetail.Enabled = !busy;
                 btnVerify.Enabled = !busy;
                 btnGenerate.Enabled = !busy;
-                cboType.Enabled = !busy;
-                selecteurMode.Enabled = !busy;
-                numTailleMax.Enabled = !busy;
-                numPiecesMax.Enabled = !busy;
+                if (panelParams != null) panelParams.Enabled = !busy;
+                btnModeGuide.Enabled = !busy;
+                btnModeComplet.Enabled = !busy;
+                btnSuiviApp.Enabled = !busy;
+                if (btnUpdate != null) btnUpdate.Enabled = !busy;
+                foreach (ToolStripItem i in menuOutils.DropDownItems)
+                    if (i != mnuJournal && !(i is ToolStripSeparator) && i.Text != null && !i.Text.StartsWith("AskThem"))
+                        i.Enabled = !busy;
                 panelAssistant.Occupe(busy);
-            panelAssistant.BaseArticlesDisponible(!busy);
-                btnSuppliers.Enabled = !busy;
-            if (btnUpdate != null) btnUpdate.Enabled = !busy;
-            if (panelParams != null) panelParams.Enabled = !busy;
-                btnInventaire.Enabled = !busy;
-                btnCancel.Enabled = busy;
+                btnCancel.Visible = busy;
+                progress.Visible = busy && _vueComplete;
+                if (busy) bandeau.Masquer();
                 Cursor = busy ? Cursors.WaitCursor : Cursors.Default;
             });
         }

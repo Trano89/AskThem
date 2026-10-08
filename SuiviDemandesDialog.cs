@@ -6,6 +6,7 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Windows.Forms;
+using AskThem.Controls;
 using AskThem.Models;
 using AskThem.Services;
 
@@ -30,9 +31,15 @@ namespace AskThem
         private List<DemandeSuivie> _demandes = new List<DemandeSuivie>();
 
         private DataGridView grille;
-        private CheckBox chkTous;
+        private RadioButton optMiennes;
+        private RadioButton optToutes;
         private CheckBox chkCloturees;
         private Label lblVide;
+        private Label lblSelection;
+        private Button btnRecue;
+        private Button btnPasEncore;
+        private Button btnSansSuite;
+        private LinkLabel lnkDossier;
 
         /// <param name="rappel">Vrai si la fenêtre s'ouvre pour un rappel : seules les demandes échues de l'utilisateur sont montrées.</param>
         public SuiviDemandesDialog(AppConfig config, bool rappel)
@@ -40,6 +47,8 @@ namespace AskThem
             _config = config;
             _rappel = rappel;
 
+            // Suspendue puis reprise : c'est à la reprise que la fenêtre se met à l'échelle.
+            SuspendLayout();
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
             Text = rappel ? "Avez-vous reçu une réponse ?" : "Suivi des demandes";
@@ -53,36 +62,47 @@ namespace AskThem
 
             Construire();
             Charger();
+
+            ResumeLayout(false);
+            PerformLayout();
+            Ui.TenirDansEcran(this);
         }
 
         private void Construire()
         {
-            Label titre = new Label();
-            titre.Dock = DockStyle.Top;
-            titre.Height = 50;
-            titre.Text = _rappel
-                ? "Ces demandes attendent une réponse du fournisseur. L'avez-vous reçue ?"
-                  + System.Environment.NewLine + "« Pas encore » vous le redemandera dans " + Jours() + " jours."
-                : "Sélectionnez une ou plusieurs demandes, puis indiquez où elles en sont. Si la demande est "
-                  + "celle d'un collègue, il en est prévenu par un email automatique.";
-            titre.Padding = new Padding(0, 4, 0, 0);
+            Label titre = Ui.Section(_rappel ? "Ces demandes attendent une réponse du fournisseur."
+                                             : "Où en sont les demandes envoyées ?");
+            titre.Margin = new Padding(0, 0, 0, 4);
+            Label explication = Ui.Legende(_rappel
+                ? "Sélectionnez celles dont vous avez reçu la réponse. « Pas encore » vous le redemandera dans "
+                  + Jours() + " jours."
+                : "Sélectionnez une ou plusieurs demandes, puis dites où elles en sont. Si la demande est celle "
+                  + "d'un collègue, il en est prévenu par un email automatique.");
+            explication.Margin = new Padding(0, 0, 0, 10);
 
-            chkTous = new CheckBox();
-            chkTous.Text = "Voir les demandes de tous les utilisateurs";
-            chkTous.AutoSize = true;
-            chkTous.Margin = new Padding(0, 0, 24, 0);
-            chkTous.CheckedChanged += delegate { Charger(); };
+            // « Mes demandes » ou « toutes » : deux vues d'une même liste, pas une option à cocher.
+            optMiennes = new RadioButton();
+            optMiennes.Text = "Mes demandes";
+            optMiennes.AutoSize = true;
+            optMiennes.Checked = true;
+            optMiennes.Margin = new Padding(0, 0, 16, 0);
+            optToutes = new RadioButton();
+            optToutes.Text = "Toutes les demandes";
+            optToutes.AutoSize = true;
+            optToutes.Margin = new Padding(0, 0, 32, 0);
+            optToutes.CheckedChanged += delegate { Charger(); };
 
             chkCloturees = new CheckBox();
-            chkCloturees.Text = "Montrer aussi les demandes clôturées";
+            chkCloturees.Text = "Inclure les demandes clôturées";
             chkCloturees.AutoSize = true;
+            chkCloturees.Margin = Padding.Empty;
             chkCloturees.CheckedChanged += delegate { Charger(); };
 
-            FlowLayoutPanel filtres = new FlowLayoutPanel();
-            filtres.Dock = DockStyle.Top;
-            filtres.Height = 30;
+            FlowLayoutPanel filtres = Ui.Rangee();
+            filtres.Margin = new Padding(0, 0, 0, 8);
             filtres.Visible = !_rappel;
-            filtres.Controls.Add(chkTous);
+            filtres.Controls.Add(optMiennes);
+            filtres.Controls.Add(optToutes);
             filtres.Controls.Add(chkCloturees);
 
             grille = new DataGridView();
@@ -95,7 +115,10 @@ namespace AskThem
             grille.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             grille.MultiSelect = true;
             grille.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
-            grille.BackgroundColor = Color.White;
+            grille.ColumnHeadersHeightSizeMode = DataGridViewColumnHeadersHeightSizeMode.AutoSize;
+            grille.BackgroundColor = Theme.Surface;
+            grille.GridColor = Theme.Separateur;
+            grille.Margin = Padding.Empty;
             string[] colonnes = { "Statut", "Demandé par", "Type", "Fournisseur", "Réf. commande", "Articles",
                                   "Envoyée le", "Attente (j)", "Prochain rappel", "Dernière action" };
             int[] poids = { 11, 13, 10, 16, 12, 22, 10, 7, 10, 18 };
@@ -108,51 +131,111 @@ namespace AskThem
                 grille.Columns.Add(c);
             }
             grille.CellDoubleClick += delegate { OuvrirDossier(); };
+            grille.SelectionChanged += delegate { MajActions(); };
 
-            lblVide = new Label();
+            lblVide = Ui.Legende("");
+            lblVide.AutoSize = false;
             lblVide.Dock = DockStyle.Fill;
             lblVide.TextAlign = ContentAlignment.MiddleCenter;
-            lblVide.ForeColor = Color.FromArgb(110, 117, 125);
             lblVide.Visible = false;
 
-            Button btnRecue = Bouton("Réponse reçue", Repondue_Click);
-            Button btnPasEncore = Bouton("Pas encore", PasEncore_Click);
-            Button btnSansSuite = Bouton("Sans suite", SansSuite_Click);
-            Button btnDossier = Bouton("Ouvrir le dossier", delegate { OuvrirDossier(); });
-            Button btnClasseur = Bouton("Ouvrir le classeur de suivi", delegate { OuvrirClasseur(); });
-            Button btnFermer = Bouton(_rappel ? "Plus tard" : "Fermer", delegate { Close(); });
+            Panel liste = new Panel();
+            liste.Dock = DockStyle.Fill;
+            liste.Margin = Padding.Empty;
+            liste.Controls.Add(grille);
+            liste.Controls.Add(lblVide);
 
-            FlowLayoutPanel actions = new FlowLayoutPanel();
-            actions.Dock = DockStyle.Bottom;
-            actions.Height = 52;
-            actions.Padding = new Padding(0, 10, 0, 0);
-            actions.Controls.Add(btnRecue);
-            actions.Controls.Add(btnPasEncore);
-            actions.Controls.Add(btnSansSuite);
-            actions.Controls.Add(btnDossier);
-            actions.Controls.Add(btnClasseur);
-            actions.Controls.Add(btnFermer);
+            // Le pied : ce qui s'ouvre à gauche, ce qui fait avancer la demande à droite —
+            // et les boutons ne s'allument que pour ce que la sélection permet.
+            lnkDossier = Ui.Lien("Ouvrir le dossier", delegate { OuvrirDossier(); });
+            LinkLabel lnkClasseur = Ui.Lien("Ouvrir le classeur de suivi", delegate { OuvrirClasseur(); });
+            lblSelection = Ui.Legende("");
+            lblSelection.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+            lblSelection.Margin = new Padding(0, 6, 12, 0);
 
-            Panel corps = new Panel();
-            corps.Dock = DockStyle.Fill;
-            corps.Padding = new Padding(18, 12, 18, 6);
-            corps.Controls.Add(grille);
-            corps.Controls.Add(lblVide);
-            corps.Controls.Add(filtres);
-            corps.Controls.Add(titre);
-            corps.Controls.Add(actions);
-            Controls.Add(corps);
-            CancelButton = btnFermer;
+            btnSansSuite = Ui.Secondaire("Sans suite");
+            btnSansSuite.Click += new EventHandler(SansSuite_Click);
+            btnPasEncore = Ui.Secondaire("Pas encore");
+            btnPasEncore.Click += new EventHandler(PasEncore_Click);
+            btnRecue = Ui.Primaire("Réponse reçue");
+            btnRecue.Click += new EventHandler(Repondue_Click);
+
+            FlowLayoutPanel liens = Ui.Rangee();
+            liens.Controls.Add(lnkDossier);
+            liens.Controls.Add(lnkClasseur);
+            if (_rappel)
+            {
+                LinkLabel lnkPlusTard = Ui.Lien("Plus tard", delegate { Close(); });
+                liens.Controls.Add(lnkPlusTard);
+            }
+
+            TableLayoutPanel bas = new TableLayoutPanel();
+            bas.Dock = DockStyle.Fill;
+            bas.AutoSize = true;
+            bas.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+            bas.ColumnCount = 5;
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            bas.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+            bas.RowCount = 1;
+            bas.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            bas.Margin = new Padding(0, 12, 0, 0);
+            bas.Controls.Add(liens, 0, 0);
+            bas.Controls.Add(lblSelection, 1, 0);
+            bas.Controls.Add(btnSansSuite, 2, 0);
+            bas.Controls.Add(btnPasEncore, 3, 0);
+            bas.Controls.Add(btnRecue, 4, 0);
+
+            TableLayoutPanel cadre = new TableLayoutPanel();
+            cadre.Dock = DockStyle.Fill;
+            cadre.ColumnCount = 1;
+            cadre.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100F));
+            cadre.Padding = new Padding(18, 14, 18, 12);
+            cadre.RowCount = 5;
+            cadre.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            cadre.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            cadre.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            cadre.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
+            cadre.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+            titre.Dock = DockStyle.Fill;
+            explication.Dock = DockStyle.Fill;
+            cadre.Controls.Add(titre, 0, 0);
+            cadre.Controls.Add(explication, 0, 1);
+            cadre.Controls.Add(filtres, 0, 2);
+            cadre.Controls.Add(liste, 0, 3);
+            cadre.Controls.Add(bas, 0, 4);
+            BackColor = Theme.Fond;
+            Controls.Add(cadre);
         }
 
-        private Button Bouton(string texte, EventHandler clic)
+        /// <summary>Échap ferme la fenêtre, comme le faisait le bouton « Fermer » retiré.</summary>
+        protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
-            Button b = new Button();
-            b.Text = texte;
-            b.Size = new Size(AppFont.Width(texte, 32), 32);
-            b.Margin = new Padding(0, 0, 8, 0);
-            b.Click += clic;
-            return b;
+            if (keyData == Keys.Escape) { Close(); return true; }
+            return base.ProcessCmdKey(ref msg, keyData);
+        }
+
+        /// <summary>N'offre que ce que la sélection permet, et dit combien de demandes sont choisies.</summary>
+        private void MajActions()
+        {
+            int n = 0, envoyees = 0, preparees = 0;
+            foreach (DataGridViewRow r in grille.SelectedRows)
+            {
+                DemandeSuivie d = r.Tag as DemandeSuivie;
+                if (d == null) continue;
+                n++;
+                if (d.Statut == DemandeSuivie.Envoyee) envoyees++;
+                else if (d.Statut == DemandeSuivie.Preparee) preparees++;
+            }
+            btnRecue.Enabled = envoyees > 0;
+            btnPasEncore.Enabled = envoyees > 0;
+            btnSansSuite.Enabled = envoyees + preparees > 0;
+            lnkDossier.Enabled = n == 1;
+            lblSelection.Text = n == 0 ? (_demandes.Count == 0 ? "" : "Aucune demande sélectionnée.")
+                              : n == 1 ? "1 demande sélectionnée."
+                              : n + " demandes sélectionnées.";
         }
 
         private int Jours()
@@ -171,7 +254,7 @@ namespace AskThem
         {
             Cursor = Cursors.WaitCursor;
             List<DemandeSuivie> source;
-            try { source = !_rappel && chkTous.Checked ? BaseSuivi.Lire(_config) : BaseSuivi.Miennes(_config); }
+            try { source = !_rappel && optToutes.Checked ? BaseSuivi.Lire(_config) : BaseSuivi.Miennes(_config); }
             finally { Cursor = Cursors.Default; }
 
             _demandes = new List<DemandeSuivie>();
@@ -202,14 +285,20 @@ namespace AskThem
                     action);
                 grille.Rows[i].Tag = d;
                 if (d.RappelEchu(Moi(), DateTime.Today))
-                    grille.Rows[i].DefaultCellStyle.BackColor = Color.FromArgb(255, 242, 204);
+                    grille.Rows[i].DefaultCellStyle.BackColor = Theme.AttentionFond;
                 else if (!d.EstA(Moi()))
-                    grille.Rows[i].DefaultCellStyle.ForeColor = Color.FromArgb(70, 77, 85);
+                    grille.Rows[i].DefaultCellStyle.ForeColor = Theme.Texte2;
             }
+
+            // Rien n'est choisi d'office : une action sur la première ligne, faute d'avoir
+            // regardé, touchait une demande qu'on ne visait pas. Un rappel isolé, si.
+            grille.ClearSelection();
+            if (_rappel && grille.Rows.Count == 1) grille.Rows[0].Selected = true;
 
             lblVide.Text = _rappel ? "Plus aucun rappel en attente." : "Aucune demande à suivre.";
             lblVide.Visible = _demandes.Count == 0;
             grille.Visible = _demandes.Count > 0;
+            MajActions();
             if (_rappel && _demandes.Count == 0 && Visible) Close();
         }
 
@@ -221,9 +310,6 @@ namespace AskThem
                 DemandeSuivie d = r.Tag as DemandeSuivie;
                 if (d != null) choisies.Add(d);
             }
-            if (choisies.Count == 0)
-                MessageBox.Show(this, "Sélectionnez une ou plusieurs demandes dans la liste.", Text,
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
             return choisies;
         }
 

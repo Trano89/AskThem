@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
 using System.Windows.Forms;
+using AskThem.Controls;
 using AskThem.Models;
 using AskThem.Services;
 
@@ -76,6 +77,8 @@ namespace AskThem
                 _suppliers = Copy(suppliers);
             }
 
+            // Suspendue puis reprise : c'est à la reprise que la fenêtre se met à l'échelle.
+            SuspendLayout();
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
             Text = "Fournisseurs";
@@ -95,6 +98,10 @@ namespace AskThem
             RefreshList();
             if (lstSuppliers.Items.Count > 0) lstSuppliers.SelectedIndex = 0;
             else LoadFields(null);
+
+            ResumeLayout(false);
+            PerformLayout();
+            Ui.TenirDansEcran(this);
         }
 
         /// <summary>
@@ -184,6 +191,10 @@ namespace AskThem
             AddRow(t, "Copie (Cc)", txtCc, 74);
             AddRow(t, "Note", txtNote, 28);
             AddRow(t, "Inventaire", ligneInv, 30);
+            // Une rangée vide absorbe la hauteur restante : sans elle, la dernière s'étirait
+            // et son bouton avec.
+            t.RowCount = t.RowCount + 1;
+            t.RowStyles.Add(new RowStyle(SizeType.Percent, 100F));
 
             Panel droite = new Panel();
             droite.Dock = DockStyle.Fill;

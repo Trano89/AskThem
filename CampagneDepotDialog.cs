@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
+using AskThem.Controls;
 using AskThem.Models;
 using AskThem.Services;
 
@@ -58,6 +59,8 @@ namespace AskThem
             MinimizeBox = false;
             MaximizeBox = false;
             ShowInTaskbar = false;
+            // Suspendue puis reprise : c'est à la reprise que la fenêtre se met à l'échelle.
+            SuspendLayout();
             AutoScaleMode = AutoScaleMode.Dpi;
             AutoScaleDimensions = new SizeF(96F, 96F);
             ClientSize = new Size(720, 562);
@@ -65,6 +68,10 @@ namespace AskThem
             BackColor = Color.White;
 
             Construire();
+
+            ResumeLayout(false);
+            PerformLayout();
+            Ui.TenirDansEcran(this);
         }
 
         private void Construire()

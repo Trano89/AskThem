@@ -62,11 +62,81 @@ namespace AskThem.Services
             return _grasse;
         }
 
-        /// <summary>Largeur du texte dans la police de l'application, marge comprise.</summary>
+        private static Font _titre;
+        private static Font _section;
+        private static Font _grande;
+
+        /// <summary>Titre d'écran (assistant) : Semibold 15 pt.</summary>
+        public static Font Titre()
+        {
+            if (_titre == null) _titre = Demi(15F);
+            return _titre;
+        }
+
+        /// <summary>Titre de section, de carte ou de bandeau : Semibold 11 pt.</summary>
+        public static Font Section()
+        {
+            if (_section == null) _section = Demi(11F);
+            return _section;
+        }
+
+        /// <summary>Corps agrandi, pour l'assistant : 10 pt.</summary>
+        public static Font Grand()
+        {
+            if (_grande == null) _grande = new Font(Family, 10F, FontStyle.Regular);
+            return _grande;
+        }
+
+        /// <summary>Le demi-gras de la famille s'il existe, sinon le gras.</summary>
+        private static Font Demi(float taille)
+        {
+            string demi = Family + " Semibold";
+            using (InstalledFontCollection installees = new InstalledFontCollection())
+            {
+                foreach (FontFamily f in installees.Families)
+                    if (string.Equals(f.Name, demi, StringComparison.OrdinalIgnoreCase))
+                        return new Font(f.Name, taille, FontStyle.Regular);
+            }
+            return new Font(Family, taille, FontStyle.Bold);
+        }
+
+        /// <summary>
+        /// Largeur du texte dans la police de l'application, marge comprise, en unités
+        /// logiques (à 100 %) : les fenêtres la mettent ensuite à l'échelle de l'écran avec
+        /// tout le reste. Mesurée en pixels réels, elle était agrandie une seconde fois.
+        /// </summary>
         public static int Width(string texte, int marge)
         {
             if (string.IsNullOrEmpty(texte)) return marge;
-            return TextRenderer.MeasureText(texte, Get()).Width + marge;
+            int mesure = TextRenderer.MeasureText(texte, Get()).Width;
+            return (int)Math.Ceiling(mesure * 96.0 / DpiSysteme()) + marge;
+        }
+
+        /// <summary>Hauteur d'une ligne de texte, en unités logiques (à 100 %).</summary>
+        public static int HauteurLigne()
+        {
+            return (int)Math.Ceiling(Get().Height * 96.0 / DpiSysteme());
+        }
+
+        /// <summary>Convertit une mesure logique en pixels de l'écran principal.</summary>
+        public static int Px(int logique)
+        {
+            return (int)Math.Round(logique * DpiSysteme() / 96.0);
+        }
+
+        private static int _dpi;
+
+        /// <summary>Densité de l'écran principal, celle à laquelle les fenêtres sont construites.</summary>
+        public static int DpiSysteme()
+        {
+            if (_dpi > 0) return _dpi;
+            try
+            {
+                using (Graphics g = Graphics.FromHwnd(IntPtr.Zero)) _dpi = (int)Math.Round(g.DpiX);
+            }
+            catch (Exception) { }
+            if (_dpi <= 0) _dpi = 96;
+            return _dpi;
         }
     }
 }
